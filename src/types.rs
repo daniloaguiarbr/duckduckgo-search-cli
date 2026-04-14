@@ -1,9 +1,10 @@
 //! Tipos de dados compartilhados pela aplicação.
 //!
-//! Todos os structs de saída (SearchResult, SearchOutput, SearchMetadata) usam
-//! `#[serde(rename_all = "snake_case")]` nos campos para que o JSON externo
-//! fique estável em nomenclatura inglesa/snake_case, enquanto os nomes internos
-//! dos campos permanecem em português brasileiro conforme as regras do projeto.
+//! Todos os structs de saída (`SaidaBusca`, `SaidaBuscaMultipla`, `ResultadoBusca`,
+//! `MetadadosBusca`) serializam com nomes de campo em português brasileiro
+//! (snake_case), conforme invariante INVIOLÁVEL do blueprint v2: "Logs e nomes
+//! de campo em português brasileiro". Os nomes Rust dos campos e os nomes JSON
+//! externos coincidem — não há `serde(rename)` ativo.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,38 +12,32 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResultadoBusca {
     /// Posição do resultado na página (1-indexed, já após filtragem de anúncios).
-    #[serde(rename = "position")]
     pub posicao: u32,
 
     /// Título do resultado, extraído do elemento `.result__a`.
-    #[serde(rename = "title")]
     pub titulo: String,
 
     /// URL do resultado, extraída do atributo `href` de `.result__a`.
-    #[serde(rename = "url")]
     pub url: String,
 
     /// URL de exibição (mais amigável), extraída de `.result__url`.
-    #[serde(rename = "displayed_url", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url_exibicao: Option<String>,
 
     /// Snippet descritivo do resultado, extraído de `.result__snippet`.
-    #[serde(rename = "snippet", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub snippet: Option<String>,
 
     /// Conteúdo textual completo da página (apenas com `--fetch-content`; não implementado no MVP).
-    #[serde(rename = "content", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub conteudo: Option<String>,
 
     /// Tamanho em caracteres do conteúdo extraído (apenas com `--fetch-content`).
-    #[serde(rename = "content_length", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tamanho_conteudo: Option<u32>,
 
     /// Método usado para extrair o conteúdo: `"http"` ou `"chrome"` (apenas com `--fetch-content`).
-    #[serde(
-        rename = "content_extraction_method",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metodo_extracao_conteudo: Option<String>,
 }
 
@@ -50,43 +45,33 @@ pub struct ResultadoBusca {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetadadosBusca {
     /// Tempo total de execução em milissegundos.
-    #[serde(rename = "execution_time_ms")]
     pub tempo_execucao_ms: u64,
 
     /// Hash blake3 (hex, primeiros 16 caracteres) da configuração de seletores usada.
-    #[serde(rename = "selectors_hash")]
     pub hash_seletores: String,
 
     /// Número de retentativas realizadas (0 no MVP — retry ainda não implementado).
-    #[serde(rename = "retries")]
     pub retentativas: u32,
 
     /// Indica se o endpoint Lite foi usado como fallback (sempre `false` no MVP).
-    #[serde(rename = "fallback_endpoint_used")]
     pub usou_endpoint_fallback: bool,
 
     /// Número de fetches paralelos de conteúdo iniciados (0 no MVP).
-    #[serde(rename = "concurrent_fetches")]
     pub fetches_simultaneos: u32,
 
     /// Fetches bem-sucedidos de conteúdo (0 no MVP).
-    #[serde(rename = "fetch_successes")]
     pub sucessos_fetch: u32,
 
     /// Fetches com falha (0 no MVP).
-    #[serde(rename = "fetch_failures")]
     pub falhas_fetch: u32,
 
     /// Indica se o Chrome foi usado (sempre `false` no MVP).
-    #[serde(rename = "chrome_used")]
     pub usou_chrome: bool,
 
     /// User-Agent utilizado na execução.
-    #[serde(rename = "user_agent")]
     pub user_agent: String,
 
     /// Indica se um proxy foi configurado (sempre `false` no MVP).
-    #[serde(rename = "proxy_used")]
     pub usou_proxy: bool,
 }
 
@@ -94,51 +79,41 @@ pub struct MetadadosBusca {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaidaBusca {
     /// A query de busca original enviada pelo usuário.
-    #[serde(rename = "query")]
     pub query: String,
 
     /// Motor usado — sempre `"duckduckgo"`.
-    #[serde(rename = "engine")]
     pub motor: String,
 
     /// Endpoint usado — `"html"` ou `"lite"` (sempre `"html"` no MVP).
-    #[serde(rename = "endpoint")]
     pub endpoint: String,
 
     /// Timestamp ISO-8601 (RFC 3339) de quando a busca foi executada.
-    #[serde(rename = "timestamp")]
     pub timestamp: String,
 
     /// Código de região `kl` usado (ex: `"br-pt"`).
-    #[serde(rename = "region")]
     pub regiao: String,
 
     /// Contagem de resultados retornados após filtragem de anúncios.
-    #[serde(rename = "results_count")]
     pub quantidade_resultados: u32,
 
     /// Lista de resultados orgânicos.
-    #[serde(rename = "results")]
     pub resultados: Vec<ResultadoBusca>,
 
     /// Buscas relacionadas sugeridas pelo DuckDuckGo (vazio no MVP).
-    #[serde(rename = "related_searches")]
     pub buscas_relacionadas: Vec<String>,
 
     /// Número de páginas buscadas (sempre 1 no MVP).
-    #[serde(rename = "pages_fetched")]
     pub paginas_buscadas: u32,
 
     /// Código de erro estruturado se a busca falhou parcialmente (None em sucesso total).
-    #[serde(rename = "error", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub erro: Option<String>,
 
     /// Mensagem humana adicional (usada para avisos não-fatais).
-    #[serde(rename = "message", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mensagem: Option<String>,
 
     /// Metadados da execução.
-    #[serde(rename = "metadata")]
     pub metadados: MetadadosBusca,
 }
 
@@ -150,19 +125,15 @@ pub struct SaidaBusca {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaidaBuscaMultipla {
     /// Quantidade total de queries executadas (sucesso + falha).
-    #[serde(rename = "queries_count")]
     pub quantidade_queries: u32,
 
     /// Timestamp ISO-8601 (RFC 3339) do início da execução paralela.
-    #[serde(rename = "timestamp")]
     pub timestamp: String,
 
     /// Valor efetivo de `--parallel` usado na execução (após validação/clamp).
-    #[serde(rename = "parallel")]
     pub paralelismo: u32,
 
     /// Resultado de cada query individual, na mesma ordem das queries de entrada.
-    #[serde(rename = "searches")]
     pub buscas: Vec<SaidaBusca>,
 }
 
@@ -475,7 +446,7 @@ mod testes {
     }
 
     #[test]
-    fn saida_busca_serializa_campos_em_ingles_no_json() {
+    fn saida_busca_serializa_campos_em_portugues_no_json() {
         let saida = SaidaBusca {
             query: "teste".to_string(),
             motor: "duckduckgo".to_string(),
@@ -502,16 +473,22 @@ mod testes {
             },
         };
         let json = serde_json::to_string(&saida).expect("serialização deve funcionar");
+        // Nomes de campo em PT devem aparecer no JSON (invariante INVIOLÁVEL do blueprint v2).
         assert!(json.contains("\"query\""));
-        assert!(json.contains("\"results_count\""));
-        assert!(json.contains("\"execution_time_ms\""));
-        // Campos internos em português NÃO devem aparecer no JSON.
-        assert!(!json.contains("\"quantidade_resultados\""));
-        assert!(!json.contains("\"tempo_execucao_ms_pt\""));
+        assert!(json.contains("\"quantidade_resultados\""));
+        assert!(json.contains("\"tempo_execucao_ms\""));
+        assert!(json.contains("\"resultados\""));
+        assert!(json.contains("\"metadados\""));
+        assert!(json.contains("\"buscas_relacionadas\""));
+        // Nomes em inglês NÃO devem aparecer.
+        assert!(!json.contains("\"results_count\""));
+        assert!(!json.contains("\"results\":"));
+        assert!(!json.contains("\"metadata\""));
+        assert!(!json.contains("\"related_searches\""));
     }
 
     #[test]
-    fn saida_busca_multipla_serializa_campos_em_ingles() {
+    fn saida_busca_multipla_serializa_campos_em_portugues() {
         let saida = SaidaBuscaMultipla {
             quantidade_queries: 2,
             timestamp: "2026-04-14T00:00:00Z".to_string(),
@@ -519,12 +496,13 @@ mod testes {
             buscas: vec![],
         };
         let json = serde_json::to_string(&saida).expect("serialização deve funcionar");
-        assert!(json.contains("\"queries_count\":2"));
-        assert!(json.contains("\"parallel\":5"));
-        assert!(json.contains("\"searches\":[]"));
-        // Campos internos em português NÃO devem aparecer.
-        assert!(!json.contains("\"quantidade_queries\""));
-        assert!(!json.contains("\"paralelismo\""));
-        assert!(!json.contains("\"buscas\""));
+        // Nomes de campo em PT devem aparecer no JSON.
+        assert!(json.contains("\"quantidade_queries\":2"));
+        assert!(json.contains("\"paralelismo\":5"));
+        assert!(json.contains("\"buscas\":[]"));
+        // Nomes em inglês NÃO devem aparecer.
+        assert!(!json.contains("\"queries_count\""));
+        assert!(!json.contains("\"parallel\""));
+        assert!(!json.contains("\"searches\""));
     }
 }

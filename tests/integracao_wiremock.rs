@@ -667,5 +667,5 @@ fn ndjson_serializa_saida_busca_em_uma_linha_valida() {
     let parsed: serde_json::Value =
         serde_json::from_str(&linha).expect("NDJSON deve ser JSON válido");
     assert_eq!(parsed["query"], "rust");
-    assert_eq!(parsed["results_count"], 1);
+    assert_eq!(parsed["quantidade_resultados"], 1);
 }

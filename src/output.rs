@@ -563,8 +563,8 @@ mod testes {
         let saida = saida_de_teste();
         let json = serde_json::to_string_pretty(&saida).expect("serialização deve funcionar");
         assert!(json.contains("\"query\": \"teste\""));
-        assert!(json.contains("\"results_count\": 1"));
-        assert!(json.contains("\"engine\": \"duckduckgo\""));
+        assert!(json.contains("\"quantidade_resultados\": 1"));
+        assert!(json.contains("\"motor\": \"duckduckgo\""));
     }
 
     // -----------------------------------------------------------------------

@@ -83,7 +83,7 @@ duckduckgo-search-cli "rust async runtime" --fetch-content --max-content-length 
 
 ### Output Formats
 
-- `json` (default for pipes): canonical schema with `results[]`, `metadados`, `related_searches`, stable field order.
+- `json` (default for pipes): canonical schema with `resultados[]`, `metadados`, `buscas_relacionadas`, stable field order.
 - `text`: human-readable block `NN. Title\n   URL\n   snippet`.
 - `markdown`: `- [Title](URL)\n  > snippet`.
 - Stream (`--stream`): NDJSON where each line is one result; metadata emitted as the final line.

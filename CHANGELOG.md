@@ -5,6 +5,55 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-14
+
+### Changed (BREAKING)
+
+Schema JSON serializado agora usa nomes de campo em **português brasileiro**,
+alinhado com os exemplos `jaq` do README e com o invariante INVIOLÁVEL do
+blueprint v2 do projeto ("Logs e nomes de campo em português brasileiro").
+
+Pipelines que dependiam do schema em inglês da `v0.1.0` precisam atualizar
+os seletores `jaq`. Tabela de renomeações:
+
+| Antes (v0.1.0) | Depois (v0.2.0) |
+|----------------|-----------------|
+| `position` | `posicao` |
+| `title` | `titulo` |
+| `displayed_url` | `url_exibicao` |
+| `content` | `conteudo` |
+| `content_length` | `tamanho_conteudo` |
+| `content_extraction_method` | `metodo_extracao_conteudo` |
+| `execution_time_ms` | `tempo_execucao_ms` |
+| `selectors_hash` | `hash_seletores` |
+| `retries` | `retentativas` |
+| `fallback_endpoint_used` | `usou_endpoint_fallback` |
+| `concurrent_fetches` | `fetches_simultaneos` |
+| `fetch_successes` | `sucessos_fetch` |
+| `fetch_failures` | `falhas_fetch` |
+| `chrome_used` | `usou_chrome` |
+| `proxy_used` | `usou_proxy` |
+| `engine` | `motor` |
+| `region` | `regiao` |
+| `results_count` | `quantidade_resultados` |
+| `results` | `resultados` |
+| `related_searches` | `buscas_relacionadas` |
+| `pages_fetched` | `paginas_buscadas` |
+| `error` | `erro` |
+| `message` | `mensagem` |
+| `metadata` | `metadados` |
+| `queries_count` | `quantidade_queries` |
+| `parallel` | `paralelismo` |
+| `searches` | `buscas` |
+
+Campos inalterados: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_agent`.
+
+### Fixed
+
+- Pipelines documentados no README (`jaq '.resultados[].titulo'`, etc.) agora
+  funcionam end-to-end. Em `v0.1.0` retornavam `null` por divergência do schema
+  (bug reportado pelo usuário).
+
 ## [Unreleased]
 
 ### Added
