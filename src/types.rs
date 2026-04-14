@@ -28,6 +28,13 @@ pub struct ResultadoBusca {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snippet: Option<String>,
 
+    /// Texto literal do título conforme renderizado pelo DuckDuckGo, preservado
+    /// para auditoria quando aplicamos heurística de substituição (ex: DDG retorna
+    /// "Official site" para domínios verificados — substituímos por `url_exibicao`
+    /// e mantemos o original aqui). Ausente quando o título não foi alterado.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub titulo_original: Option<String>,
+
     /// Conteúdo textual completo da página (apenas com `--fetch-content`; não implementado no MVP).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conteudo: Option<String>,
@@ -98,9 +105,6 @@ pub struct SaidaBusca {
 
     /// Lista de resultados orgânicos.
     pub resultados: Vec<ResultadoBusca>,
-
-    /// Buscas relacionadas sugeridas pelo DuckDuckGo (vazio no MVP).
-    pub buscas_relacionadas: Vec<String>,
 
     /// Número de páginas buscadas (sempre 1 no MVP).
     pub paginas_buscadas: u32,
@@ -209,9 +213,13 @@ impl Default for SeletoresHtml {
     fn default() -> Self {
         Self {
             results_container: "#links".to_string(),
-            result_item: "#links .result, #links .results_links, div.result".to_string(),
+            result_item:
+                "#links .result:not(.result--ad), #links .results_links, div.result:not(.result--ad)"
+                    .to_string(),
             title_and_url: ".result__a, a.result__a, .result__title a".to_string(),
-            snippet: ".result__snippet, a.result__snippet, .result__body".to_string(),
+            // v0.3.0: removido `.result__body` — casava o container pai e trazia
+            // titulo+url+snippet concatenados no campo snippet.
+            snippet: ".result__snippet, a.result__snippet".to_string(),
             display_url: ".result__url, span.result__url".to_string(),
             ads_filter: FiltroAnuncios::default(),
         }
@@ -455,7 +463,6 @@ mod testes {
             regiao: "br-pt".to_string(),
             quantidade_resultados: 0,
             resultados: vec![],
-            buscas_relacionadas: vec![],
             paginas_buscadas: 1,
             erro: None,
             mensagem: None,
@@ -479,7 +486,8 @@ mod testes {
         assert!(json.contains("\"tempo_execucao_ms\""));
         assert!(json.contains("\"resultados\""));
         assert!(json.contains("\"metadados\""));
-        assert!(json.contains("\"buscas_relacionadas\""));
+        // v0.3.0 BREAKING: campo `buscas_relacionadas` removido do schema.
+        assert!(!json.contains("\"buscas_relacionadas\""));
         // Nomes em inglês NÃO devem aparecer.
         assert!(!json.contains("\"results_count\""));
         assert!(!json.contains("\"results\":"));

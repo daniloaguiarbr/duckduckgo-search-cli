@@ -5,6 +5,68 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-14
+
+### Changed (BREAKING)
+
+- **Schema JSON**: campo `buscas_relacionadas` REMOVIDO de `SaidaBusca` e
+  `SaidaBuscaMultipla.buscas[i]`. O endpoint `html.duckduckgo.com/html/` não
+  expõe related searches no DOM atual; manter o campo sempre vazio era ruído.
+  Pipelines que parseavam `.buscas_relacionadas` precisam ajuste.
+- **Pool de User-Agents**: removidos UAs de browsers de texto (`Lynx 2.9.0`,
+  `w3m/0.5.3`, `Links 2.29`, `ELinks 0.16.1.1`) que faziam DuckDuckGo retornar
+  HTML degradado. Substituídos por 6 UAs modernos validados empiricamente
+  contra o `/html/` endpoint: Chrome 146 (Win/Mac/Linux), Edge 145 Windows,
+  Firefox 134 Linux, Safari 17.6 macOS. Firefox Win/Mac foram REMOVIDOS após
+  retornarem HTTP 202 anomaly em validação real (heurística anti-bot do DDG).
+
+### Fixed
+
+- **Snippet duplicava título e URL no início**: o seletor padrão tinha
+  fallback `.result__body` (container pai) que fazia `text()` recursivo
+  capturar título+URL+snippet concatenados. Trocado por `.result__snippet`
+  puro. Pipelines como `jaq '.resultados[].snippet'` agora retornam apenas
+  o texto descritivo do resultado.
+- **Título "Official site"**: DuckDuckGo renderiza literalmente este texto
+  como label para domínios verificados (ex: prefeituras). O scraper agora
+  detecta este caso e substitui pelo `url_exibicao` (ex: `saofidelis.rj.gov.br`).
+  O texto original é preservado no novo campo opcional `titulo_original`
+  para auditoria.
+
+### Added
+
+- Campo `titulo_original: Option<String>` em `ResultadoBusca`. Presente
+  apenas quando o título foi substituído por heurística (atualmente: caso
+  "Official site"). Serializado com `#[serde(skip_serializing_if = "Option::is_none")]`
+  — não aparece no JSON quando ausente.
+- Resultados patrocinados (`.result--ad`) excluídos do container default
+  via seletor `.result:not(.result--ad)`.
+
+### Removed
+
+- Função `extrair_buscas_relacionadas` em `src/search.rs` (dead code com
+  seletor hardcoded que nunca encontrava nada).
+- Seção `[related_searches]` em selectors default.
+
+### Migration Guide (v0.2.x → v0.3.0)
+
+- Pipelines `jaq '.buscas_relacionadas[]'`: campo não existe mais.
+  Remover do filtro ou tratar `null`.
+- Esperando snippet com prefixo título+URL? Agora vem só o texto descritivo
+  — ajuste regex/parsing downstream se necessário.
+- Confiando em `titulo == "Official site"` para detectar sites verificados?
+  Use `titulo_original.as_deref() == Some("Official site")`.
+- **CONFIG EXTERNO LEGADO**: usuários que rodaram `init-config` em versões
+  anteriores possuem `~/.config/duckduckgo-search-cli/{selectors,user-agents}.toml`
+  com defaults antigos (snippet com `.result__body` + UAs `Lynx`/`w3m`/etc.).
+  Esses arquivos OVERRIDE os defaults embutidos. Para aplicar as correções
+  desta versão, execute APÓS atualizar:
+  ```
+  duckduckgo-search-cli init-config --force
+  ```
+  O flag `--force` sobrescreve os arquivos externos. Backup recomendado se
+  você editou manualmente para hotfix de seletores.
+
 ## [0.2.0] - 2026-04-14
 
 ### Changed (BREAKING)

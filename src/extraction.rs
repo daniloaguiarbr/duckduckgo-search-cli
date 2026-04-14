@@ -127,6 +127,7 @@ fn extrair_estrategia_2(documento: &Html) -> Vec<ResultadoBusca> {
             url: url_resolvida,
             url_exibicao: None,
             snippet,
+            titulo_original: None,
             conteudo: None,
             tamanho_conteudo: None,
             metodo_extracao_conteudo: None,
@@ -233,6 +234,7 @@ pub fn extrair_resultados_lite_com_cfg(
                                     url: u_pend,
                                     url_exibicao: None,
                                     snippet: None,
+                                    titulo_original: None,
                                     conteudo: None,
                                     tamanho_conteudo: None,
                                     metodo_extracao_conteudo: None,
@@ -261,6 +263,7 @@ pub fn extrair_resultados_lite_com_cfg(
                 url,
                 url_exibicao: None,
                 snippet,
+                titulo_original: None,
                 conteudo: None,
                 tamanho_conteudo: None,
                 metodo_extracao_conteudo: None,
@@ -281,6 +284,7 @@ pub fn extrair_resultados_lite_com_cfg(
             url,
             url_exibicao: None,
             snippet: None,
+            titulo_original: None,
             conteudo: None,
             tamanho_conteudo: None,
             metodo_extracao_conteudo: None,
@@ -434,13 +438,22 @@ fn extrair_com_documento(documento: &Html, cfg: &ConfiguracaoSeletores) -> Vec<R
                 .filter(|s| !s.is_empty())
         });
 
+        // --- Heurística "Official site" (v0.3.0) ---
+        // O DDG renderiza literalmente "Official site" como título para domínios
+        // verificados (ex: wikipedia.org, rust-lang.org). Substituímos pelo
+        // `url_exibicao` quando disponível e preservamos o literal em
+        // `titulo_original` para auditoria.
+        let (titulo_final, titulo_original) =
+            aplicar_heuristica_official_site(titulo, url_exibicao.as_deref());
+
         posicao += 1;
         resultados.push(ResultadoBusca {
             posicao,
-            titulo,
+            titulo: titulo_final,
             url: url_resolvida,
             url_exibicao,
             snippet,
+            titulo_original,
             conteudo: None,
             tamanho_conteudo: None,
             metodo_extracao_conteudo: None,
@@ -460,6 +473,30 @@ fn contem_classe_anuncio_dinamico(elemento: &ElementRef<'_>, classes_nua: &[Stri
         .value()
         .classes()
         .any(|classe| classes_nua.iter().any(|c| c == classe))
+}
+
+/// Aplica a heurística de substituição de "Official site" (v0.3.0).
+///
+/// O DuckDuckGo renderiza literalmente o texto `"Official site"` (case-insensitive)
+/// como título quando o domínio do resultado é verificado (ex: rust-lang.org,
+/// wikipedia.org). Esse título não é útil para o consumidor da API — substituímos
+/// pelo `url_exibicao` e preservamos o literal em `titulo_original` para auditoria.
+///
+/// Retorna `(titulo_final, titulo_original)`:
+/// - Se o título bate exatamente "Official site" (ignore case) E existe `url_exibicao`
+///   não-vazia, retorna `(url_exibicao, Some("Official site"))`.
+/// - Caso contrário, retorna `(titulo, None)` inalterado.
+fn aplicar_heuristica_official_site(
+    titulo: String,
+    url_exibicao: Option<&str>,
+) -> (String, Option<String>) {
+    if titulo.eq_ignore_ascii_case("Official site") {
+        if let Some(url_amigavel) = url_exibicao.map(str::trim).filter(|s| !s.is_empty()) {
+            let original = titulo.clone();
+            return (url_amigavel.to_string(), Some(original));
+        }
+    }
+    (titulo, None)
 }
 
 /// Normaliza texto extraído: colapsa whitespace, trim e trunca em `limite` caracteres

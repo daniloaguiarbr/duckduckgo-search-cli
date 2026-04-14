@@ -487,6 +487,152 @@ async fn testa_filtro_anuncios() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Teste 7 (v0.3.0): heurística "Official site" — DDG renderiza literalmente
+// "Official site" como título para domínios verificados. O scraper substitui
+// pelo `url_exibicao` e preserva o texto literal em `titulo_original`.
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn testa_heuristica_official_site() {
+    let _g = env_lock().lock().await;
+    let mock_server = MockServer::start().await;
+
+    // HTML com resultado que tem título literal "Official site" + .result__url.
+    let html = r#"<html><body>
+    <div id="links">
+      <div class="result">
+        <a class="result__a" href="//saofidelis.rj.gov.br/">Official site</a>
+        <span class="result__url">saofidelis.rj.gov.br</span>
+        <a class="result__snippet">Prefeitura Municipal de São Fidélis.</a>
+      </div>
+      <div class="result">
+        <a class="result__a" href="//exemplo.com/outro">Título Normal</a>
+        <span class="result__url">exemplo.com</span>
+        <a class="result__snippet">Snippet qualquer.</a>
+      </div>
+    </div>
+    </body></html>"#;
+
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html)
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let base = format!("{}/", mock_server.uri());
+    let _env = GuardaEnv::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+    ]);
+
+    let cliente = cliente_teste();
+    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let flag = Arc::new(AtomicBool::new(false));
+    let token = CancellationToken::new();
+
+    let agregado = buscar_com_paginacao(&cliente, &cfg, "saofidelis", &flag, &token)
+        .await
+        .expect("sucesso");
+
+    assert_eq!(agregado.resultados.len(), 2, "2 orgânicos esperados");
+
+    // Resultado 1: título substituído por url_exibicao, original preservado.
+    let r1 = &agregado.resultados[0];
+    assert_eq!(
+        r1.titulo, "saofidelis.rj.gov.br",
+        "titulo deve ser o url_exibicao"
+    );
+    assert_eq!(
+        r1.titulo_original.as_deref(),
+        Some("Official site"),
+        "titulo_original deve preservar o literal"
+    );
+
+    // Resultado 2: título normal → sem substituição, titulo_original = None.
+    let r2 = &agregado.resultados[1];
+    assert_eq!(r2.titulo, "Título Normal");
+    assert!(
+        r2.titulo_original.is_none(),
+        "titulo_original deve ser None quando não há substituição"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Teste 8 (v0.3.0): schema JSON NÃO contém mais `buscas_relacionadas`.
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn testa_schema_v03_sem_buscas_relacionadas() {
+    let _g = env_lock().lock().await;
+    let mock_server = MockServer::start().await;
+
+    let html = html_com_tokens_vqd_e_resultados("v", "0", "0", &["T1", "T2"]);
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html)
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let base = format!("{}/", mock_server.uri());
+    let _env = GuardaEnv::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+    ]);
+
+    let cliente = cliente_teste();
+    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let flag = Arc::new(AtomicBool::new(false));
+    let token = CancellationToken::new();
+
+    let agregado = buscar_com_paginacao(&cliente, &cfg, "teste", &flag, &token)
+        .await
+        .expect("sucesso");
+
+    // Serializar como JSON e confirmar que o campo NÃO aparece.
+    use duckduckgo_search_cli::types::{MetadadosBusca, SaidaBusca};
+    let saida = SaidaBusca {
+        query: "teste".into(),
+        motor: "duckduckgo".into(),
+        endpoint: "html".into(),
+        timestamp: "2026-04-14T00:00:00Z".into(),
+        regiao: "br-pt".into(),
+        quantidade_resultados: agregado.resultados.len() as u32,
+        resultados: agregado.resultados,
+        paginas_buscadas: 1,
+        erro: None,
+        mensagem: None,
+        metadados: MetadadosBusca {
+            tempo_execucao_ms: 0,
+            hash_seletores: "x".into(),
+            retentativas: 0,
+            usou_endpoint_fallback: false,
+            fetches_simultaneos: 0,
+            sucessos_fetch: 0,
+            falhas_fetch: 0,
+            usou_chrome: false,
+            user_agent: "ua".into(),
+            usou_proxy: false,
+        },
+    };
+
+    let json = serde_json::to_string_pretty(&saida).expect("serializa");
+    assert!(
+        !json.contains("buscas_relacionadas"),
+        "v0.3.0: schema JSON NÃO deve expor buscas_relacionadas"
+    );
+    assert!(
+        !json.contains("related_searches"),
+        "v0.3.0: schema JSON NÃO deve expor related_searches"
+    );
+}
+
 // ===================================================================
 // Testes de --fetch-content HTTP puro (iteração 5).
 // ===================================================================
@@ -637,11 +783,11 @@ fn ndjson_serializa_saida_busca_em_uma_linha_valida() {
             url: "https://exemplo.com".to_string(),
             url_exibicao: None,
             snippet: None,
+            titulo_original: None,
             conteudo: None,
             tamanho_conteudo: None,
             metodo_extracao_conteudo: None,
         }],
-        buscas_relacionadas: vec![],
         paginas_buscadas: 1,
         erro: None,
         mensagem: None,

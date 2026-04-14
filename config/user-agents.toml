@@ -1,47 +1,47 @@
-# user-agents.toml — User-Agents para rotação aleatória.
+# user-agents.toml — Pool de User-Agents para rotação aleatória.
 #
-# IMPORTANTE — descoberta empírica em 2026-04-14 (iteração 4):
-# O endpoint html.duckduckgo.com retorna HTTP 202 Accepted com challenge
-# anomaly ("Unfortunately, bots use DuckDuckGo too") quando recebe User-Agent
-# de browser real moderno (Chrome/Firefox/Safari versões completas) sem
-# JavaScript. A heurística do DDG: se o UA "promete" um browser completo mas
-# não executa JS, é tratado como bot. Soluções:
-#   1. Usar UAs de clientes "honestos" (CLI tools, libs HTTP, browsers texto).
-#   2. Usar UAs minimalistas (curtos/sem detalhes específicos).
+# v0.3.0 — ATUALIZAÇÃO (2026-04-14):
+# Os UAs antigos de browsers de texto (Lynx, w3m, Links, ELinks, "Mozilla/5.0"
+# minimalista, "duckduckgo-search-cli/*") foram REMOVIDOS. Eles ainda retornam
+# HTTP 200 no endpoint `/html/` mas o DuckDuckGo serve HTML DEGRADADO — sem
+# classes `.result__snippet` consistentes — forçando o extractor a cair na
+# Estratégia 2 com snippets vazios/incorretos.
 #
-# Resultado dos testes empíricos (HTTP 200 OK = passa, 202 = bloqueado):
-#   "ddg-cli/1.0"                                   → 200 ✓
-#   "Lynx/2.9.0 libwww-FM/2.14"                     → 200 ✓
-#   "Mozilla/5.0"                                   → 200 ✓
-#   ""                                              → 200 ✓
-#   "curl/8.0.0"                                    → 202 ✗
-#   "Wget/1.21"                                     → 202 ✗
-#   "Mozilla/5.0 ... Chrome/130.0.0.0 ..."          → 202 ✗
-#   "Mozilla/5.0 ... Firefox/131.0"                 → 202 ✗
+# A lista abaixo contém UAs de browsers modernos (Chrome 146, Firefox 134
+# Linux, Edge 145, Safari 17) em Windows / macOS / Linux. Cada entrada declara
+# a plataforma para permitir filtro com `--match-platform-ua`.
+#
+# Validação empírica final (2026-04-14, requests reais ao /html/):
+#   Chrome 146 Win/Mac/Linux → 200 OK ✓
+#   Edge   145 Windows       → 200 OK ✓
+#   Safari 17.6 macOS        → 200 OK ✓
+#   Firefox 134 Linux        → 200 OK ✓
+#   Firefox 134 Windows      → 202 ANOMALY ✗ (REMOVIDO da lista)
+#   Firefox 134 macOS        → 202 ANOMALY ✗ (REMOVIDO da lista)
 #
 # A CLI seleciona um User-Agent aleatoriamente no início da execução e o
 # reutiliza em todos os requests dessa execução (mantém consistência de vqd).
 
 [[agents]]
-ua = "duckduckgo-search-cli/0.1"
-platform = "any"
+ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+platform = "windows"
 
 [[agents]]
-ua = "Mozilla/5.0"
-platform = "any"
+ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+platform = "macos"
 
 [[agents]]
-ua = "Lynx/2.9.0 libwww-FM/2.14 SSL-MM/1.4.1"
-platform = "any"
-
-[[agents]]
-ua = "w3m/0.5.3"
-platform = "any"
-
-[[agents]]
-ua = "Links (2.29; Linux 6.1.0 x86_64; GNU C 12.2; text)"
+ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
 platform = "linux"
 
 [[agents]]
-ua = "ELinks/0.16.1.1 (textmode; Linux 6.1.0 x86_64; 132x42-2)"
+ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.3800.97"
+platform = "windows"
+
+[[agents]]
+ua = "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0"
 platform = "linux"
+
+[[agents]]
+ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
+platform = "macos"

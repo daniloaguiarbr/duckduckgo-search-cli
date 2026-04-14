@@ -154,6 +154,11 @@ fn formatar_cabecalho_text(saida: &SaidaBusca) -> String {
 fn formatar_resultado_text(r: &ResultadoBusca) -> String {
     let mut bloco = String::new();
     bloco.push_str(&format!("[{}] {}\n", r.posicao, r.titulo));
+    if let Some(original) = &r.titulo_original {
+        if !original.is_empty() {
+            bloco.push_str(&format!("    (original: {})\n", original));
+        }
+    }
     bloco.push_str(&format!("    {}\n", r.url));
     if let Some(snippet) = &r.snippet {
         if !snippet.is_empty() {
@@ -199,6 +204,14 @@ fn formatar_unica_markdown(saida: &SaidaBusca) -> String {
             escapar_markdown(&r.titulo),
             r.url
         ));
+        if let Some(original) = &r.titulo_original {
+            if !original.is_empty() {
+                buffer.push_str(&format!(
+                    "_Título original: {}_\n\n",
+                    escapar_markdown(original)
+                ));
+            }
+        }
         if let Some(snippet) = &r.snippet {
             if !snippet.is_empty() {
                 buffer.push_str(&format!("{}\n\n", escapar_markdown(snippet)));
@@ -397,11 +410,11 @@ mod testes {
                 url: "https://exemplo.com".to_string(),
                 url_exibicao: Some("exemplo.com".to_string()),
                 snippet: Some("Descrição com *asteriscos* e `backticks`".to_string()),
+                titulo_original: None,
                 conteudo: None,
                 tamanho_conteudo: None,
                 metodo_extracao_conteudo: None,
             }],
-            buscas_relacionadas: vec![],
             paginas_buscadas: 1,
             erro: None,
             mensagem: None,
@@ -491,6 +504,93 @@ mod testes {
         let md = formatar_unica_markdown(&saida);
         assert!(md.contains("# Resultados: teste"));
         assert!(md.contains("_Nenhum resultado encontrado._"));
+    }
+
+    #[test]
+    fn formatar_resultado_com_titulo_original_exibe_anotacao_text() {
+        // Heurística "Official site": titulo foi substituído por url_exibicao,
+        // titulo_original preserva o texto literal. Ambos devem aparecer no text.
+        let mut saida = saida_de_teste();
+        saida.resultados = vec![ResultadoBusca {
+            posicao: 1,
+            titulo: "saofidelis.rj.gov.br".to_string(),
+            url: "https://saofidelis.rj.gov.br".to_string(),
+            url_exibicao: Some("saofidelis.rj.gov.br".to_string()),
+            snippet: Some("Prefeitura de São Fidélis".to_string()),
+            titulo_original: Some("Official site".to_string()),
+            conteudo: None,
+            tamanho_conteudo: None,
+            metodo_extracao_conteudo: None,
+        }];
+        let texto = formatar_unica_text(&saida);
+        assert!(texto.contains("[1] saofidelis.rj.gov.br"));
+        assert!(
+            texto.contains("(original: Official site)"),
+            "text deve exibir titulo_original quando presente"
+        );
+    }
+
+    #[test]
+    fn formatar_resultado_com_titulo_original_exibe_anotacao_markdown() {
+        let mut saida = saida_de_teste();
+        saida.resultados = vec![ResultadoBusca {
+            posicao: 1,
+            titulo: "saofidelis.rj.gov.br".to_string(),
+            url: "https://saofidelis.rj.gov.br".to_string(),
+            url_exibicao: Some("saofidelis.rj.gov.br".to_string()),
+            snippet: Some("Prefeitura".to_string()),
+            titulo_original: Some("Official site".to_string()),
+            conteudo: None,
+            tamanho_conteudo: None,
+            metodo_extracao_conteudo: None,
+        }];
+        let md = formatar_unica_markdown(&saida);
+        assert!(md.contains("[saofidelis.rj.gov.br](https://saofidelis.rj.gov.br)"));
+        assert!(
+            md.contains("_Título original: Official site_"),
+            "markdown deve exibir titulo_original em itálico quando presente"
+        );
+    }
+
+    #[test]
+    fn formatar_resultado_sem_titulo_original_nao_emite_anotacao() {
+        // titulo_original = None → nenhum ruído no output.
+        let saida = saida_de_teste();
+        let texto = formatar_unica_text(&saida);
+        let md = formatar_unica_markdown(&saida);
+        assert!(!texto.contains("(original:"));
+        assert!(!md.contains("_Título original:"));
+    }
+
+    #[test]
+    fn json_omite_titulo_original_quando_ausente() {
+        // skip_serializing_if = "Option::is_none" garante que o campo não
+        // aparece no JSON quando None — preserva a compatibilidade mínima.
+        let saida = saida_de_teste();
+        let json = serde_json::to_string(&saida).expect("serializa");
+        assert!(
+            !json.contains("titulo_original"),
+            "JSON não deve expor titulo_original quando é None"
+        );
+    }
+
+    #[test]
+    fn json_inclui_titulo_original_quando_presente() {
+        let mut saida = saida_de_teste();
+        saida.resultados[0].titulo_original = Some("Official site".to_string());
+        let json = serde_json::to_string(&saida).expect("serializa");
+        assert!(json.contains("\"titulo_original\":\"Official site\""));
+    }
+
+    #[test]
+    fn json_nao_contem_mais_campo_buscas_relacionadas() {
+        // Regressão v0.3.0: schema perdeu `buscas_relacionadas` (BREAKING).
+        let saida = saida_de_teste();
+        let json = serde_json::to_string(&saida).expect("serializa");
+        assert!(
+            !json.contains("buscas_relacionadas"),
+            "v0.3.0 removeu buscas_relacionadas do schema JSON"
+        );
     }
 
     #[test]

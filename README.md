@@ -83,7 +83,7 @@ duckduckgo-search-cli "rust async runtime" --fetch-content --max-content-length 
 
 ### Output Formats
 
-- `json` (default for pipes): canonical schema with `resultados[]`, `metadados`, `buscas_relacionadas`, stable field order.
+- `json` (default for pipes): canonical schema with `resultados[]` and `metadados`, stable field order. Each result may include the optional `titulo_original` field when the "Official site" heuristic replaces the title with `url_exibicao`. Note: the `html.duckduckgo.com/html/` endpoint does not expose related searches in the DOM; v0.3.0 removed the `buscas_relacionadas` field.
 - `text`: human-readable block `NN. Title\n   URL\n   snippet`.
 - `markdown`: `- [Title](URL)\n  > snippet`.
 - Stream (`--stream`): NDJSON where each line is one result; metadata emitted as the final line.
@@ -206,7 +206,7 @@ duckduckgo-search-cli "tokio async runtime" --fetch-content --max-content-length
 
 ### Formatos de Saída
 
-- `json` (default em pipes): schema canônico com `resultados[]`, `metadados`, `buscas_relacionadas`.
+- `json` (default em pipes): schema canônico com `resultados[]` e `metadados`, ordem de campos estável. Cada resultado pode incluir o campo opcional `titulo_original` quando a heurística "Official site" substitui o título pelo `url_exibicao`. Nota: o endpoint `html.duckduckgo.com/html/` não expõe buscas relacionadas no DOM; a v0.3.0 removeu o campo `buscas_relacionadas`.
 - `text`: bloco legível `NN. Título\n   URL\n   snippet`.
 - `markdown`: `- [Título](URL)\n  > snippet`.
 - Stream (`--stream`): NDJSON, cada linha é um resultado; metadados na linha final.

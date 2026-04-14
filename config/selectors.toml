@@ -8,9 +8,9 @@
 
 [html_endpoint]
 results_container = "#links"
-result_item = "#links .result, #links .results_links, div.result"
+result_item = "#links .result:not(.result--ad), #links .results_links, div.result:not(.result--ad)"
 title_and_url = ".result__a, a.result__a, .result__title a"
-snippet = ".result__snippet, a.result__snippet, .result__body"
+snippet = ".result__snippet, a.result__snippet"
 display_url = ".result__url, span.result__url"
 
 [html_endpoint.ads_filter]
@@ -29,6 +29,9 @@ s_input = "input[name='s']"
 dc_input = "input[name='dc']"
 next_form = "form.result--more__btn, form[action='/html/']"
 
+# NOTA v0.3.0: o endpoint html.duckduckgo.com/html/ NÃO renderiza "buscas
+# relacionadas" no DOM — o bloco abaixo existe apenas por compatibilidade de
+# schema com configs antigas (ignorado em tempo de execução).
 [related_searches]
 container = ".result--more__btn, .result--sep"
 links = "a"

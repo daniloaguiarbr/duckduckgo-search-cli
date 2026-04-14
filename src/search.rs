@@ -323,7 +323,6 @@ pub async fn executar_busca(
 /// Resultado agregado de uma busca com paginação e potencial fallback de endpoint.
 pub struct ResultadoBuscaAgregado {
     pub resultados: Vec<ResultadoBusca>,
-    pub buscas_relacionadas: Vec<String>,
     pub paginas_buscadas: u32,
     pub usou_fallback_lite: bool,
     pub tentativas: u32,
@@ -358,27 +357,6 @@ pub fn extrair_tokens_paginacao(html: &str) -> Option<(String, String, String)> 
         .map(|v| v.to_string())?;
 
     Some((vqd, s, dc))
-}
-
-/// Extrai buscas relacionadas (`.related-searches__link` ou similares) do HTML.
-pub fn extrair_buscas_relacionadas(html: &str) -> Vec<String> {
-    use scraper::{Html, Selector};
-    let doc = Html::parse_document(html);
-    let seletor = match Selector::parse(
-        ".related-searches__link, .related_searches .result, a.related-searches__link",
-    ) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    let mut resultado: Vec<String> = Vec::new();
-    for el in doc.select(&seletor) {
-        let texto = el.text().collect::<Vec<_>>().join(" ");
-        let tratado = texto.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !tratado.is_empty() && !resultado.contains(&tratado) {
-            resultado.push(tratado);
-        }
-    }
-    resultado
 }
 
 /// Executa busca completa com paginação vqd e (opcional) fallback para Lite.
@@ -434,7 +412,6 @@ pub async fn buscar_com_paginacao(
             extraction::extrair_resultados_lite_com_cfg(&html_primeira, &cfg.seletores)
         }
     };
-    let mut relacionadas = extrair_buscas_relacionadas(&html_primeira);
     let mut usou_fallback_lite = false;
     let mut endpoint_efetivo = endpoint_inicial;
     let mut paginas_buscadas: u32 = 1;
@@ -470,7 +447,6 @@ pub async fn buscar_com_paginacao(
                     extraction::extrair_resultados_lite_com_cfg(&html_lite, &cfg.seletores);
                 if !resultados_lite.is_empty() {
                     resultados_acumulados = resultados_lite;
-                    relacionadas = extrair_buscas_relacionadas(&html_lite);
                     usou_fallback_lite = true;
                     endpoint_efetivo = Endpoint::Lite;
                 }
@@ -608,7 +584,6 @@ pub async fn buscar_com_paginacao(
 
     Ok(ResultadoBuscaAgregado {
         resultados: resultados_acumulados,
-        buscas_relacionadas: relacionadas,
         paginas_buscadas,
         usou_fallback_lite,
         tentativas: tentativas_acumuladas,
@@ -710,19 +685,6 @@ mod testes {
     fn extrair_tokens_paginacao_retorna_none_quando_ausentes() {
         let html = r#"<html><body>Sem inputs</body></html>"#;
         assert!(extrair_tokens_paginacao(html).is_none());
-    }
-
-    #[test]
-    fn extrair_buscas_relacionadas_coleta_sem_duplicatas() {
-        let html = r#"
-            <div class="related-searches">
-              <a class="related-searches__link">rust async</a>
-              <a class="related-searches__link">tokio runtime</a>
-              <a class="related-searches__link">rust async</a>
-            </div>
-        "#;
-        let relacionadas = extrair_buscas_relacionadas(html);
-        assert_eq!(relacionadas, vec!["rust async", "tokio runtime"]);
     }
 
     #[test]

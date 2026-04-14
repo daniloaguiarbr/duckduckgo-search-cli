@@ -24,19 +24,36 @@ use std::time::Duration;
 /// Lista de User-Agents embutida no binário para fallback caso `config/user-agents.toml`
 /// não esteja disponível. Os mesmos valores estão no arquivo TOML em `config/`.
 ///
-/// IMPORTANTE — descoberta empírica em 2026-04-14 (iteração 4):
-/// O endpoint `html.duckduckgo.com` retorna HTTP 202 Accepted com challenge
-/// anomaly quando o UA é de browser moderno completo (Chrome/Firefox versões
-/// detalhadas) E nenhum JavaScript é executado. UAs "honestos" (CLI tools,
-/// browsers texto, ou simplesmente `Mozilla/5.0` minimalista) passam com 200 OK.
-/// Ver `config/user-agents.toml` para evidência completa dos testes.
+/// v0.3.0 — ATUALIZAÇÃO DO POOL (2026-04-14):
+/// Os UAs antigos de browsers de texto (Lynx, w3m, Links, ELinks) foram REMOVIDOS.
+/// Empiricamente eles ainda retornam HTTP 200, mas o DuckDuckGo serve HTML
+/// DEGRADADO para esses agentes: o layout fica sem classes `.result__snippet`
+/// consistentes, forçando o extractor a cair na Estratégia 2 e retornar snippets
+/// vazios/incorretos.
+///
+/// Validação empírica final (2026-04-14, requests reais ao /html/):
+///   Chrome 146 Win/Mac/Linux → 200 OK ✓
+///   Edge   145 Windows       → 200 OK ✓
+///   Safari 17.6 macOS        → 200 OK ✓
+///   Firefox 134 Linux        → 200 OK ✓
+///   Firefox 134 Windows      → 202 ANOMALY ✗ (REMOVIDO)
+///   Firefox 134 macOS        → 202 ANOMALY ✗ (REMOVIDO)
+///
+/// O DuckDuckGo bloqueia Firefox desktop Win/Mac no `/html/` endpoint
+/// (heurística anti-bot: UA prometendo browser completo sem JS). Linux Firefox
+/// passa porque é desktop minoritário — o filtro do DDG é menos agressivo. Para
+/// evitar ~25% de requests bloqueados, MANTIVEMOS apenas Firefox Linux.
 const USER_AGENTS_PADRAO: &[&str] = &[
-    "duckduckgo-search-cli/0.1",
-    "Mozilla/5.0",
-    "Lynx/2.9.0 libwww-FM/2.14 SSL-MM/1.4.1",
-    "w3m/0.5.3",
-    "Links (2.29; Linux 6.1.0 x86_64; GNU C 12.2; text)",
-    "ELinks/0.16.1.1 (textmode; Linux 6.1.0 x86_64; 132x42-2)",
+    // Chrome desktop (Windows / macOS / Linux) — abril 2026
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    // Edge Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.3800.97",
+    // Firefox desktop (somente Linux — Win/Mac dão HTTP 202 no /html/)
+    "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0",
+    // Safari macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
 ];
 
 /// Entry TOML do arquivo `user-agents.toml` externo.
@@ -328,20 +345,68 @@ mod testes {
     }
 
     #[test]
-    fn escolher_user_agent_retorna_da_lista_de_uas_minimalistas() {
-        // Garante que os UAs default são minimalistas (não browsers completos),
-        // conforme descoberta empírica em 2026-04-14 — UAs Chrome/Firefox detalhados
-        // são bloqueados pelo DDG com 202 anomaly.
+    fn escolher_user_agent_retorna_ua_moderno_do_pool() {
+        // v0.3.0: o pool agora contém UAs de browsers modernos (Chrome, Firefox,
+        // Edge, Safari) — os antigos UAs minimalistas (Lynx, w3m, Links, ELinks,
+        // "Mozilla/5.0") foram REMOVIDOS porque o endpoint /html/ do DDG serve
+        // HTML degradado para esses agentes.
         let ua = escolher_user_agent();
         assert!(
             USER_AGENTS_PADRAO.contains(&ua.as_str()),
             "UA selecionado deve estar na lista padrão: {ua}"
         );
-        // Nenhum UA padrão deve fingir browser real moderno.
+        // Todo UA default deve parecer um browser real moderno.
         assert!(
-            !ua.contains("Chrome/") && !ua.contains("Firefox/"),
-            "UAs padrão são minimalistas (sem Chrome/Firefox detalhados): {ua}"
+            ua.starts_with("Mozilla/5.0 ("),
+            "UAs padrão v0.3.0 iniciam com 'Mozilla/5.0 (' (browser real): {ua}"
         );
+    }
+
+    #[test]
+    fn pool_padrao_contem_browsers_modernos_em_todas_as_familias() {
+        // Garante que há pelo menos um UA de Chrome, Firefox, Edge e Safari.
+        let pool = USER_AGENTS_PADRAO;
+        assert!(
+            pool.iter().any(|ua| ua.contains("Chrome/")),
+            "pool deve conter ao menos um Chrome"
+        );
+        assert!(
+            pool.iter().any(|ua| ua.contains("Firefox/")),
+            "pool deve conter ao menos um Firefox"
+        );
+        assert!(
+            pool.iter().any(|ua| ua.contains("Edg/")),
+            "pool deve conter ao menos um Edge"
+        );
+        assert!(
+            pool.iter()
+                .any(|ua| ua.contains("Safari/") && !ua.contains("Chrome/")),
+            "pool deve conter ao menos um Safari puro"
+        );
+    }
+
+    #[test]
+    fn pool_padrao_nao_contem_browsers_de_texto_removidos() {
+        // v0.3.0: removidos Lynx, w3m, Links, ELinks, "duckduckgo-search-cli/*"
+        // e "Mozilla/5.0" minimalista — retornavam HTML degradado.
+        for ua in USER_AGENTS_PADRAO {
+            assert!(!ua.contains("Lynx"), "UA banido detectado (Lynx): {ua}");
+            assert!(!ua.contains("w3m"), "UA banido detectado (w3m): {ua}");
+            assert!(
+                !ua.starts_with("Links ("),
+                "UA banido detectado (Links): {ua}"
+            );
+            assert!(!ua.contains("ELinks"), "UA banido detectado (ELinks): {ua}");
+            assert!(
+                !ua.starts_with("duckduckgo-search-cli"),
+                "UA banido detectado (self-cli): {ua}"
+            );
+            assert_ne!(
+                *ua, "Mozilla/5.0",
+                "UA minimalista 'Mozilla/5.0' deve ter sido removido"
+            );
+        }
+        assert!(!USER_AGENTS_PADRAO.is_empty(), "pool nunca pode ser vazio");
     }
 
     #[test]
