@@ -124,7 +124,10 @@ pub struct ArgumentosCli {
     #[arg(value_name = "QUERY")]
     pub queries: Vec<String>,
 
-    /// Número máximo de resultados a retornar por query (default: todos da primeira página).
+    /// Número máximo de resultados a retornar por query (default: 15, com
+    /// auto-paginação para 2 páginas quando `--pages` não é customizado).
+    /// Se omitido, usa 15; se `--num > 10` e `--pages == 1` (default),
+    /// `--pages` é auto-elevado para `ceil(num/10)` respeitando o máximo de 5.
     #[arg(short = 'n', long = "num", value_name = "N")]
     pub num_resultados: Option<u32>,
 

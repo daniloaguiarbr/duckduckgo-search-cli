@@ -1,52 +1,131 @@
-![crates.io](https://img.shields.io/crates/v/duckduckgo-search-cli)
-![docs.rs](https://img.shields.io/docsrs/duckduckgo-search-cli)
-![CI](https://github.com/comandoaguiar/duckduckgo-search-cli/actions/workflows/ci.yml/badge.svg)
-![License](https://img.shields.io/crates/l/duckduckgo-search-cli)
+[![crates.io](https://img.shields.io/crates/v/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
+[![docs.rs](https://img.shields.io/docsrs/duckduckgo-search-cli)](https://docs.rs/duckduckgo-search-cli)
+[![CI](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions)
+[![License](https://img.shields.io/crates/l/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 
-> Structured DuckDuckGo search in pure Rust, built for LLM pipelines.
+> Web search at terminal speed — give your AI agent superhuman context.
+
+<!--
+SEO keywords: duckduckgo cli, search cli rust, llm web search tool, ai agent search,
+claude code search, gemini cli search, codex search tool, headless web search,
+json search results cli, parallel search rust, rust web search, cli web grounding,
+aider search, cursor search tool, continue dev search, devin search, cline search,
+retrieval augmented generation cli, rag cli, no api key search, ddg cli, tokio search cli,
+rustls search cli, ndjson search stream, agent shell tool, mcp adjacent search cli
+-->
 
 ---
 
 ## English
 
-### What is it?
+### Why this exists
 
-- Rust CLI that queries `html.duckduckgo.com/html/` over plain HTTP.
-- No paid API, no Chrome requirement in the hot path, no disk cache.
-- Emits JSON, text, Markdown, or NDJSON streams suitable for piping into LLMs.
-- Cross-platform: Linux (glibc, musl/Alpine, Flatpak, Snap, NixOS), macOS (Intel + Apple Silicon), Windows (cmd.exe + PowerShell).
-- Feature-gated Chrome headless fallback (`--features chrome`) for JS-heavy pages.
-- Parallel multi-query pipeline with per-host rate limiting and cancellation.
+Every modern LLM carries a knowledge cutoff, and every autonomous agent eventually needs something its weights never saw: the latest library version, a 2026 incident post-mortem, a vendor's current pricing page. Bolting on a hosted search API costs money, leaks queries, and breaks when the vendor rate-limits you in the middle of a multi-step plan.
 
-### Why?
+`duckduckgo-search-cli` is a single Rust binary that turns any shell into a first-class search tool. No API key. No tracking. No Chrome in the hot path. Just a stable JSON schema, bounded concurrency, and predictable exit codes — exactly what an agent needs to ground itself in real-time web data without becoming a liability.
 
-- Drop-in primitive for retrieval-augmented generation: stable JSON schema, stable exit codes.
-- Respects `.gitignore`-style ownership — zero hidden state, configuration lives in XDG dirs.
-- Rustls-only TLS: no OpenSSL runtime, no SChannel surprises, static musl builds succeed out of the box.
-- Explicit timeouts (`--timeout`, `--global-timeout`) and bounded concurrency (`--parallel`, `--per-host-limit`) make the tool safe inside automation.
+### Superpowers for every AI agent
+
+Drop this binary into any agent that can run a shell command. That is nearly every serious agent shipping today.
+
+| Agent                  | How it benefits                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| Claude Code            | `Bash` tool invokes `duckduckgo-search-cli "query" --num 15 -q \| jaq '.resultados'` for grounded research before edits. |
+| OpenAI Codex           | Shell access feeds structured JSON into the context window for up-to-date library docs.           |
+| Gemini CLI             | Pipe results into Gemini's JSON mode for synthesis of long-tail web facts.                        |
+| Cursor                 | Declare the binary in `.cursorrules` and let the AI call it whenever it lacks context.            |
+| Windsurf               | Cascade agents call the CLI as a deterministic tool for fresh web data.                           |
+| Aider                  | Use `/run` to inject search results straight into the edit conversation.                          |
+| Continue.dev           | Register as a custom slash-command to ground in-IDE completions.                                  |
+| MiniMax                | Shell-tool integration gives MiniMax agents DuckDuckGo-backed global coverage.                    |
+| OpenCode               | Model-agnostic shell integration — works with any provider OpenCode is pointed at.                |
+| Paperclip              | Drop-in primitive for autonomous research pipelines.                                              |
+| OpenClaw               | Open-source agent runtime — use it as the default search backend.                                 |
+| Google Antigravity     | Headless CLI fallback for the surface-level browser agent when direct scraping is needed.         |
+| GitHub Copilot CLI     | `gh copilot` workflows that require verified URLs and fresh references.                           |
+| Devin                  | Autonomous engineer reads the JSON output to plan before touching code.                           |
+| Cline                  | VS Code agent calls the binary as a terminal command for grounded answers.                        |
+| Roo Code               | Roo Cline fork — same zero-config shell integration.                                              |
+
+### Why it's perfect for AI agents
+
+- **JSON-first by default.** Stable schema with `resultados[]` and `metadados`, field order frozen across releases, ready for `jaq` and direct parsing into tool calls.
+- **Zero API key, zero tracking.** Talks directly to DuckDuckGo's HTML endpoint over HTTPS. No authentication to rotate, no dashboard to babysit, no data leak surface.
+- **Parallel by design.** `--parallel 1..=20` fans out multiple queries through a `tokio::JoinSet`, and `--per-host-limit` prevents burst abuse when `--fetch-content` is on.
+- **15 results by default.** Generous context for LLMs without forcing you to spell out `--num`. Override per call when you need to.
+- **Auto-pagination that just works.** When `--num` exceeds a single DuckDuckGo page, the CLI automatically crawls up to 2 pages so you always get the count you asked for.
+- **Optional readable body extraction.** `--fetch-content` downloads each URL and embeds cleaned text straight into the JSON, capped by `--max-content-length`.
+- **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
+- **Pure `rustls-tls`.** No OpenSSL, no SChannel surprises, static musl builds work on the first try inside any Alpine container.
+- **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
+- **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 
 ### Quick Start
 
 ```bash
 cargo install duckduckgo-search-cli
+duckduckgo-search-cli "rust async runtime"
+# 15 fresh JSON results on your desk.
+
+# For LLMs and agents:
+duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
+```
+
+### Real-world recipes
+
+```bash
+# 1. Extract only URLs for a downstream fetcher.
+duckduckgo-search-cli "site:example.com changelog 2025" --num 15 -f json \
+  | jaq -r '.resultados[].url'
+
+# 2. Feed cleaned page bodies into a summarizer.
+duckduckgo-search-cli "tokio runtime internals" --num 15 \
+  --fetch-content --max-content-length 4000 -f json \
+  | jaq -r '.resultados[] | "# \(.titulo)\n\(.conteudo)\n"' > corpus.md
+
+# 3. Fan-out multiple queries in one shot.
+duckduckgo-search-cli "rust rayon" "rust tokio" "rust crossbeam" \
+  --num 15 --parallel 3 -f json
+
+# 4. NDJSON streaming for reactive pipelines.
+duckduckgo-search-cli "wasm runtimes" --num 15 --stream \
+  | jaq -r 'select(.url) | .url' \
+  | xargs -I{} my-downloader {}
+
+# 5. Route through a corporate proxy (env var also respected).
+duckduckgo-search-cli "vendor status page 2026" --num 15 \
+  --proxy http://user:pass@proxy.internal:8080 -f json
+
+# 6. Offline smoke test (no real network).
+cargo test --test integracao_wiremock
+```
+
+### Configuration
+
+```bash
+# Write default selectors.toml and user-agents.toml to the XDG dir.
 duckduckgo-search-cli init-config
-duckduckgo-search-cli "rust async runtime" --num 5 --format json
-duckduckgo-search-cli "rust async runtime" --fetch-content --max-content-length 5000 -o /tmp/out.json
+
+# Dry-run first to see what would be written.
+duckduckgo-search-cli init-config --dry-run
+
+# Overwrite existing files explicitly.
+duckduckgo-search-cli init-config --force
 ```
 
 ### Commands
 
-| Command                                  | Purpose                                                |
-| ---------------------------------------- | ------------------------------------------------------ |
-| `duckduckgo-search-cli <QUERY>...`       | Default search (equivalent to `buscar`).               |
-| `duckduckgo-search-cli buscar <QUERY>..` | Explicit search subcommand.                            |
-| `duckduckgo-search-cli init-config`      | Write `selectors.toml` and `user-agents.toml` to XDG.  |
+| Command                                    | Purpose                                                |
+| ------------------------------------------ | ------------------------------------------------------ |
+| `duckduckgo-search-cli <QUERY>...`         | Default search (equivalent to `buscar`).               |
+| `duckduckgo-search-cli buscar <QUERY>...`  | Explicit search subcommand.                            |
+| `duckduckgo-search-cli init-config`        | Write `selectors.toml` and `user-agents.toml` to XDG.  |
 
 ### Flags
 
 | Flag                       | Default    | Description                                                        |
 | -------------------------- | ---------- | ------------------------------------------------------------------ |
-| `-n`, `--num`              | (all)      | Max results per query per page.                                    |
+| `-n`, `--num`              | `15`       | Max results per query (auto-paginates when > 10).                  |
 | `-f`, `--format`           | `auto`     | `json`, `text`, `markdown`, or `auto` (TTY-aware).                 |
 | `-o`, `--output`           | stdout     | Write to file (parent dirs auto-created, Unix 0o644).              |
 | `-t`, `--timeout`          | `15`       | Per-request timeout (seconds).                                     |
@@ -54,7 +133,7 @@ duckduckgo-search-cli "rust async runtime" --fetch-content --max-content-length 
 | `-l`, `--lang`             | `pt`       | DuckDuckGo `kl` language code.                                     |
 | `-c`, `--country`          | `br`       | DuckDuckGo `kl` country code.                                      |
 | `-p`, `--parallel`         | `5`        | Concurrent requests (1..=20).                                      |
-| `--pages`                  | `1`        | Pages to crawl per query (1..=5).                                  |
+| `--pages`                  | `1`        | Pages to crawl per query (1..=5, auto-raised by `--num`).          |
 | `--retries`                | `2`        | Extra retries on 429/403/timeout (0..=10).                         |
 | `--endpoint`               | `html`     | `html` or `lite`.                                                  |
 | `--time-filter`            | (none)     | `d`, `w`, `m`, or `y`.                                             |
@@ -71,7 +150,7 @@ duckduckgo-search-cli "rust async runtime" --fetch-content --max-content-length 
 | `-v`, `--verbose`          | off        | Debug logs on stderr.                                              |
 | `-q`, `--quiet`            | off        | Error-only logs on stderr.                                         |
 
-### Environment Variables
+### Environment variables
 
 | Variable       | Description                                                 | Example                            |
 | -------------- | ----------------------------------------------------------- | ---------------------------------- |
@@ -81,31 +160,14 @@ duckduckgo-search-cli "rust async runtime" --fetch-content --max-content-length 
 | `ALL_PROXY`    | Fallback proxy for any scheme.                              | `socks5://127.0.0.1:9050`          |
 | `CHROME_PATH`  | Fallback Chrome path (feature `chrome`).                    | `/opt/google/chrome/chrome`        |
 
-### Output Formats
+### Output formats
 
-- `json` (default for pipes): canonical schema with `resultados[]` and `metadados`, stable field order. Each result may include the optional `titulo_original` field when the "Official site" heuristic replaces the title with `url_exibicao`. Note: the `html.duckduckgo.com/html/` endpoint does not expose related searches in the DOM; v0.3.0 removed the `buscas_relacionadas` field.
+- `json` (default for pipes): canonical schema with `resultados[]` and `metadados`, stable field order. Each result may include the optional `titulo_original` field when the "Official site" heuristic replaces the title with `url_exibicao`. The `html.duckduckgo.com/html/` endpoint does not expose related searches in the DOM, so v0.3.0 removed the `buscas_relacionadas` field.
 - `text`: human-readable block `NN. Title\n   URL\n   snippet`.
 - `markdown`: `- [Title](URL)\n  > snippet`.
 - Stream (`--stream`): NDJSON where each line is one result; metadata emitted as the final line.
 
-### Integration Patterns
-
-```bash
-# Pipe directly into an LLM preprocessing step.
-duckduckgo-search-cli "site:example.com changelog 2025" --num 3 --format json | jaq '.resultados[].url'
-
-# Feed extracted bodies into a summarizer.
-duckduckgo-search-cli "tokio runtime internals" --fetch-content --max-content-length 4000 -f json \
-  | jaq -r '.resultados[] | "# \(.titulo)\n\(.conteudo)\n"' > corpus.md
-
-# Streaming mode with xargs.
-duckduckgo-search-cli "wasm runtimes" --stream | choose 0 | xargs -I{} my-downloader {}
-
-# Offline smoke test via wiremock-backed suite.
-cargo test --test integracao_wiremock
-```
-
-### Exit Codes
+### Exit codes
 
 | Code | Meaning                                                        |
 | ---- | -------------------------------------------------------------- |
@@ -118,11 +180,18 @@ cargo test --test integracao_wiremock
 
 ### Troubleshooting
 
-1. **HTTP 202 / block anomaly**: back off, raise `--retries`, rotate UA via `init-config` and tweak `user-agents.toml`.
-2. **Rate limited (HTTP 429)**: increase `--per-host-limit` *reduction*, enable `--match-platform-ua`, or add `--proxy`.
-3. **Zero results (exit 5)**: check `--lang`/`--country`, try `--endpoint lite`, and verify `--time-filter`.
-4. **Chrome not found**: install Chromium via your package manager, or pass `--chrome-path /path/to/chrome`; feature must be compiled (`cargo install duckduckgo-search-cli --features chrome`).
-5. **UTF-8 issues on Windows**: the binary auto-switches cmd.exe to code page 65001; if you see mojibake, set `chcp 65001` before the run.
+1. **HTTP 202 / block anomaly (exit 3)** — back off, raise `--retries`, rotate UA via `init-config` and tweak `user-agents.toml`.
+2. **Rate limited (HTTP 429)** — lower `--per-host-limit`, enable `--match-platform-ua`, or add `--proxy`.
+3. **Zero results (exit 5)** — check `--lang` and `--country`, try `--endpoint lite`, and verify `--time-filter`.
+4. **Chrome not found** — install Chromium via your package manager, or pass `--chrome-path /path/to/chrome`; the feature must be compiled with `cargo install duckduckgo-search-cli --features chrome`.
+5. **UTF-8 issues on Windows** — the binary auto-switches cmd.exe to code page 65001; if you still see mojibake, run `chcp 65001` before the command.
+6. **How do I integrate with Claude Code, Cursor, Aider, or another agent?** — expose the binary as a shell tool. Most agents accept a command template such as `duckduckgo-search-cli "{query}" --num 15 -q -f json`. The stable schema keeps the tool contract stable across releases.
+
+### Migration notes (v0.3.x → v0.4.0)
+
+- `--num` now defaults to `15` (previously the full single-page payload, roughly 11). Scripts that processed "all results" continue to work — you just get a consistent count.
+- When `--num > 10` and `--pages` is left at the default `1`, the CLI automatically raises `--pages` to `ceil(num / 10)` (capped at 5). Pass `--pages 1` explicitly to force a single page.
+- JSON schema unchanged: `resultados[]`, `metadados`, `titulo_original` remain exactly as in v0.3.x.
 
 See the [CHANGELOG](CHANGELOG.md) for release history.
 
@@ -132,44 +201,114 @@ License: MIT OR Apache-2.0.
 
 ## Português
 
-### O que é?
+### Por que isto existe
 
-- CLI em Rust que consulta `html.duckduckgo.com/html/` via HTTP puro.
-- Sem API paga, sem Chrome no caminho quente, sem cache em disco.
-- Emite JSON, texto, Markdown ou streams NDJSON prontos para alimentar LLMs.
-- Multiplataforma: Linux (glibc, musl/Alpine, Flatpak, Snap, NixOS), macOS (Intel + Apple Silicon), Windows (cmd.exe + PowerShell).
-- Fallback Chrome headless sob flag `--features chrome` para páginas com JavaScript pesado.
-- Pipeline multi-query paralelo com rate-limit por host e cancelamento.
+Toda LLM moderna carrega um corte de conhecimento, e todo agente autônomo eventualmente precisa de algo que seus pesos nunca viram: a versão recente de uma biblioteca, o post-mortem de um incidente de 2026, a página de preços atual de um fornecedor. Plugar uma API de busca hospedada custa dinheiro, vaza consultas e quebra no momento em que o vendor aplica rate-limit no meio de um plano de múltiplas etapas.
 
-### Por quê?
+O `duckduckgo-search-cli` é um único binário Rust que transforma qualquer shell em ferramenta de busca de primeira classe. Sem API key. Sem tracking. Sem Chrome no caminho quente. Só um schema JSON estável, concorrência limitada e exit codes previsíveis — exatamente o que um agente precisa para se ancorar em dados reais da web sem virar ponto de falha.
 
-- Primitivo plugável para RAG: schema JSON estável, códigos de saída estáveis.
-- Sem estado oculto — configuração mora no diretório XDG.
-- TLS só via rustls: sem OpenSSL em runtime, sem surpresa no SChannel, builds musl estáticas funcionam de primeira.
-- Timeouts explícitos (`--timeout`, `--global-timeout`) e concorrência limitada (`--parallel`, `--per-host-limit`) deixam o binário seguro em automação.
+### Superpoderes para cada agente de IA
 
-### Início Rápido
+Basta que o agente possa executar um comando de shell. Quase todo agente sério em produção hoje consegue.
+
+| Agente                 | Como se beneficia                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| Claude Code            | Ferramenta `Bash` chama `duckduckgo-search-cli "query" --num 15 -q \| jaq '.resultados'` antes de editar. |
+| OpenAI Codex           | Acesso ao shell injeta o JSON estruturado no contexto para docs de biblioteca atualizadas.                |
+| Gemini CLI             | Pipe do resultado para o modo JSON do Gemini para sintetizar fatos da cauda longa da web.                 |
+| Cursor                 | Declarar o binário em `.cursorrules` e deixar a IA chamar quando faltar contexto.                         |
+| Windsurf               | Agentes Cascade chamam o CLI como ferramenta determinística para dados frescos.                           |
+| Aider                  | Use `/run` para injetar os resultados direto na conversa de edição.                                       |
+| Continue.dev           | Registrar como slash-command customizado para ancorar completions na IDE.                                 |
+| MiniMax                | Integração de shell dá aos agentes MiniMax cobertura global via DuckDuckGo.                               |
+| OpenCode               | Integração de shell agnóstica de modelo — funciona com qualquer provider apontado no OpenCode.            |
+| Paperclip              | Primitivo plug-and-play para pipelines autônomos de pesquisa.                                             |
+| OpenClaw               | Runtime de agente open-source — usar como backend de busca padrão.                                        |
+| Google Antigravity     | CLI headless como fallback para o agente de browser de superfície quando scraping direto é necessário.    |
+| GitHub Copilot CLI     | Workflows `gh copilot` que exigem URLs verificadas e referências frescas.                                 |
+| Devin                  | Engenheiro autônomo lê o JSON para planejar antes de tocar no código.                                     |
+| Cline                  | Agente do VS Code chama o binário como comando de terminal para respostas ancoradas.                      |
+| Roo Code               | Fork do Roo Cline — mesma integração de shell sem configuração.                                           |
+
+### Por que é perfeito para agentes de IA
+
+- **JSON-first por padrão.** Schema estável com `resultados[]` e `metadados`, ordem de campos congelada entre releases, pronto para `jaq` e parsing direto em chamadas de tool.
+- **Zero API key, zero tracking.** Fala direto com o endpoint HTML do DuckDuckGo sobre HTTPS. Sem autenticação para rotacionar, sem dashboard para babá, sem superfície de vazamento.
+- **Paralelismo nativo.** `--parallel 1..=20` distribui múltiplas queries via `tokio::JoinSet`, e `--per-host-limit` evita abuso em bursts quando `--fetch-content` está ligado.
+- **15 resultados por padrão.** Contexto generoso para LLMs sem te obrigar a digitar `--num`. Sobrescreva por chamada quando precisar.
+- **Auto-paginação que simplesmente funciona.** Quando `--num` supera uma página única do DuckDuckGo, o CLI crawla até 2 páginas automaticamente para entregar a contagem pedida.
+- **Extração opcional de body legível.** `--fetch-content` baixa cada URL e embute texto limpo direto no JSON, limitado por `--max-content-length`.
+- **Binário único cross-platform.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — tudo a partir de um `cargo install`.
+- **`rustls-tls` puro.** Sem OpenSSL, sem surpresas no SChannel, builds musl estáticas funcionam de primeira em qualquer container Alpine.
+- **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
+- **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
+
+### Início rápido
 
 ```bash
 cargo install duckduckgo-search-cli
+duckduckgo-search-cli "rust async runtime"
+# 15 resultados JSON frescos na sua mesa.
+
+# Para LLMs e agentes:
+duckduckgo-search-cli "tokio JoinSet exemplos" --num 15 -q | jaq '.resultados'
+```
+
+### Receitas práticas
+
+```bash
+# 1. Extrair apenas URLs para um fetcher downstream.
+duckduckgo-search-cli "site:example.com changelog 2025" --num 15 -f json \
+  | jaq -r '.resultados[].url'
+
+# 2. Enviar bodies limpos para um summarizer.
+duckduckgo-search-cli "tokio runtime internals" --num 15 \
+  --fetch-content --max-content-length 4000 -f json \
+  | jaq -r '.resultados[] | "# \(.titulo)\n\(.conteudo)\n"' > corpus.md
+
+# 3. Fan-out de múltiplas queries em uma única invocação.
+duckduckgo-search-cli "rust rayon" "rust tokio" "rust crossbeam" \
+  --num 15 --parallel 3 -f json
+
+# 4. Streaming NDJSON para pipelines reativos.
+duckduckgo-search-cli "wasm runtimes" --num 15 --stream \
+  | jaq -r 'select(.url) | .url' \
+  | xargs -I{} my-downloader {}
+
+# 5. Passar por proxy corporativo (env vars também são respeitadas).
+duckduckgo-search-cli "vendor status page 2026" --num 15 \
+  --proxy http://user:pass@proxy.internal:8080 -f json
+
+# 6. Teste offline sem rede real.
+cargo test --test integracao_wiremock
+```
+
+### Configuração
+
+```bash
+# Grava selectors.toml e user-agents.toml padrão no diretório XDG.
 duckduckgo-search-cli init-config
-duckduckgo-search-cli "tokio async runtime" --num 5 --format json
-duckduckgo-search-cli "tokio async runtime" --fetch-content --max-content-length 5000 -o /tmp/out.json
+
+# Dry-run primeiro para ver o que seria escrito.
+duckduckgo-search-cli init-config --dry-run
+
+# Sobrescrever arquivos existentes explicitamente.
+duckduckgo-search-cli init-config --force
 ```
 
 ### Comandos
 
-| Comando                                  | Propósito                                               |
-| ---------------------------------------- | ------------------------------------------------------- |
-| `duckduckgo-search-cli <QUERY>...`       | Busca padrão (equivalente a `buscar`).                  |
-| `duckduckgo-search-cli buscar <QUERY>..` | Subcomando explícito de busca.                          |
-| `duckduckgo-search-cli init-config`      | Grava `selectors.toml` e `user-agents.toml` no XDG.     |
+| Comando                                    | Propósito                                               |
+| ------------------------------------------ | ------------------------------------------------------- |
+| `duckduckgo-search-cli <QUERY>...`         | Busca padrão (equivalente a `buscar`).                  |
+| `duckduckgo-search-cli buscar <QUERY>...`  | Subcomando explícito de busca.                          |
+| `duckduckgo-search-cli init-config`        | Grava `selectors.toml` e `user-agents.toml` no XDG.     |
 
 ### Flags
 
 | Flag                       | Padrão     | Descrição                                                          |
 | -------------------------- | ---------- | ------------------------------------------------------------------ |
-| `-n`, `--num`              | (todos)    | Máximo de resultados por query por página.                         |
+| `-n`, `--num`              | `15`       | Máximo de resultados por query (auto-pagina quando > 10).          |
 | `-f`, `--format`           | `auto`     | `json`, `text`, `markdown` ou `auto` (detecta TTY).                |
 | `-o`, `--output`           | stdout     | Grava no arquivo (diretórios criados, permissão Unix 0o644).       |
 | `-t`, `--timeout`          | `15`       | Timeout por request (segundos).                                    |
@@ -177,7 +316,7 @@ duckduckgo-search-cli "tokio async runtime" --fetch-content --max-content-length
 | `-l`, `--lang`             | `pt`       | Código de idioma `kl` do DuckDuckGo.                               |
 | `-c`, `--country`          | `br`       | Código de país `kl` do DuckDuckGo.                                 |
 | `-p`, `--parallel`         | `5`        | Requests concorrentes (1..=20).                                    |
-| `--pages`                  | `1`        | Páginas por query (1..=5).                                         |
+| `--pages`                  | `1`        | Páginas por query (1..=5, auto-elevado por `--num`).               |
 | `--retries`                | `2`        | Retries extras em 429/403/timeout (0..=10).                        |
 | `--endpoint`               | `html`     | `html` ou `lite`.                                                  |
 | `--time-filter`            | (nenhum)   | `d`, `w`, `m` ou `y`.                                              |
@@ -194,7 +333,7 @@ duckduckgo-search-cli "tokio async runtime" --fetch-content --max-content-length
 | `-v`, `--verbose`          | off        | Logs DEBUG em stderr.                                              |
 | `-q`, `--quiet`            | off        | Apenas logs ERROR em stderr.                                       |
 
-### Variáveis de Ambiente
+### Variáveis de ambiente
 
 | Variável       | Descrição                                                       | Exemplo                            |
 | -------------- | --------------------------------------------------------------- | ---------------------------------- |
@@ -204,48 +343,38 @@ duckduckgo-search-cli "tokio async runtime" --fetch-content --max-content-length
 | `ALL_PROXY`    | Proxy fallback para qualquer scheme.                            | `socks5://127.0.0.1:9050`          |
 | `CHROME_PATH`  | Caminho fallback para Chrome (feature `chrome`).                | `/opt/google/chrome/chrome`        |
 
-### Formatos de Saída
+### Formatos de saída
 
-- `json` (default em pipes): schema canônico com `resultados[]` e `metadados`, ordem de campos estável. Cada resultado pode incluir o campo opcional `titulo_original` quando a heurística "Official site" substitui o título pelo `url_exibicao`. Nota: o endpoint `html.duckduckgo.com/html/` não expõe buscas relacionadas no DOM; a v0.3.0 removeu o campo `buscas_relacionadas`.
+- `json` (default em pipes): schema canônico com `resultados[]` e `metadados`, ordem de campos estável. Cada resultado pode incluir o campo opcional `titulo_original` quando a heurística "Official site" substitui o título pelo `url_exibicao`. O endpoint `html.duckduckgo.com/html/` não expõe buscas relacionadas no DOM; a v0.3.0 removeu o campo `buscas_relacionadas`.
 - `text`: bloco legível `NN. Título\n   URL\n   snippet`.
 - `markdown`: `- [Título](URL)\n  > snippet`.
 - Stream (`--stream`): NDJSON, cada linha é um resultado; metadados na linha final.
 
-### Padrões de Integração
+### Códigos de saída
 
-```bash
-# Pipe direto para pré-processamento em LLM.
-duckduckgo-search-cli "site:example.com release 2025" --num 3 -f json | jaq '.resultados[].url'
-
-# Enviar bodies extraídos para summarizer.
-duckduckgo-search-cli "rust async tokio" --fetch-content --max-content-length 4000 -f json \
-  | jaq -r '.resultados[] | "# \(.titulo)\n\(.conteudo)\n"' > corpus.md
-
-# Modo streaming com xargs.
-duckduckgo-search-cli "wasm runtimes" --stream | choose 0 | xargs -I{} downloader {}
-
-# Testes offline com wiremock.
-cargo test --test integracao_wiremock
-```
-
-### Códigos de Saída
-
-| Código | Significado                                                 |
-| ------ | ----------------------------------------------------------- |
-| 0      | Sucesso.                                                    |
-| 1      | Erro de runtime (rede, parse, I/O).                         |
-| 2      | Configuração inválida (flag fora de faixa, proxy malformado).|
-| 3      | Bloqueio DuckDuckGo (anomalia HTTP 202).                    |
-| 4      | Timeout global excedido.                                    |
-| 5      | Zero resultados em todas as queries.                        |
+| Código | Significado                                                    |
+| ------ | -------------------------------------------------------------- |
+| 0      | Sucesso.                                                       |
+| 1      | Erro de runtime (rede, parse, I/O).                            |
+| 2      | Configuração inválida (flag fora de faixa, proxy malformado).  |
+| 3      | Bloqueio DuckDuckGo (anomalia HTTP 202).                       |
+| 4      | Timeout global excedido.                                       |
+| 5      | Zero resultados em todas as queries.                           |
 
 ### Troubleshooting
 
-1. **HTTP 202 / bloqueio**: aumente `--retries`, rotacione UA via `init-config` editando `user-agents.toml`.
-2. **Rate limit (HTTP 429)**: reduza `--per-host-limit`, ative `--match-platform-ua` ou use `--proxy`.
-3. **Zero resultados (exit 5)**: confira `--lang` e `--country`, tente `--endpoint lite`, revise `--time-filter`.
-4. **Chrome não encontrado**: instale Chromium pelo gerenciador de pacotes ou passe `--chrome-path /caminho/chrome`; a feature precisa ser compilada (`cargo install duckduckgo-search-cli --features chrome`).
-5. **Problemas UTF-8 no Windows**: o binário muda cmd.exe para code page 65001 automaticamente; se ver mojibake, execute `chcp 65001` antes.
+1. **HTTP 202 / bloqueio (exit 3)** — aumente `--retries`, rotacione UA via `init-config` editando `user-agents.toml`.
+2. **Rate limit (HTTP 429)** — reduza `--per-host-limit`, ative `--match-platform-ua` ou use `--proxy`.
+3. **Zero resultados (exit 5)** — confira `--lang` e `--country`, tente `--endpoint lite`, revise `--time-filter`.
+4. **Chrome não encontrado** — instale Chromium pelo gerenciador de pacotes ou passe `--chrome-path /caminho/chrome`; a feature precisa ser compilada com `cargo install duckduckgo-search-cli --features chrome`.
+5. **Problemas UTF-8 no Windows** — o binário muda cmd.exe para code page 65001 automaticamente; se ver mojibake, execute `chcp 65001` antes.
+6. **Como integro com Claude Code, Cursor, Aider ou outro agente?** — exponha o binário como shell tool. A maioria dos agentes aceita um template de comando como `duckduckgo-search-cli "{query}" --num 15 -q -f json`. O schema estável mantém o contrato da tool estável entre releases.
+
+### Notas de migração (v0.3.x → v0.4.0)
+
+- `--num` agora é `15` por padrão (antes era o payload completo de uma página, ~11). Scripts que processavam "todos os resultados" continuam funcionando — você só ganha uma contagem consistente.
+- Quando `--num > 10` e `--pages` permanece no default `1`, o CLI eleva automaticamente `--pages` para `ceil(num / 10)` (limitado a 5). Passe `--pages 1` explicitamente para forçar uma única página.
+- Schema JSON inalterado: `resultados[]`, `metadados` e `titulo_original` permanecem idênticos à v0.3.x.
 
 Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo.
 

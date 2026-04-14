@@ -815,3 +815,169 @@ fn ndjson_serializa_saida_busca_em_uma_linha_valida() {
     assert_eq!(parsed["query"], "rust");
     assert_eq!(parsed["quantidade_resultados"], 1);
 }
+
+// ---------------------------------------------------------------------------
+// Teste v0.4.0 #1: default --num 15 + auto-paginação para 2 páginas.
+//
+// Simula a configuração que `montar_configuracoes` produziria quando o usuário
+// NÃO passa `--num` (default=15) e `--pages` está no default (1): ela eleva
+// `paginas` para 2 e fixa `num_resultados = Some(15)`. O teste verifica que
+// `buscar_com_paginacao` respeita isso: faz GET da página 1, POST da página 2
+// (com vqd), agrega 11 + 10 = 21 resultados e trunca em 15.
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn testa_default_num_15_auto_pagina_2_paginas() {
+    let _g = env_lock().lock().await;
+    let mock_server = MockServer::start().await;
+
+    // Página 1 — 11 resultados (quantidade típica da primeira página do DDG).
+    let titulos_pg1: Vec<String> = (1..=11).map(|i| format!("Res Pg1 {i}")).collect();
+    let refs_pg1: Vec<&str> = titulos_pg1.iter().map(String::as_str).collect();
+    let html_pg1 = html_com_tokens_vqd_e_resultados("vqd-auto-pg1", "0", "30", &refs_pg1);
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html_pg1)
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    // Página 2 — 10 resultados adicionais. A busca virá via POST com vqd-auto-pg1.
+    let titulos_pg2: Vec<String> = (1..=10).map(|i| format!("Res Pg2 {i}")).collect();
+    let refs_pg2: Vec<&str> = titulos_pg2.iter().map(String::as_str).collect();
+    let html_pg2 = html_com_tokens_vqd_e_resultados("vqd-auto-pg2", "30", "60", &refs_pg2);
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_string_contains("vqd=vqd-auto-pg1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html_pg2)
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .with_priority(1)
+        .mount(&mock_server)
+        .await;
+
+    let base = format!("{}/", mock_server.uri());
+    let _env = GuardaEnv::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+    ]);
+
+    let cliente = cliente_teste();
+    // Simula a configuração PÓS-montar_configuracoes com default --num 15
+    // e auto-paginação para 2 páginas (comportamento novo em v0.4.0).
+    let mut cfg = configuracoes_base(Endpoint::Html, 2, 0);
+    cfg.num_resultados = Some(15);
+    let flag = Arc::new(AtomicBool::new(false));
+    let token = CancellationToken::new();
+
+    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+        .await
+        .expect("auto-paginação deve funcionar");
+
+    assert_eq!(
+        agregado.resultados.len(),
+        15,
+        "deve truncar em --num=15 após agregar 21 resultados de 2 páginas"
+    );
+    assert_eq!(
+        agregado.paginas_buscadas, 2,
+        "deve ter buscado exatamente 2 páginas"
+    );
+    assert_eq!(agregado.resultados[0].titulo, "Res Pg1 1");
+    // Página 2 começa após os 11 da página 1 → posições 12..=15 vêm da página 2.
+    assert_eq!(agregado.resultados[11].titulo, "Res Pg2 1");
+    assert_eq!(agregado.resultados[14].titulo, "Res Pg2 4");
+}
+
+// ---------------------------------------------------------------------------
+// Teste v0.4.0 #2: auto-paginação RESPEITA --pages explícito do usuário.
+//
+// Quando o usuário passa --pages 3 explicitamente, a lógica de auto-paginação
+// NÃO sobrescreve. Este teste simula cfg com paginas=3 + num=15 e verifica
+// que buscar_com_paginacao executa 3 páginas (e trunca em 15).
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn testa_auto_paginacao_respeita_pages_explicito() {
+    let _g = env_lock().lock().await;
+    let mock_server = MockServer::start().await;
+
+    // Página 1 — 11 resultados.
+    let titulos_pg1: Vec<String> = (1..=11).map(|i| format!("Pg1-{i}")).collect();
+    let refs_pg1: Vec<&str> = titulos_pg1.iter().map(String::as_str).collect();
+    let html_pg1 = html_com_tokens_vqd_e_resultados("v-expl-1", "0", "30", &refs_pg1);
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html_pg1)
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    // Página 2 — 5 resultados.
+    let titulos_pg2: Vec<String> = (1..=5).map(|i| format!("Pg2-{i}")).collect();
+    let refs_pg2: Vec<&str> = titulos_pg2.iter().map(String::as_str).collect();
+    let html_pg2 = html_com_tokens_vqd_e_resultados("v-expl-2", "30", "60", &refs_pg2);
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_string_contains("vqd=v-expl-1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html_pg2)
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .with_priority(1)
+        .mount(&mock_server)
+        .await;
+
+    // Página 3 — 3 resultados.
+    let titulos_pg3: Vec<String> = (1..=3).map(|i| format!("Pg3-{i}")).collect();
+    let refs_pg3: Vec<&str> = titulos_pg3.iter().map(String::as_str).collect();
+    let html_pg3 = html_com_tokens_vqd_e_resultados("v-expl-3", "60", "90", &refs_pg3);
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_string_contains("vqd=v-expl-2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html_pg3)
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .with_priority(2)
+        .mount(&mock_server)
+        .await;
+
+    let base = format!("{}/", mock_server.uri());
+    let _env = GuardaEnv::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+    ]);
+
+    let cliente = cliente_teste();
+    // Simula --num 15 --pages 3 (explícito) → montar_configuracoes NÃO sobrescreve.
+    let mut cfg = configuracoes_base(Endpoint::Html, 3, 0);
+    cfg.num_resultados = Some(15);
+    let flag = Arc::new(AtomicBool::new(false));
+    let token = CancellationToken::new();
+
+    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+        .await
+        .expect("deve buscar 3 páginas conforme --pages explícito");
+
+    assert_eq!(
+        agregado.paginas_buscadas, 3,
+        "deve respeitar --pages=3 explícito"
+    );
+    // 11 + 5 + 3 = 19 agregados, truncados em 15.
+    assert_eq!(
+        agregado.resultados.len(),
+        15,
+        "19 agregados devem ser truncados em num=15"
+    );
+    assert_eq!(agregado.resultados[0].titulo, "Pg1-1");
+    assert_eq!(agregado.resultados[11].titulo, "Pg2-1");
+}

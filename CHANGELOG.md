@@ -5,6 +5,51 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-14
+
+### Changed (BREAKING)
+
+- **Default de `--num` / `-n`**: alterado de "todos os resultados da primeira
+  página" (~11) para **15**, com **auto-paginação** automática. Quando o
+  número efetivo excede 10, o binário agora busca **2 páginas** por query
+  para satisfazer o teto solicitado, desde que `--pages` não tenha sido
+  customizado pelo usuário.
+- **Auto-paginação automática**: se `--num > 10` (seja porque o usuário
+  passou explicitamente ou porque o default 15 foi aplicado) E `--pages`
+  não foi customizado (continua no default 1), o binário auto-eleva
+  `--pages` para `ceil(num/10)` respeitando o teto de 5 páginas validado
+  por `validar_paginas`. Impacto: mais requests por query (2x no caso
+  default) e latência marginalmente maior, porém com cobertura completa
+  dos resultados solicitados.
+
+### Added
+
+- Documentação no comentário do flag `--num` em `cli.rs` descrevendo a
+  nova semântica de default e auto-paginação.
+- 4 novos testes unitários em `lib.rs::testes`:
+  `montar_configuracoes_aplica_default_num_15_quando_omitido`,
+  `montar_configuracoes_respeita_pages_explicito_acima_de_1`,
+  `montar_configuracoes_auto_pagina_quando_num_maior_que_10`,
+  `montar_configuracoes_nao_auto_pagina_quando_num_10_ou_menos`.
+- 2 novos testes wiremock em `tests/integracao_wiremock.rs`:
+  `testa_default_num_15_auto_pagina_2_paginas`,
+  `testa_auto_paginacao_respeita_pages_explicito`.
+
+### Migration Guide
+
+- **Quem quer o comportamento antigo** (1 página, ~11 resultados):
+  passe `--pages 1 --num 10` explicitamente. O `--pages 1` explícito é
+  indistinguível do default (trade-off aceito: `paginas > 1` é o único
+  sinal de "customização"), então o mais seguro é combinar com `--num 10`
+  para garantir que nada será auto-paginado.
+- **Quem já passava `--num 5`** (ou qualquer valor <= 10): comportamento
+  **inalterado** (sem auto-paginação, 1 página).
+- **Quem já passava `--num 20 --pages 2`** ou similar: comportamento
+  **inalterado** (respeita explícito do usuário).
+- **Quem confiava no default sem flags**: agora recebe até 15 resultados
+  em vez de ~11, com 1 request extra por query. Para restaurar o antigo,
+  passe `--pages 1 --num 10`.
+
 ## [0.3.0] - 2026-04-14
 
 ### Changed (BREAKING)

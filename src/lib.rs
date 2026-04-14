@@ -279,10 +279,30 @@ fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
     // Carrega seletores CSS — tenta arquivo TOML externo, cai em defaults embutidos.
     let seletores = selectors::carregar_seletores();
 
+    // --- Default de --num e auto-paginação (v0.4.0) ---
+    //
+    // Semântica (decidida em v0.4.0):
+    // - Se o usuário NÃO passa `--num`, usamos 15 como default efetivo.
+    // - Se o `num` efetivo for > 10 e o usuário NÃO customizou `--pages`
+    //   (ou seja, `paginas == 1`, que é o default do clap), auto-elevamos
+    //   `paginas` para `ceil(num/10)`, limitado ao teto de 5 (PAGINAS_MAXIMO
+    //   validado em `validar_paginas`).
+    // - Se o usuário passa `--pages > 1` explicitamente, RESPEITAMOS o valor
+    //   dele sem sobrescrever (caso raro: `--pages 1` explícito é
+    //   indistinguível do default; trade-off aceito).
+    let num_efetivo = argumentos.num_resultados.unwrap_or(15);
+    let paginas_efetivas = if argumentos.paginas > 1 {
+        argumentos.paginas
+    } else if num_efetivo > 10 {
+        num_efetivo.div_ceil(10).min(5)
+    } else {
+        1
+    };
+
     Ok(Configuracoes {
         query: primeira,
         queries,
-        num_resultados: argumentos.num_resultados,
+        num_resultados: Some(num_efetivo),
         formato,
         timeout_segundos: argumentos.timeout_segundos,
         idioma: argumentos.idioma.clone(),
@@ -291,7 +311,7 @@ fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
         modo_silencioso: argumentos.silencioso,
         user_agent,
         paralelismo: argumentos.paralelismo,
-        paginas: argumentos.paginas,
+        paginas: paginas_efetivas,
         retries: argumentos.retries,
         endpoint: converter_endpoint(argumentos.endpoint),
         filtro_temporal: argumentos.filtro_temporal.map(converter_filtro_temporal),
@@ -411,6 +431,66 @@ mod testes {
         let mut argumentos = argumentos_base();
         argumentos.paralelismo = 50;
         assert!(montar_configuracoes(&argumentos).is_err());
+    }
+
+    #[test]
+    fn montar_configuracoes_aplica_default_num_15_quando_omitido() {
+        // v0.4.0: quando `--num` é omitido (None), o default efetivo é 15
+        // E isso auto-eleva `--pages` para 2 (já que 15 > 10 e pages=1 é o default).
+        let mut argumentos = argumentos_base();
+        argumentos.num_resultados = None;
+        argumentos.paginas = 1;
+        let cfg = montar_configuracoes(&argumentos).expect("deve montar");
+        assert_eq!(cfg.num_resultados, Some(15), "default 15 quando None");
+        assert_eq!(cfg.paginas, 2, "auto-eleva para ceil(15/10) = 2");
+    }
+
+    #[test]
+    fn montar_configuracoes_respeita_pages_explicito_acima_de_1() {
+        // Se o usuário passa `--pages 3` explícito, NÃO sobrescrever com
+        // auto-paginação, mesmo que num efetivo exigisse menos.
+        let mut argumentos = argumentos_base();
+        argumentos.num_resultados = Some(20);
+        argumentos.paginas = 3;
+        let cfg = montar_configuracoes(&argumentos).expect("deve montar");
+        assert_eq!(cfg.num_resultados, Some(20));
+        assert_eq!(cfg.paginas, 3, "respeita --pages explícito do usuário");
+    }
+
+    #[test]
+    fn montar_configuracoes_auto_pagina_quando_num_maior_que_10() {
+        // Casos de fronteira do auto-paginador.
+        let casos = [
+            (11u32, 2u32), // ceil(11/10) = 2
+            (15, 2),       // ceil(15/10) = 2
+            (20, 2),       // ceil(20/10) = 2
+            (21, 3),       // ceil(21/10) = 3
+            (45, 5),       // ceil(45/10) = 5
+            (60, 5),       // ceil(60/10) = 6 mas clamp em 5
+        ];
+        for (num, paginas_esperadas) in casos {
+            let mut argumentos = argumentos_base();
+            argumentos.num_resultados = Some(num);
+            argumentos.paginas = 1;
+            let cfg = montar_configuracoes(&argumentos)
+                .unwrap_or_else(|e| panic!("deve montar para num={num}: {e}"));
+            assert_eq!(
+                cfg.paginas, paginas_esperadas,
+                "para num={num}, paginas deveria ser {paginas_esperadas}"
+            );
+        }
+    }
+
+    #[test]
+    fn montar_configuracoes_nao_auto_pagina_quando_num_10_ou_menos() {
+        // Se num efetivo <= 10, mantém paginas=1 (sem auto-paginação).
+        for num in [1u32, 5, 10] {
+            let mut argumentos = argumentos_base();
+            argumentos.num_resultados = Some(num);
+            argumentos.paginas = 1;
+            let cfg = montar_configuracoes(&argumentos).expect("deve montar");
+            assert_eq!(cfg.paginas, 1, "num={num} não deveria auto-paginar");
+        }
     }
 
     #[test]
