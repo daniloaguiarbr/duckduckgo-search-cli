@@ -66,7 +66,7 @@ clap = { version = "4", features = ["derive"] }
 # Serialização — serde + serde_json para JSON, toml para arquivos de configuração.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1.1"
 
 # URL encoding/decoding (para desencapsular redirects /l/?uddg= do DuckDuckGo).
 urlencoding = "2"
