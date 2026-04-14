@@ -60,6 +60,16 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 
+### 📚 Documentation
+
+Three deep-dive guides ship with the crate. Read them once — they pay back forever.
+
+| Guide | Why it matters |
+|-------|---------------|
+| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 30+ MUST/NEVER rules for any LLM/agent invoking this CLI in production. Bilingual EN+PT. |
+| [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 copy-paste recipes for research, ETL, monitoring, content extraction. Bilingual EN+PT. |
+| [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Drop-in snippets for 16 agents: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Antigravity, Copilot CLI, Devin, Cline, Roo Code. |
+
 ### Quick Start
 
 ```bash
@@ -242,6 +252,16 @@ Basta que o agente possa executar um comando de shell. Quase todo agente sério 
 - **`rustls-tls` puro.** Sem OpenSSL, sem surpresas no SChannel, builds musl estáticas funcionam de primeira em qualquer container Alpine.
 - **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
 - **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
+
+### 📚 Documentação
+
+Três guias técnicos profundos acompanham a crate. Leia uma vez — o retorno é vitalício.
+
+| Guia | Por que importa |
+|------|-----------------|
+| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 30+ regras DEVE/JAMAIS para qualquer LLM/agente invocar a CLI em produção. Bilíngue EN+PT. |
+| [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 receitas copy-paste para pesquisa, ETL, monitoramento, extração de conteúdo. Bilíngue EN+PT. |
+| [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Snippets prontos para 16 agentes: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Antigravity, Copilot CLI, Devin, Cline, Roo Code. |
 
 ### Início rápido
 

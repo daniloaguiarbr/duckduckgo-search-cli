@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-04-14
+
+### Added
+
+- **`docs/AGENT_RULES.md`** (773 linhas) — Regras imperativas bilíngue (EN+PT)
+  com 30+ rules `MUST`/`NEVER` (R01..R30) para LLMs/agentes invocarem a CLI
+  em produção. Cobre: invariantes core, contrato JSON, rate limiting, error
+  handling, performance, segurança, anti-patterns. Quick Reference Card no
+  final.
+- **`docs/COOKBOOK.md`** (1117 linhas) — 15 receitas copy-paste bilíngue
+  combinando `duckduckgo-search-cli` + `jaq` + `xh` + `sd` para casos reais:
+  research consolidado, ETL multi-query, extração de domínios, monitoramento
+  com filtro temporal, content extraction com `--fetch-content`, comparação
+  top 5 vs top 15, NDJSON para pipelines, function wrappers para bash.
+- **`docs/INTEGRATIONS.md`** (1196 linhas) — Snippets prontos para 16
+  agentes/LLMs: Claude Code, OpenAI Codex, Gemini CLI, Cursor, Windsurf,
+  Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Google
+  Antigravity, GitHub Copilot CLI, Devin, Cline, Roo Code. Cada agente
+  documenta: pitch, mecanismo de shell, setup, snippet básico, snippet
+  multi-query, system prompt rule, caveats.
+- Seção **Documentation** no README.md (EN + PT) linkando os 3 guias.
+
+### Fixed
+
+- README.md badge cluster e referências internas conferidas contra
+  `daniloaguiarbr/duckduckgo-search-cli` (repo canônico).
+
 ## [0.4.0] - 2026-04-14
 
 ### Changed (BREAKING)
