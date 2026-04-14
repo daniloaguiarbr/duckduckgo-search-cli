@@ -1,0 +1,7 @@
+# Toolchain pin — mesma versão em máquinas de dev e no CI.
+# Mantém `channel` compatível com o `rust-version` declarado em Cargo.toml (1.75).
+# Atualizar em lockstep com `rust-version` para evitar drift entre dev/CI.
+
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

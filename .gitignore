@@ -1,0 +1,33 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+
+# Logs
+/logs/
+*.log
+
+# Secrets
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+
+# Developer-private
+/.serena/
+/.claude/
+CLAUDE.md
+AGENTS.md
+ralph-loop.local.md
+/docs_rules/
+projeto_duckduckgo-search-cli.md
+
+# IDE
+/.idea/
+/.vscode/
+*.swp
+*.swo
+
+# Coverage
+*.profraw
+*.profdata

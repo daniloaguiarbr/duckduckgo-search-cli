@@ -1,0 +1,38 @@
+# Cross.toml — configuração para `cross` (cross-rs/cross).
+#
+# Uso: `cross build --release --target <target>`
+# Requisitos: Docker ou Podman no host.
+#
+# A CI (release.yml) usa toolchains nativas do Rust via `dtolnay/rust-toolchain`
+# porque isso é mais rápido em GitHub Actions. Mas desenvolvedores que querem
+# cross-compilar localmente (ex: ARM64 Linux a partir de um laptop x86_64)
+# usam `cross`, que roda o build dentro de um container Debian pré-configurado.
+#
+# Aliás a crate usa `rustls-tls` (sem openssl-sys), o que elimina a maior
+# dor de cross-compilation — bibliotecas TLS nativas. Os targets abaixo compilam
+# sem dependências extras.
+
+[build]
+# Passagem de variáveis de ambiente ao container `cross`.
+# RUSTFLAGS e similares herdam do host por padrão.
+pre-build = [
+    # musl-tools é necessário para targets musl quando compilados fora de Alpine.
+    # Só instala se o target começar com musl (no-op nos demais).
+    "if echo $CROSS_TARGET | grep -q musl; then apt-get update && apt-get install -y musl-tools; fi",
+]
+
+# Targets tier-1 cobertos pelo release.yml + extras ARM64 para devs.
+# (A CI cobre os 5 principais; estes habilitam targets exóticos localmente.)
+
+[target.x86_64-unknown-linux-musl]
+# Build estático tier-1 — mesma imagem usada por Alpine e minimal containers.
+# image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:main"  # default, não precisa setar.
+
+[target.aarch64-unknown-linux-musl]
+# ARM64 estático — Raspberry Pi 3/4, Apple Silicon via Linux VM, servidores Graviton.
+
+[target.aarch64-unknown-linux-gnu]
+# ARM64 glibc — para quando musl não for suficiente (rare).
+
+[target.armv7-unknown-linux-musleabihf]
+# ARMv7 hard-float — Raspberry Pi 2, routers OpenWRT modernos.

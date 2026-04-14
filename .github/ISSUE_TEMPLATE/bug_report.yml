@@ -1,0 +1,106 @@
+name: "🐛 Bug report"
+description: Reporte um comportamento inesperado ou incorreto.
+title: "[BUG] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por reportar. Para acelerar a triagem, preencha tudo abaixo.
+        **⚠️ Para vulnerabilidades de segurança, use Security Advisories
+        em vez desta issue — veja `SECURITY.md`.**
+
+  - type: input
+    id: version
+    attributes:
+      label: Versão
+      description: Saída de `duckduckgo-search-cli --version`.
+      placeholder: "duckduckgo-search-cli 0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Plataforma
+      multiple: true
+      options:
+        - Linux (glibc — Debian/Ubuntu/Fedora/Arch/etc)
+        - Linux (musl — Alpine, static)
+        - Linux (NixOS / Guix)
+        - Linux (Flatpak sandbox)
+        - Linux (Snap)
+        - macOS (Apple Silicon — M1/M2/M3/M4)
+        - macOS (Intel)
+        - Windows (cmd.exe)
+        - Windows (PowerShell)
+        - Windows (Terminal)
+        - WSL / WSL2
+        - Docker / container
+        - Outro
+    validations:
+      required: true
+
+  - type: input
+    id: rust_version
+    attributes:
+      label: Toolchain (se compilou do source)
+      description: Saída de `rustc --version`. Deixe em branco se usou binário pré-compilado.
+      placeholder: "rustc 1.78.0 (9b00956e5 2024-04-29)"
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Forma de instalação
+      options:
+        - "cargo install duckduckgo-search-cli"
+        - "cargo install com --features chrome"
+        - Binário pré-compilado (GitHub Release)
+        - Homebrew / Scoop / pacote de distro
+        - Compilado do source (git clone)
+        - cross-compilação
+        - Outro
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Comando executado
+      description: Cole a linha de comando **exatamente** como foi rodada (mascare proxies/tokens).
+      render: bash
+      placeholder: duckduckgo-search-cli "rust tokio" --format json --parallel 3
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportamento observado (com stderr completo)
+      description: Rode com `-v, --verbose` para capturar logs via `tracing`.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Contexto adicional
+      description: Proxy, firewall, configs customizadas em `~/.config/duckduckgo-search-cli/`, etc.
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmações
+      options:
+        - label: Testei com a versão mais recente do crates.io.
+          required: true
+        - label: Verifiquei que não é vulnerabilidade de segurança (para essas, uso Security Advisories).
+          required: true

@@ -1,0 +1,62 @@
+# deny.toml — Configuração do `cargo-deny` para supply-chain hardening.
+# Três camadas: advisories (vulnerabilidades + unmaintained), licenses (SPDX permissivas),
+# sources (apenas registry oficial crates.io + sem git remotes desconhecidos).
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = [
+    # RUSTSEC-2025-0057 — `fxhash 0.2.1` marcado como unmaintained em 2025-06.
+    # Dependência transitiva via `scraper 0.20` → `selectors 0.25` → `fxhash`.
+    # Não há upgrade seguro: `selectors` ainda não migrou para `rustc-hash`.
+    # Impacto: nenhum — função hash não-criptográfica; sem uso em autenticação/segurança.
+    # Revisar quando `scraper` for atualizado (monitorar https://github.com/causal-agent/scraper).
+    "RUSTSEC-2025-0057",
+    # RUSTSEC-2025-0052 — `async-std` descontinuado em 2025 (recomendação: migrar para `smol`).
+    # Dependência transitiva via `chromiumoxide 0.7` → `async-tungstenite 0.27` → `async-std`.
+    # Aparece APENAS quando o build ativa a feature opcional `chrome`; build default não puxa.
+    # Não há upgrade seguro: `chromiumoxide` ainda não migrou o transport async.
+    # Impacto: baixo — runtime I/O apenas para automação de navegador em modo `--fetch-content`.
+    # Revisar quando `chromiumoxide 0.8+` for lançado migrando para `smol` ou `tokio` puro.
+    "RUSTSEC-2025-0052",
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "CC0-1.0",
+    "0BSD",
+    "Unlicense",
+    "Unicode-3.0",
+    "MPL-2.0",
+    # CDLA-Permissive-2.0: licença permissiva (Linux Foundation) usada por `webpki-roots`
+    # para distribuir a lista de raízes da Mozilla CA. Compatível com MIT/Apache-2.0.
+    "CDLA-Permissive-2.0",
+]
+
+[[licenses.clarify]]
+crate = "ring"
+expression = "ISC AND MIT AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,129 @@
+[package]
+name = "duckduckgo-search-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+description = "CLI in Rust to search DuckDuckGo via pure HTTP, with structured output for LLM consumption."
+authors = ["comandoaguiar"]
+readme = "README.md"
+keywords = ["cli", "search", "duckduckgo", "llm", "scraping"]
+categories = ["command-line-utilities"]
+repository = "https://github.com/daniloaguiarbr/duckduckgo-search-cli"
+homepage = "https://github.com/daniloaguiarbr/duckduckgo-search-cli"
+documentation = "https://docs.rs/duckduckgo-search-cli"
+default-run = "duckduckgo-search-cli"
+exclude = [
+    ".serena/",
+    ".serena/**",
+    "logs/",
+    "logs/**",
+    "CLAUDE.md",
+    "docs_rules/",
+    "docs_rules/**",
+    ".claude/",
+    ".claude/**",
+    "projeto_duckduckgo-search-cli.md",
+    ".github/",
+    "tests/fixtures/",
+    "*.log",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[bin]]
+name = "duckduckgo-search-cli"
+path = "src/main.rs"
+
+[lib]
+name = "duckduckgo_search_cli"
+path = "src/lib.rs"
+
+[dependencies]
+# Runtime async — Tokio multi-threaded com feature completa (precisamos de signal, macros, rt-multi-thread, fs, io-util etc.)
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Cliente HTTP — rustls-tls para cross-platform universal (sem dependência de OpenSSL/SChannel).
+# default-features = false elimina native-tls que puxaria OpenSSL no Linux.
+# Feature "socks" adicionada na iteração 5 para suportar --proxy socks5://... (tunel via hyper-socks2).
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "cookies",
+    "gzip",
+    "brotli",
+    "socks",
+] }
+
+# Parsing HTML — scraper usa html5ever do Servo, tolerante a HTML malformado.
+scraper = "0.20"
+
+# CLI — clap derive para parsing declarativo.
+clap = { version = "4", features = ["derive"] }
+
+# Serialização — serde + serde_json para JSON, toml para arquivos de configuração.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# URL encoding/decoding (para desencapsular redirects /l/?uddg= do DuckDuckGo).
+urlencoding = "2"
+
+# Tratamento de erros — anyhow para propagação ergonômica.
+anyhow = "1"
+
+# Logging — tracing + tracing-subscriber com env-filter para RUST_LOG.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Seleção aleatória de User-Agents.
+rand = "0.8"
+
+# Timestamps RFC 3339 para metadata JSON.
+chrono = { version = "0.4", features = ["serde"] }
+
+# XDG cross-platform para diretórios de configuração.
+dirs = "5"
+
+# Hashing para selectors_hash em metadata.
+blake3 = "1"
+
+# Detecção de encoding para páginas non-UTF-8 (apenas usado em fetch-content nas próximas iterações;
+# declarada agora porque projeto_duckduckgo-search-cli.md lista como dependência do MVP).
+encoding_rs = "0.8"
+
+# Dependências opcionais para a feature chrome (NÃO compiladas no MVP — apenas declaradas para próxima iteração).
+# A feature "fetcher" do chromiumoxide exige o crate companheiro chromiumoxide_fetcher que atualmente
+# está com um bug de imports em 0.7.0; por isso ativamos apenas "tokio-runtime" aqui. A funcionalidade
+# de auto-download de Chromium pode ser adicionada via dependência explícita quando for implementar
+# fetch-content na iteração 5.
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"], optional = true }
+tempfile = { version = "3", optional = true }
+futures = { version = "0.3", optional = true }
+
+# Condicional ao Windows — SetConsoleOutputCP para UTF-8 no console cmd.exe e PowerShell legado.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
+
+[dev-dependencies]
+# Mock HTTP server para testes de integração sem chamadas de rede reais.
+# Escolhido em 2026-04 conforme trustScore 9.3 no context7; compatível com tokio runtime.
+wiremock = "0.6"
+# Testes E2E do binário compilado via assert_cmd + predicates (seção 20.2 de rules_rust.md).
+assert_cmd = "2"
+predicates = "3"
+# TempDir para testes E2E (mesmo sem feature chrome).
+tempfile = "3"
+
+[features]
+default = []
+# Feature chrome gated — habilita fallback de Chrome headless para --fetch-content em iterações futuras.
+chrome = ["chromiumoxide", "tempfile", "futures"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

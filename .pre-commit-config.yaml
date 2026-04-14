@@ -1,0 +1,58 @@
+# Pre-commit hooks — feedback local antes do push.
+#
+# Instalação:
+#   pipx install pre-commit   # ou: uv tool install pre-commit
+#   pre-commit install        # ativa os hooks no .git/hooks/pre-commit
+#
+# Execução manual: `pre-commit run --all-files`.
+#
+# Uso: Captura clippy / fmt violations em <5s antes do commit. Não substitui CI,
+# mas reduz CI round-trips para erros triviais.
+
+repos:
+  # Hooks padrão upstream — whitespace, EOF, YAML válido, grandes arquivos.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: "^tests/fixtures/"
+      - id: end-of-file-fixer
+        exclude: "^tests/fixtures/"
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+        exclude: "^tests/fixtures/"
+
+  # Hooks nativos Rust — `cargo fmt` e `clippy`.
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+        args: ["--all", "--"]
+      - id: clippy
+        args:
+          - "--all-targets"
+          - "--all-features"
+          - "--locked"
+          - "--"
+          - "-D"
+          - "warnings"
+
+  # Bloqueio local de Co-authored-by de agentes de IA (espelha o CI).
+  - repo: local
+    hooks:
+      - id: no-ai-coauthored-by
+        name: "bloquear Co-authored-by de agentes de IA"
+        language: system
+        stages: [commit-msg]
+        entry: |
+          bash -c '
+            if grep -iEq "Co-authored-by:.*(dependabot\[bot\]|renovate\[bot\]|github-actions\[bot\]|Claude|Opus|Sonnet|Haiku|GPT-|Copilot|Cursor|Gemini|Anthropic|OpenAI)" "$1"; then
+              echo "❌ Commit contém Co-authored-by de agente de IA (proibido por CLAUDE.md)."
+              exit 1
+            fi
+          ' --

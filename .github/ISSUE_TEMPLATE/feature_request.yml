@@ -1,0 +1,77 @@
+name: "✨ Feature request"
+description: Sugira uma nova funcionalidade ou melhoria.
+title: "[FEATURE] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado pela sugestão. Leia antes as **constraints não-negociáveis**
+        do blueprint v2 (em `README.md` e `CONTRIBUTING.md`):
+
+        - Sem cache de nenhum tipo.
+        - Sem MCP ou servidor de protocolo.
+        - Sem API paga.
+        - Sem Chrome para a fase de busca (apenas opcional para `--fetch-content`).
+        - `rustls-tls` exclusivo.
+        - Cross-platform universal (todas as distros Linux, todo macOS, todo Windows).
+
+        Features que violam essas constraints serão fechadas sem discussão.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema
+      description: Qual é a dor que motiva essa feature? Seja específico.
+      placeholder: "Hoje, quando eu X, a CLI faz Y, e isso me impede de Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solução proposta
+      description: Como a CLI deveria se comportar? Exemplos de invocação são bem-vindos.
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+      description: Outras abordagens que você pensou e por que não escolheu elas.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área afetada
+      multiple: true
+      options:
+        - CLI (flags, subcomandos)
+        - HTTP / reqwest / rustls
+        - Parsing HTML / extração / seletores
+        - Paralelismo / scheduling
+        - Output (JSON / text / markdown / NDJSON)
+        - Cross-platform (Linux / macOS / Windows)
+        - Feature `chrome` (fallback de conteúdo)
+        - Proxy / rate-limiting
+        - Documentação / README
+        - CI / release / distribuição
+        - Outro
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Verificação de constraints
+      options:
+        - label: A feature NÃO introduz cache.
+          required: true
+        - label: A feature NÃO introduz MCP / servidor / API paga.
+          required: true
+        - label: A feature NÃO quebra cross-platform universal.
+          required: true
+        - label: Estou disposto a abrir um PR (opcional — mas maintainers agradecem).
+          required: false

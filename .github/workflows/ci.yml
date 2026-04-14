@@ -1,0 +1,236 @@
+# CI para duckduckgo-search-cli.
+#
+# 10 gates de validação conforme `CLAUDE.md`:
+#   1. cargo check --all-targets                  → 0 erros
+#   2. cargo clippy --all-features -- -D warnings → 0 warnings
+#   3. cargo fmt --all --check                    → 0 diffs
+#   4. RUSTDOCFLAGS="-D warnings" cargo doc       → 0 warnings
+#   5. cargo test --all-features                  → 0 falhando
+#   6. cargo llvm-cov                             → ≥ 80%
+#   7. cargo audit                                → 0 vulnerabilidades
+#   8. cargo deny check                           → advisories/licenses/bans/sources OK
+#   9. cargo publish --dry-run                    → 0 erros
+#  10. cargo package --list                       → 0 arquivos sensíveis
+#
+# Matrix cross-platform: ubuntu-latest (GNU + musl), macos-latest (ARM64), windows-latest.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Gate rápido em Ubuntu com toda a matriz de validação sem cross-compilar.
+  # -------------------------------------------------------------------------
+  validate:
+    name: validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo check (gate 1)
+        run: cargo check --all-targets --all-features --locked
+
+      - name: cargo clippy -D warnings (gate 2)
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: cargo fmt --check (gate 3)
+        run: cargo fmt --all --check
+
+      - name: cargo doc -D warnings (gate 4)
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps --all-features --locked
+
+      - name: cargo test --all-features (gate 5)
+        run: cargo test --all-features --locked
+
+  # -------------------------------------------------------------------------
+  # MSRV gate — verifica que `rust-version` em Cargo.toml é respeitado.
+  # rules_rust.md §MSRV mandata um job dedicado executando `cargo check` no
+  # MSRV declarado. Isso evita drift silencioso ao adicionar dependências.
+  # -------------------------------------------------------------------------
+  msrv:
+    name: msrv (Cargo.toml rust-version)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract rust-version from Cargo.toml
+        id: msrv
+        run: |
+          MSRV=$(grep -E '^rust-version\s*=' Cargo.toml | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
+          if [ -z "$MSRV" ]; then
+            echo "::error::rust-version não declarado em Cargo.toml"
+            exit 1
+          fi
+          echo "version=$MSRV" >> "$GITHUB_OUTPUT"
+          echo "MSRV detectado: $MSRV"
+
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-${{ steps.msrv.outputs.version }}
+
+      - name: cargo check no MSRV
+        run: cargo check --all-targets --all-features --locked
+
+  # -------------------------------------------------------------------------
+  # Cobertura (gate 6) — roda apenas em Ubuntu (LLVM source-based).
+  # -------------------------------------------------------------------------
+  coverage:
+    name: coverage ≥ 80%
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain with llvm-tools
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: cargo llvm-cov --fail-under-lines 80
+        run: cargo llvm-cov --all-features --locked --fail-under-lines 80
+
+  # -------------------------------------------------------------------------
+  # Supply chain (gates 7, 8) e publicação (gates 9, 10).
+  # -------------------------------------------------------------------------
+  supply_chain:
+    name: supply chain (audit + deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
+      - name: cargo audit (gate 7)
+        run: cargo audit --deny yanked
+
+      - name: cargo deny check (gate 8)
+        run: cargo deny check advisories licenses bans sources
+
+  publish_dry_run:
+    name: publish dry-run + package list
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo publish --dry-run (gate 9)
+        run: cargo publish --dry-run --locked
+
+      - name: cargo package --list — sem arquivos sensíveis (gate 10)
+        run: |
+          set -e
+          LIST=$(cargo package --list 2>&1)
+          echo "$LIST"
+          if echo "$LIST" | grep -Ei 'serena|CLAUDE\.md|docs_rules|^logs/|\.log$|^\.claude/' ; then
+            echo "::error::arquivos sensíveis detectados no tarball"
+            exit 1
+          fi
+
+  # -------------------------------------------------------------------------
+  # Smoke test musl — garante compatibilidade com Alpine Linux e containers.
+  # -------------------------------------------------------------------------
+  musl_smoke:
+    name: musl static binary smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain with musl target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo build --release --target x86_64-unknown-linux-musl
+        run: cargo build --release --target x86_64-unknown-linux-musl --locked
+
+      - name: Binary smoke test (--version, --help)
+        run: |
+          ./target/x86_64-unknown-linux-musl/release/duckduckgo-search-cli --version
+          ./target/x86_64-unknown-linux-musl/release/duckduckgo-search-cli --help
+
+  # -------------------------------------------------------------------------
+  # Bloqueio de Co-authored-by de agentes de IA em commits do PR.
+  # Conforme CLAUDE.md: "NUNCA adicionar Co-authored-by em commits".
+  # -------------------------------------------------------------------------
+  commit_check:
+    name: bloquear Co-authored-by de agentes de IA
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validar commits contra regex de agentes
+        run: |
+          set -e
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          COMMITS=$(git log --format='%H' "$BASE..$HEAD")
+          FOUND=0
+          for c in $COMMITS; do
+            BODY=$(git log -n 1 --format='%B' "$c")
+            if echo "$BODY" | grep -iEq 'Co-authored-by:.*(dependabot\[bot\]|renovate\[bot\]|github-actions\[bot\]|Claude|Opus|Sonnet|Haiku|GPT-|Copilot|Cursor|Gemini|Anthropic|OpenAI)'; then
+              echo "::error::Commit $c contém Co-authored-by proibido:"
+              echo "$BODY" | grep -iE 'Co-authored-by:'
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" -eq 1 ]; then
+            exit 1
+          fi
+          echo "OK: nenhum Co-authored-by de agente de IA encontrado."

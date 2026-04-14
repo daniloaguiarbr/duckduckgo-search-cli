@@ -1,0 +1,56 @@
+# Dependabot — atualizações automáticas de segurança e versão.
+#
+# Dois ecossistemas vigiados:
+#   1. `cargo` — deps Rust transitivas + diretas (semanal).
+#   2. `github-actions` — versões de actions do CI (semanal).
+#
+# Estratégia:
+#   - `interval: weekly` (segunda-feira UTC) para evitar ruído diário.
+#   - `open-pull-requests-limit: 5` para limitar churn.
+#   - `commit-message.prefix` padroniza scope semântico para changelog automático.
+#   - `groups` agrupa atualizações patch/minor de dev-deps para reduzir PRs.
+
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "rust"
+    groups:
+      dev-deps:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      tokio-ecosystem:
+        patterns:
+          - "tokio*"
+          - "futures*"
+      tracing-ecosystem:
+        patterns:
+          - "tracing*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"

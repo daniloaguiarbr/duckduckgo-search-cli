@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 Security vulnerability"
+    url: https://github.com/comandoaguiar/duckduckgo-search-cli/security/advisories/new
+    about: Please report security issues privately via GitHub Security Advisories. See SECURITY.md.
+  - name: "❓ Question / usage help"
+    url: https://github.com/comandoaguiar/duckduckgo-search-cli/discussions
+    about: Questions and discussions go to GitHub Discussions — issues are for bugs and feature requests.

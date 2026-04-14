@@ -1,0 +1,34 @@
+# selectors.toml — Mapa de seletores CSS para extração da SERP do DuckDuckGo.
+# Este arquivo é o padrão de referência e também é EMBUTIDO no binário via
+# include_str! — o subcomando `init-config` o copia para:
+#   - Linux:   $XDG_CONFIG_HOME/duckduckgo-search-cli/selectors.toml
+#   - macOS:   ~/Library/Application Support/duckduckgo-search-cli/selectors.toml
+#   - Windows: %APPDATA%\duckduckgo-search-cli\selectors.toml
+# Edite este arquivo local para aplicar hotfix em layout do DDG sem recompilar a CLI.
+
+[html_endpoint]
+results_container = "#links"
+result_item = "#links .result, #links .results_links, div.result"
+title_and_url = ".result__a, a.result__a, .result__title a"
+snippet = ".result__snippet, a.result__snippet, .result__body"
+display_url = ".result__url, span.result__url"
+
+[html_endpoint.ads_filter]
+ad_classes = [".result--ad", ".badge--ad"]
+ad_attributes = ["data-nrn=ad"]
+ad_url_patterns = ["duckduckgo.com/y.js"]
+
+[lite_endpoint]
+results_table = "table, body table"
+result_link = "a.result-link, td a[href]"
+result_snippet = "td.result-snippet, tr.result-snippet td"
+
+[pagination]
+vqd_input = "input[name='vqd'], input[type='hidden'][name='vqd']"
+s_input = "input[name='s']"
+dc_input = "input[name='dc']"
+next_form = "form.result--more__btn, form[action='/html/']"
+
+[related_searches]
+container = ".result--more__btn, .result--sep"
+links = "a"

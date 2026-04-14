@@ -1,0 +1,235 @@
+# Release workflow — dispara em tags `v*.*.*` OU via `workflow_dispatch` com `dry_run`.
+#
+# Ordem OBRIGATÓRIA (conforme `rules_rust.md` §19):
+#   1. validate       — `cargo publish --dry-run` antes de qualquer build.
+#   2. build_matrix   — compila 5 targets em paralelo.
+#   3. macos_universal — `lipo` combina arm64 + x86_64 em Universal Binary.
+#   4. github_release — cria release e faz upload dos artefatos.
+#   5. crates_io      — `cargo publish` após todos os anteriores passarem.
+#
+# SECRETS obrigatórios em GitHub Settings → Secrets:
+#   - CRATES_IO_TOKEN — token de `cargo login` (permissões: publish-new + publish-update).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Executa tudo menos o publish real no crates.io"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN_NAME: duckduckgo-search-cli
+
+jobs:
+  # -------------------------------------------------------------------------
+  # 1. Validação prévia: repete 5 gates críticos + publish --dry-run.
+  # -------------------------------------------------------------------------
+  validate:
+    name: validate release readiness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check + clippy + fmt + test
+        run: |
+          cargo check --all-targets --all-features --locked
+          cargo clippy --all-targets --all-features --locked -- -D warnings
+          cargo fmt --all --check
+          cargo test --all-features --locked
+
+      - name: cargo publish --dry-run
+        run: cargo publish --dry-run --locked
+
+  # -------------------------------------------------------------------------
+  # 2. Build cross-platform paralelo — 5 targets principais.
+  # -------------------------------------------------------------------------
+  build_matrix:
+    name: build ${{ matrix.target }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            ext: ""
+            archive: tar.gz
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            ext: ""
+            archive: tar.gz
+            needs_musl_tools: true
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            ext: ""
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            ext: ""
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            ext: ".exe"
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl-tools
+        if: matrix.needs_musl_tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release (${{ matrix.target }})
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          set -e
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}${{ matrix.ext }}" dist/
+          cp README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md dist/
+          cd dist
+          tar czf "${{ env.BIN_NAME }}-${{ matrix.target }}.tar.gz" \
+            "${{ env.BIN_NAME }}${{ matrix.ext }}" README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md
+
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}${{ matrix.ext }}" dist/
+          Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE, CHANGELOG.md dist/
+          Compress-Archive -Path dist/* -DestinationPath "dist/${{ env.BIN_NAME }}-${{ matrix.target }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN_NAME }}-${{ matrix.target }}
+          path: dist/${{ env.BIN_NAME }}-${{ matrix.target }}.*
+          if-no-files-found: error
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  # 3. macOS Universal Binary via `lipo` (arm64 + x86_64 → fat binary).
+  # -------------------------------------------------------------------------
+  macos_universal:
+    name: macOS Universal Binary (lipo)
+    needs: build_matrix
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.BIN_NAME }}-aarch64-apple-darwin
+          path: arm64/
+
+      - name: Download x86_64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.BIN_NAME }}-x86_64-apple-darwin
+          path: x86_64/
+
+      - name: Extract and combine
+        run: |
+          set -e
+          tar xzf "arm64/${{ env.BIN_NAME }}-aarch64-apple-darwin.tar.gz" -C arm64/
+          tar xzf "x86_64/${{ env.BIN_NAME }}-x86_64-apple-darwin.tar.gz" -C x86_64/
+          mkdir -p universal
+          lipo -create \
+            "arm64/${{ env.BIN_NAME }}" \
+            "x86_64/${{ env.BIN_NAME }}" \
+            -output "universal/${{ env.BIN_NAME }}"
+          lipo -info "universal/${{ env.BIN_NAME }}"
+          cp README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md universal/
+          cd universal
+          tar czf "${{ env.BIN_NAME }}-macos-universal.tar.gz" \
+            "${{ env.BIN_NAME }}" README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md
+
+      - name: Upload universal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN_NAME }}-macos-universal
+          path: universal/${{ env.BIN_NAME }}-macos-universal.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  # 4. GitHub Release — sobe todos os artefatos (apenas em push de tag).
+  # -------------------------------------------------------------------------
+  github_release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build_matrix, macos_universal]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Flatten artifacts for release
+        run: |
+          mkdir -p dist
+          find artifacts/ -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} dist/ \;
+          ls -lh dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  # -------------------------------------------------------------------------
+  # 5. Publicação no crates.io (apenas em push de tag, nunca em dry_run).
+  # -------------------------------------------------------------------------
+  crates_io:
+    name: Publish to crates.io
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event.inputs.dry_run != 'true')
+    needs: github_release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish --locked

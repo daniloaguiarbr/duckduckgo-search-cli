@@ -1,0 +1,47 @@
+# user-agents.toml — User-Agents para rotação aleatória.
+#
+# IMPORTANTE — descoberta empírica em 2026-04-14 (iteração 4):
+# O endpoint html.duckduckgo.com retorna HTTP 202 Accepted com challenge
+# anomaly ("Unfortunately, bots use DuckDuckGo too") quando recebe User-Agent
+# de browser real moderno (Chrome/Firefox/Safari versões completas) sem
+# JavaScript. A heurística do DDG: se o UA "promete" um browser completo mas
+# não executa JS, é tratado como bot. Soluções:
+#   1. Usar UAs de clientes "honestos" (CLI tools, libs HTTP, browsers texto).
+#   2. Usar UAs minimalistas (curtos/sem detalhes específicos).
+#
+# Resultado dos testes empíricos (HTTP 200 OK = passa, 202 = bloqueado):
+#   "ddg-cli/1.0"                                   → 200 ✓
+#   "Lynx/2.9.0 libwww-FM/2.14"                     → 200 ✓
+#   "Mozilla/5.0"                                   → 200 ✓
+#   ""                                              → 200 ✓
+#   "curl/8.0.0"                                    → 202 ✗
+#   "Wget/1.21"                                     → 202 ✗
+#   "Mozilla/5.0 ... Chrome/130.0.0.0 ..."          → 202 ✗
+#   "Mozilla/5.0 ... Firefox/131.0"                 → 202 ✗
+#
+# A CLI seleciona um User-Agent aleatoriamente no início da execução e o
+# reutiliza em todos os requests dessa execução (mantém consistência de vqd).
+
+[[agents]]
+ua = "duckduckgo-search-cli/0.1"
+platform = "any"
+
+[[agents]]
+ua = "Mozilla/5.0"
+platform = "any"
+
+[[agents]]
+ua = "Lynx/2.9.0 libwww-FM/2.14 SSL-MM/1.4.1"
+platform = "any"
+
+[[agents]]
+ua = "w3m/0.5.3"
+platform = "any"
+
+[[agents]]
+ua = "Links (2.29; Linux 6.1.0 x86_64; GNU C 12.2; text)"
+platform = "linux"
+
+[[agents]]
+ua = "ELinks/0.16.1.1 (textmode; Linux 6.1.0 x86_64; 132x42-2)"
+platform = "linux"
