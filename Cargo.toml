@@ -79,7 +79,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Seleção aleatória de User-Agents.
-rand = "0.8"
+rand = "0.9"
 
 # Timestamps RFC 3339 para metadata JSON.
 chrono = { version = "0.4", features = ["serde"] }
