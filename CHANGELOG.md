@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-04-15
+
+### Added
+
+- **`skill/duckduckgo-search-cli-pt/SKILL.md`** e
+  **`skill/duckduckgo-search-cli-en/SKILL.md`** — Skills bilíngues para Claude
+  Code, Claude Agent SDK e plataformas compatíveis com Agent Skills. Cada
+  skill traz frontmatter YAML com `name` único por idioma e `description`
+  carregado de triggers semânticos para auto-invocação, além de 14 seções
+  H2 canônicas (Missão, Contrato de Invocação, Proibições Absolutas,
+  Parsing com `jaq`, Schema JSON, Exit Codes, Batch, Fetch-Content,
+  Endpoint, Retries, Receitas, Validação, Memória, Regra de Ouro).
+  Publicadas no GitHub, excluídas do tarball do crates.io.
+
+### Changed
+
+- **`docs/AGENT_RULES.md`** (833 linhas, +7,6%) — Reescrita editorial
+  aplicando copywriting AIDA: cada regra abre com benefício mensurável,
+  linguagem imperativa MUST/NEVER reforçada, zero narrativa decorativa,
+  zero negrito com asteriscos duplos, zero separador visual `---` entre
+  seções. Bilíngue EN+PT espelhado com tom idêntico.
+- **`docs/COOKBOOK.md`** (1082 linhas, −3,1%) — Cada receita abre com o
+  ganho concreto antes do comando, bullets curtos de 8 a 15 palavras,
+  pipelines `jaq` + `xh` + `sd` preservados intactos.
+- **`docs/INTEGRATIONS.md`** (1212 linhas, +1,3%) — 16 agentes com tabela
+  comparativa textual, snippets determinísticos por agente, zero emoji.
+
+### Meta
+
+- `Cargo.toml` exclude ampliado para cobrir `skill/` e `skill/**` — skills
+  ficam no GitHub e fora do tarball publicado em crates.io.
+
 ## [0.4.1] - 2026-04-14
 
 ### Added

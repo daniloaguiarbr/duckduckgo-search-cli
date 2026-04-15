@@ -1,66 +1,62 @@
 # COOKBOOK / Livro de Receitas
 
-> **duckduckgo-search-cli** — executable recipes for real-world pipelines.
-> **duckduckgo-search-cli** — receitas executáveis para pipelines do mundo real.
-
-Every recipe is a paste-and-run command. No concepts. No theory. Just wiring that works.
-Cada receita é um comando pronto para colar. Sem conceitos. Sem teoria. Apenas encanamento que funciona.
-
----
+> duckduckgo-search-cli — executable recipes that plug into any LLM pipeline in under 60 seconds.
+> duckduckgo-search-cli — receitas executáveis que se integram a qualquer pipeline LLM em menos de 60 segundos.
 
 ## Table of Contents / Índice
 
 ### English Recipes
-- [Recipe 01 — Quick research (top 5 as CSV)](#recipe-01--quick-research-top-5-as-csv)
-- [Recipe 02 — Markdown report to file](#recipe-02--markdown-report-to-file)
-- [Recipe 03 — Multi-query parallel research with dedup](#recipe-03--multi-query-parallel-research-with-dedup)
-- [Recipe 04 — Domain whitelist extraction](#recipe-04--domain-whitelist-extraction)
-- [Recipe 05 — Time-filtered news monitoring (last 24h)](#recipe-05--time-filtered-news-monitoring-last-24h)
-- [Recipe 06 — Deep research with content extraction for LLM context](#recipe-06--deep-research-with-content-extraction-for-llm-context)
-- [Recipe 07 — Rate-limited safe research](#recipe-07--rate-limited-safe-research)
-- [Recipe 08 — Proxy-routed research with verification](#recipe-08--proxy-routed-research-with-verification)
-- [Recipe 09 — Quiet pipeline for cron / systemd](#recipe-09--quiet-pipeline-for-cron--systemd)
-- [Recipe 10 — Detect blocked queries (exit code 3)](#recipe-10--detect-blocked-queries-exit-code-3)
-- [Recipe 11 — Compare top 5 vs top 15 URL sets](#recipe-11--compare-top-5-vs-top-15-url-sets)
-- [Recipe 12 — Markdown side-by-side comparison of two queries](#recipe-12--markdown-side-by-side-comparison-of-two-queries)
-- [Recipe 13 — JSON Lines (NDJSON) for ETL ingestion](#recipe-13--json-lines-ndjson-for-etl-ingestion)
-- [Recipe 14 — Search and summarize with a local LLM](#recipe-14--search-and-summarize-with-a-local-llm)
-- [Recipe 15 — Bash function wrapper `ddg-deep`](#recipe-15--bash-function-wrapper-ddg-deep)
+- [Recipe 01 — Top 5 results as CSV in 1 command](#recipe-01--top-5-results-as-csv-in-1-command)
+- [Recipe 02 — Archived Markdown report to disk](#recipe-02--archived-markdown-report-to-disk)
+- [Recipe 03 — Parallel multi-query research with dedup scoring](#recipe-03--parallel-multi-query-research-with-dedup-scoring)
+- [Recipe 04 — Domain whitelist builder for RAG source filters](#recipe-04--domain-whitelist-builder-for-rag-source-filters)
+- [Recipe 05 — Last-24h news monitor with timestamped snapshots](#recipe-05--last-24h-news-monitor-with-timestamped-snapshots)
+- [Recipe 06 — Deep research payload ready for LLM context window](#recipe-06--deep-research-payload-ready-for-llm-context-window)
+- [Recipe 07 — Rate-limited safe crawling below anti-abuse thresholds](#recipe-07--rate-limited-safe-crawling-below-anti-abuse-thresholds)
+- [Recipe 08 — Proxy-routed search with leak verification](#recipe-08--proxy-routed-search-with-leak-verification)
+- [Recipe 09 — Zero-noise pipeline for cron and systemd](#recipe-09--zero-noise-pipeline-for-cron-and-systemd)
+- [Recipe 10 — Anti-bot block detector with exit code routing](#recipe-10--anti-bot-block-detector-with-exit-code-routing)
+- [Recipe 11 — Breadth audit: top 5 vs top 15 coverage gap](#recipe-11--breadth-audit-top-5-vs-top-15-coverage-gap)
+- [Recipe 12 — Side-by-side Markdown comparison of two queries](#recipe-12--side-by-side-markdown-comparison-of-two-queries)
+- [Recipe 13 — NDJSON export for ClickHouse, BigQuery, and DuckDB](#recipe-13--ndjson-export-for-clickhouse-bigquery-and-duckdb)
+- [Recipe 14 — Search-to-summarize pipeline with a local LLM](#recipe-14--search-to-summarize-pipeline-with-a-local-llm)
+- [Recipe 15 — Bash function wrapper with opinionated safe defaults](#recipe-15--bash-function-wrapper-with-opinionated-safe-defaults)
 
 ### Receitas em Português
-- [Receita 01 — Pesquisa rápida (top 5 como CSV)](#receita-01--pesquisa-rápida-top-5-como-csv)
-- [Receita 02 — Relatório Markdown em arquivo](#receita-02--relatório-markdown-em-arquivo)
-- [Receita 03 — Pesquisa paralela multi-query com deduplicação](#receita-03--pesquisa-paralela-multi-query-com-deduplicação)
-- [Receita 04 — Extração de whitelist de domínios](#receita-04--extração-de-whitelist-de-domínios)
-- [Receita 05 — Monitoramento de notícias filtrado por tempo (últimas 24h)](#receita-05--monitoramento-de-notícias-filtrado-por-tempo-últimas-24h)
-- [Receita 06 — Pesquisa profunda com extração de conteúdo para contexto de LLM](#receita-06--pesquisa-profunda-com-extração-de-conteúdo-para-contexto-de-llm)
-- [Receita 07 — Pesquisa segura com rate-limit](#receita-07--pesquisa-segura-com-rate-limit)
-- [Receita 08 — Pesquisa via proxy com verificação](#receita-08--pesquisa-via-proxy-com-verificação)
-- [Receita 09 — Pipeline silencioso para cron / systemd](#receita-09--pipeline-silencioso-para-cron--systemd)
-- [Receita 10 — Detectar queries bloqueadas (exit code 3)](#receita-10--detectar-queries-bloqueadas-exit-code-3)
-- [Receita 11 — Comparar conjuntos top 5 vs top 15](#receita-11--comparar-conjuntos-top-5-vs-top-15)
-- [Receita 12 — Comparação lado-a-lado em Markdown de duas queries](#receita-12--comparação-lado-a-lado-em-markdown-de-duas-queries)
-- [Receita 13 — JSON Lines (NDJSON) para ingestão ETL](#receita-13--json-lines-ndjson-para-ingestão-etl)
-- [Receita 14 — Busca e sumarização com LLM local](#receita-14--busca-e-sumarização-com-llm-local)
-- [Receita 15 — Função bash `ddg-deep`](#receita-15--função-bash-ddg-deep)
+- [Receita 01 — Top 5 resultados como CSV em 1 comando](#receita-01--top-5-resultados-como-csv-em-1-comando)
+- [Receita 02 — Relatório Markdown arquivado em disco](#receita-02--relatório-markdown-arquivado-em-disco)
+- [Receita 03 — Pesquisa paralela multi-query com pontuação de deduplicação](#receita-03--pesquisa-paralela-multi-query-com-pontuação-de-deduplicação)
+- [Receita 04 — Construtor de whitelist de domínios para filtros RAG](#receita-04--construtor-de-whitelist-de-domínios-para-filtros-rag)
+- [Receita 05 — Monitor de notícias das últimas 24h com snapshots com timestamp](#receita-05--monitor-de-notícias-das-últimas-24h-com-snapshots-com-timestamp)
+- [Receita 06 — Payload de pesquisa profunda pronto para a janela de contexto do LLM](#receita-06--payload-de-pesquisa-profunda-pronto-para-a-janela-de-contexto-do-llm)
+- [Receita 07 — Crawling seguro com rate-limit abaixo de thresholds anti-abuso](#receita-07--crawling-seguro-com-rate-limit-abaixo-de-thresholds-anti-abuso)
+- [Receita 08 — Busca via proxy com verificação de vazamento de IP](#receita-08--busca-via-proxy-com-verificação-de-vazamento-de-ip)
+- [Receita 09 — Pipeline zero-ruído para cron e systemd](#receita-09--pipeline-zero-ruído-para-cron-e-systemd)
+- [Receita 10 — Detector de bloqueio anti-bot com roteamento por exit code](#receita-10--detector-de-bloqueio-anti-bot-com-roteamento-por-exit-code)
+- [Receita 11 — Auditoria de amplitude: gap de cobertura top 5 vs top 15](#receita-11--auditoria-de-amplitude-gap-de-cobertura-top-5-vs-top-15)
+- [Receita 12 — Comparação Markdown lado-a-lado de duas queries](#receita-12--comparação-markdown-lado-a-lado-de-duas-queries)
+- [Receita 13 — Exportação NDJSON para ClickHouse, BigQuery e DuckDB](#receita-13--exportação-ndjson-para-clickhouse-bigquery-e-duckdb)
+- [Receita 14 — Pipeline busca-para-sumarização com LLM local](#receita-14--pipeline-busca-para-sumarização-com-llm-local)
+- [Receita 15 — Função bash com defaults seguros e opinativos](#receita-15--função-bash-com-defaults-seguros-e-opinativos)
 
-- [Recipe-to-Use-Case Table / Tabela Receita → Caso de Uso](#recipe-to-use-case-table--tabela-receita--caso-de-uso)
-
----
+- [Recipe-to-Use-Case Table / Tabela Receita para Caso de Uso](#recipe-to-use-case-table--tabela-receita-para-caso-de-uso)
 
 ## ENGLISH RECIPES
 
-### Recipe 01 — Quick research (top 5 as CSV)
+### Recipe 01 — Top 5 results as CSV in 1 command
+- Gain: extract 5 ranked title+URL pairs as CSV in under 200ms with no parser or scraper.
+- Problem: LLM agents waste tokens parsing raw HTML or JSON into tabular form for downstream tools.
+- Benefit: `-q` routes all tracing to stderr, leaving stdout as pure JSON for piping.
+- Benefit: `jaq -r` emits CSV rows directly — no intermediate files, no extra dependencies.
+- Benefit: `timeout 30` hard-caps the command against hung requests in CI pipelines.
+- Result: paste-ready CSV rows consumable by any spreadsheet, ETL loader, or agent context.
 
-**Goal:** Grab the top 5 titles + URLs for a single query and pipe as CSV.
-
-**Command:**
 ```bash
 timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
   | jaq -r '.resultados[] | [.posicao, .titulo, .url] | @csv'
 ```
 
-**Expected output:**
+Expected output:
 ```
 1,"Tokio — asynchronous Rust runtime","https://tokio.rs/"
 2,"async-std: Async version of the Rust standard library","https://async.rs/"
@@ -69,15 +65,14 @@ timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
 5,"Comparing Rust async runtimes","https://example.com/..."
 ```
 
-**Why this works:** `-q` silences tracing so stdout is pure JSON; `jaq -r` emits raw CSV rows without outer quoting. `timeout 30` guards against hung requests.
+### Recipe 02 — Archived Markdown report to disk
+- Gain: produce a human-reviewable Markdown report for any query with 1 flag.
+- Problem: teams lose research context when search results exist only in browser tabs.
+- Benefit: `-o` creates parent directories and writes the report atomically to disk.
+- Benefit: the `markdown` formatter generates PR-ready artifacts with titles, URLs, and snippets.
+- Benefit: `-n 15` captures 3x more signal than the default top-5 view.
+- Result: a durable `.md` file reviewable in GitHub, VS Code, or `glow` with zero post-processing.
 
----
-
-### Recipe 02 — Markdown report to file
-
-**Goal:** Produce a clean Markdown report for a single query, written to disk.
-
-**Command:**
 ```bash
 timeout 45 duckduckgo-search-cli -q \
   -n 15 \
@@ -86,26 +81,25 @@ timeout 45 duckduckgo-search-cli -q \
   "rust webassembly edge computing"
 ```
 
-**Expected output:**
+Expected output:
 ```
 (no stdout; file written)
 $ bat -p reports/rust-webassembly.md | head -6
 # Search results — rust webassembly edge computing
 _Fetched: 2026-04-14T12:34:56Z — 15 results_
 
-1. **WASM on the edge with Rust** — https://example.com/...
+1. WASM on the edge with Rust — https://example.com/...
    > Short snippet describing the page...
 ```
 
-**Why this works:** `-o` creates parent directories and writes with Unix `0o644`. The `markdown` formatter produces a human-reviewable artifact suitable for PR descriptions or status reports.
+### Recipe 03 — Parallel multi-query research with dedup scoring
+- Gain: run 5 queries simultaneously and rank URLs by cross-query citation frequency in 1 pipeline.
+- Problem: sequential queries miss which sources appear consistently across subtopics.
+- Benefit: `--queries-file` plus `--parallel 5` fans out 5 searches while preserving per-host politeness.
+- Benefit: the consolidated `buscas[]` array in the output JSON contains all results in 1 file.
+- Benefit: `uniq -c | sort -rn` ranks URLs by how often they surface across queries.
+- Result: a ranked list identifying canonical sources — the foundation for RAG source selection.
 
----
-
-### Recipe 03 — Multi-query parallel research with dedup
-
-**Goal:** Run five queries in parallel, deduplicate URLs across all results, count occurrences per URL.
-
-**Command:**
 ```bash
 printf '%s\n' \
   "rust async runtimes" \
@@ -128,7 +122,7 @@ jaq -r '.buscas[].resultados[].url' /tmp/multi.json \
   | head -10
 ```
 
-**Expected output:**
+Expected output:
 ```
       4 https://tokio.rs/
       3 https://github.com/async-rs/async-std
@@ -137,15 +131,14 @@ jaq -r '.buscas[].resultados[].url' /tmp/multi.json \
       1 https://github.com/smol-rs/smol
 ```
 
-**Why this works:** `--queries-file` plus `--parallel 5` fans out with per-host politeness preserved. The consolidated JSON has the `buscas[]` array; `jaq` flattens results and `uniq -c` gives URL frequency — great for spotting canonical sources.
+### Recipe 04 — Domain whitelist builder for RAG source filters
+- Gain: extract a deduplicated list of trusted origin domains from any research topic in 1 pipeline.
+- Problem: RAG systems ingest low-quality sources when no domain filter is applied.
+- Benefit: `rg -oP` extracts scheme and host only — discards noisy path components.
+- Benefit: `sort -u` yields a stable alphabetically sorted list suitable for policy files.
+- Benefit: piping directly from stdout avoids writing intermediate result files.
+- Result: a ready-to-use allow-list for LLM grounding, content policy, or document ingestion filters.
 
----
-
-### Recipe 04 — Domain whitelist extraction
-
-**Goal:** Build a whitelist of trustworthy domains from N queries on a topic.
-
-**Command:**
 ```bash
 printf '%s\n' \
   "postgres tuning best practices" \
@@ -164,7 +157,7 @@ timeout 120 duckduckgo-search-cli -q \
 bat -p /tmp/pg-whitelist.txt
 ```
 
-**Expected output:**
+Expected output:
 ```
 https://pgdash.io
 https://postgresqlco.nf
@@ -174,15 +167,14 @@ https://www.enterprisedb.com
 https://www.postgresql.org
 ```
 
-**Why this works:** `rg -oP` extracts origin (scheme + host) only; `sort -u` yields a stable unique list — the raw material for policy files, allow-lists, or RAG source filters.
+### Recipe 05 — Last-24h news monitor with timestamped snapshots
+- Gain: capture a daily snapshot of last-24h results on any topic with rotation-safe filenames.
+- Problem: cron jobs overwrite previous snapshots when filenames are static.
+- Benefit: `--time-filter d` maps to DuckDuckGo's `df=d` parameter, restricting to the last 24 hours.
+- Benefit: the `${STAMP}` variable in the filename prevents overwrites across invocations.
+- Benefit: each JSON file is self-contained and queryable independently after the fact.
+- Result: a rotating archive of dated snapshots ready for diff, trend analysis, or alerting workflows.
 
----
-
-### Recipe 05 — Time-filtered news monitoring (last 24h)
-
-**Goal:** Every morning, fetch last-24h results on a topic and save timestamped JSON.
-
-**Command:**
 ```bash
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 mkdir -p /var/log/ddg-monitor
@@ -199,7 +191,7 @@ jaq -r '.resultados[] | "\(.posicao). \(.titulo) — \(.url)"' \
   | head -5
 ```
 
-**Expected output:**
+Expected output:
 ```
 1. EU AI Act enforcement begins — https://...
 2. New AI safety benchmark released — https://...
@@ -208,15 +200,14 @@ jaq -r '.resultados[] | "\(.posicao). \(.titulo) — \(.url)"' \
 5. Senate hearing on frontier models — https://...
 ```
 
-**Why this works:** `--time-filter d` restricts to last 24 hours (DuckDuckGo's `df=d`). The timestamp-named file enables trivial cron/systemd rotation with no overwrites.
+### Recipe 06 — Deep research payload ready for LLM context window
+- Gain: fetch top 10 results with up to 5k chars of page content per result in 1 command.
+- Problem: LLMs fed only snippets miss the detail needed for accurate synthesis.
+- Benefit: `--fetch-content` populates the `conteudo` field with HTML-stripped plain text per result.
+- Benefit: `--max-content-length 5000` caps token usage while preserving meaningful page content.
+- Benefit: piping through `jaq` produces a `##`-sectioned Markdown file that fits directly into a context window.
+- Result: an LLM-ready long-context payload with zero intermediate scrapers or browser sessions.
 
----
-
-### Recipe 06 — Deep research with content extraction for LLM context
-
-**Goal:** Fetch top 10 results AND extract up to 5k chars of content per page, ready to feed an LLM.
-
-**Command:**
 ```bash
 timeout 180 duckduckgo-search-cli -q \
   -n 10 \
@@ -235,7 +226,7 @@ wc -l /tmp/llm-context.md
 bat -p /tmp/llm-context.md | head -20
 ```
 
-**Expected output:**
+Expected output:
 ```
 1243 /tmp/llm-context.md
 ## A Primer on Differential Privacy
@@ -246,15 +237,15 @@ Differential privacy is a mathematical framework...
 ---
 ```
 
-**Why this works:** `--fetch-content` populates the `conteudo` field per result with HTML-stripped text capped by `--max-content-length`. Piping into a `.md` produces LLM-ready long-context payload — no intermediate scraper needed.
+### Recipe 07 — Rate-limited safe crawling below anti-abuse thresholds
+- Gain: execute multi-query research without triggering anti-bot defenses, using 3 flags.
+- Problem: parallel queries with no per-host limit hit DuckDuckGo's anti-abuse throttles.
+- Benefit: `--parallel 2` limits concurrency to 2 simultaneous queries.
+- Benefit: `--per-host-limit 1` enforces 1 in-flight request per host at a time.
+- Benefit: `--retries 3` absorbs transient failures without operator intervention.
+- Benefit: `--global-timeout 280` guarantees the whole job exits cleanly inside `timeout 300`.
+- Result: polite research execution that survives long runs without triggering blocks.
 
----
-
-### Recipe 07 — Rate-limited safe research
-
-**Goal:** Execute sensitive queries politely — minimal parallelism, single request per host, conservative retries.
-
-**Command:**
 ```bash
 timeout 300 duckduckgo-search-cli -q \
   --queries-file /tmp/sensitive.txt \
@@ -270,7 +261,7 @@ timeout 300 duckduckgo-search-cli -q \
 jaq -r '.quantidade_queries, (.buscas[].metadados.tempo_execucao_ms)' /tmp/safe-research.json
 ```
 
-**Expected output:**
+Expected output:
 ```
 5
 1823
@@ -280,15 +271,14 @@ jaq -r '.quantidade_queries, (.buscas[].metadados.tempo_execucao_ms)' /tmp/safe-
 1902
 ```
 
-**Why this works:** `--parallel 2 --per-host-limit 1` keeps you below anti-abuse thresholds; `--retries 3` smooths transient failures; `--global-timeout 280` guarantees the whole job fits inside `timeout 300` safely.
+### Recipe 08 — Proxy-routed search with leak verification
+- Gain: verify that all traffic routed through a SOCKS5 proxy with 1 authoritative JSON field.
+- Problem: proxied tools often silently fall back to direct connections when the proxy is unreachable.
+- Benefit: `metadados.usou_proxy` is set to `true` only when the proxy was wired into the HTTP client.
+- Benefit: `false` is an unambiguous signal that the proxy never attached and the real IP is exposed.
+- Benefit: `jaq` extracts only the 3 fields that matter — no parsing of the full result set needed.
+- Result: one-liner proxy verification that doubles as a smoke test for any tunneled environment.
 
----
-
-### Recipe 08 — Proxy-routed research with verification
-
-**Goal:** Route all traffic via a SOCKS5 proxy and verify the run really used it.
-
-**Command:**
 ```bash
 timeout 60 duckduckgo-search-cli -q \
   --proxy socks5://127.0.0.1:1080 \
@@ -298,7 +288,7 @@ timeout 60 duckduckgo-search-cli -q \
   | jaq '.metadados | {usou_proxy, user_agent, tempo_execucao_ms}'
 ```
 
-**Expected output:**
+Expected output:
 ```json
 {
   "usou_proxy": true,
@@ -307,15 +297,14 @@ timeout 60 duckduckgo-search-cli -q \
 }
 ```
 
-**Why this works:** `metadados.usou_proxy` is set to `true` only when the proxy was actually wired into the HTTP client — it is the authoritative signal. If you see `false`, the proxy never attached and you are leaking your real IP.
+### Recipe 09 — Zero-noise pipeline for cron and systemd
+- Gain: run hourly search snapshots unattended with clean exit codes and no log pollution.
+- Problem: cron jobs that emit tracing noise pollute system logs and trigger false alerts.
+- Benefit: `-q` routes all tracing to stderr and away from cron's stdout capture.
+- Benefit: `--global-timeout` is set smaller than the outer `timeout` so the CLI exits cleanly.
+- Benefit: the CLI exits with a meaningful code instead of being SIGKILL'd by the outer timer.
+- Result: a silent hourly snapshot job that generates exit-code-observable audit artifacts.
 
----
-
-### Recipe 09 — Quiet pipeline for cron / systemd
-
-**Goal:** Unsupervised execution — no tracing, hard time cap, durable output.
-
-**Command:**
 ```bash
 # /etc/cron.d/ddg-snapshot
 # 15 * * * * user timeout 120 duckduckgo-search-cli -q \
@@ -328,20 +317,19 @@ timeout 60 duckduckgo-search-cli -q \
 #   2>> /var/log/ddg/errors.log
 ```
 
-**Expected output:**
+Expected output:
 ```
 (no stdout; hourly JSON snapshots land in /var/log/ddg/; errors, if any, append to errors.log)
 ```
 
-**Why this works:** `-q` removes tracing noise that pollutes cron logs; `--global-timeout` is smaller than the outer `timeout` so the CLI exits cleanly with a meaningful exit code instead of being SIGKILL'd.
+### Recipe 10 — Anti-bot block detector with exit code routing
+- Gain: distinguish HTTP-202 anti-bot blocks from real failures without parsing response bodies.
+- Problem: generic error handling retries every failure the same way, wasting rate-limit budget.
+- Benefit: exit code 3 is reserved exclusively for the HTTP-202 anti-bot signature.
+- Benefit: routing on exit code 3 lets retry logic target only blocks, such as rotating a proxy.
+- Benefit: exit codes 4 and 5 surface global timeouts and zero-results as separate observable states.
+- Result: an observable shell function that logs each outcome class to the right destination.
 
----
-
-### Recipe 10 — Detect blocked queries (exit code 3)
-
-**Goal:** Distinguish real failures from HTTP-202 anti-bot blocks and log them separately.
-
-**Command:**
 ```bash
 run_ddg() {
   local q="$1"
@@ -361,21 +349,20 @@ run_ddg "legitimate query"
 run_ddg "probably blocked bot-like query"
 ```
 
-**Expected output:**
+Expected output:
 ```
 OK: legitimate query
 BLOCKED: probably blocked bot-like query
 ```
 
-**Why this works:** Exit code 3 is reserved specifically for the HTTP-202 anti-bot signature. Branching on it lets retries target only blocks (e.g., rotate proxy) instead of spraying every error path.
+### Recipe 11 — Breadth audit: top 5 vs top 15 coverage gap
+- Gain: identify exactly which URLs a top-5 query misses compared to top-15 with set difference.
+- Problem: defaulting to top-5 loses significant sources that rank between position 6 and 15.
+- Benefit: two independent JSON files enable clean set comparison without any shared state.
+- Benefit: `sort -u` normalizes both lists for `comm -13` to compute the exact set difference.
+- Benefit: the output names only URLs unique to the broader set — no false positives.
+- Result: an evidence-based audit that quantifies the breadth cost of a narrow `--num` setting.
 
----
-
-### Recipe 11 — Compare top 5 vs top 15 URL sets
-
-**Goal:** Quantify which URLs appear in the top 15 but would have been missed at top 5.
-
-**Command:**
 ```bash
 Q="llm inference benchmarking"
 
@@ -389,7 +376,7 @@ echo "=== Only in top 15 (missed at 5) ==="
 comm -13 /tmp/urls5.txt /tmp/urls15.txt
 ```
 
-**Expected output:**
+Expected output:
 ```
 === Only in top 15 (missed at 5) ===
 https://arxiv.org/abs/2404.12345
@@ -398,15 +385,14 @@ https://huggingface.co/blog/...
 ...
 ```
 
-**Why this works:** `sort -u` normalizes for `comm -13` which prints lines unique to the second file — a clean set-difference telling you exactly what breadth you gain by widening `--num`.
+### Recipe 12 — Side-by-side Markdown comparison of two queries
+- Gain: render two queries as a Markdown table with matched ranks in 10 lines of shell.
+- Problem: comparing two search strategies requires a visual side-by-side layout without a browser.
+- Benefit: two independent JSON payloads keep the comparison portable and reproducible.
+- Benefit: `jaq` indexed access extracts each title by rank position without any jq dependency.
+- Benefit: the resulting table renders natively in GitHub, VS Code, and `glow` without extra tools.
+- Result: a commit-ready Markdown comparison artifact produced in 1 pipeline run.
 
----
-
-### Recipe 12 — Markdown side-by-side comparison of two queries
-
-**Goal:** Build a comparison `.md` with two queries rendered as columns.
-
-**Command:**
 ```bash
 Q1="rust web framework axum"
 Q2="rust web framework actix"
@@ -427,7 +413,7 @@ timeout 30 duckduckgo-search-cli -q -n 5 -f json "$Q2" > /tmp/b.json
 bat -p /tmp/compare.md
 ```
 
-**Expected output:**
+Expected output:
 ```
 | # | rust web framework axum | rust web framework actix |
 |---|-----|-----|
@@ -437,15 +423,14 @@ bat -p /tmp/compare.md
 ...
 ```
 
-**Why this works:** Two independent JSON payloads plus shell loop with `jaq` indexing yields a Markdown table without any table library — universally renderable in GitHub, VS Code, `glow`, etc.
+### Recipe 13 — NDJSON export for ClickHouse, BigQuery, and DuckDB
+- Gain: flatten a multi-query run into one JSON object per line ready for direct `COPY FROM`.
+- Problem: nested JSON arrays require transformation before ingestion into columnar data stores.
+- Benefit: `jaq -c` emits compact one-object-per-line NDJSON — native format for bulk loaders.
+- Benefit: the flattened schema includes `query` and `ts` fields for grouping and partitioning.
+- Benefit: 10 queries at 15 results each produces exactly 150 lines — predictable for pipeline sizing.
+- Result: a `.ndjson` file loadable into any columnar store with a single `COPY` statement.
 
----
-
-### Recipe 13 — JSON Lines (NDJSON) for ETL ingestion
-
-**Goal:** Flatten a multi-query run into one result per line (NDJSON), ready for ClickHouse / BigQuery / DuckDB COPY.
-
-**Command:**
 ```bash
 timeout 120 duckduckgo-search-cli -q \
   --queries-file /tmp/etl-queries.txt \
@@ -468,7 +453,7 @@ wc -l /tmp/results.ndjson
 bat -p -r 1:3 /tmp/results.ndjson
 ```
 
-**Expected output:**
+Expected output:
 ```
 150 /tmp/results.ndjson
 {"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":1,"titulo":"...","url":"...","snippet":"..."}
@@ -476,15 +461,14 @@ bat -p -r 1:3 /tmp/results.ndjson
 {"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":3,"titulo":"...","url":"...","snippet":"..."}
 ```
 
-**Why this works:** `jaq -c` emits compact one-object-per-line NDJSON — native format for `COPY FROM` in most columnar stores. The shape is flat with the query attached for grouping.
+### Recipe 14 — Search-to-summarize pipeline with a local LLM
+- Gain: transform a search query into a 5-bullet summarization grounded in fetched sources in 2 commands.
+- Problem: local LLMs hallucinate without grounding context, but assembling that context requires a scraper.
+- Benefit: `--fetch-content --max-content-length 3000` delivers HTML-stripped page text inside the JSON.
+- Benefit: `jaq` shapes the multi-result JSON into the single string the OpenAI-style chat API expects.
+- Benefit: `xh` handles JSON serialization of the request body automatically — no curl flags needed.
+- Result: a grounded summarization pipeline from query to cited bullets with no browser or scraper.
 
----
-
-### Recipe 14 — Search and summarize with a local LLM
-
-**Goal:** Pipe a consolidated JSON to a local OpenAI-compatible LLM (e.g., `llama.cpp server`, Ollama) for summarization.
-
-**Command:**
 ```bash
 timeout 60 duckduckgo-search-cli -q \
   -n 10 --fetch-content --max-content-length 3000 \
@@ -503,7 +487,7 @@ timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
   | jaq -r '.choices[0].message.content'
 ```
 
-**Expected output:**
+Expected output:
 ```
 - RAG combines retrieval + generation to ground LLMs with fresh context (https://...).
 - Embeddings + vector DB are the canonical retrieval layer (https://...).
@@ -512,15 +496,15 @@ timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
 - Evaluation typically uses answer faithfulness + context recall (https://...).
 ```
 
-**Why this works:** The CLI produces structured JSON with optional fetched content; `jaq` shapes it into the single string the OpenAI-style API wants. `xh` handles JSON encoding automatically.
+### Recipe 15 — Bash function wrapper with opinionated safe defaults
+- Gain: encode timeout, retries, fetch-content, and JSON output into 1 reusable function call.
+- Problem: operators forget safe flag combinations and produce hung or unreliable search runs.
+- Benefit: the function hard-codes `--retries 3`, `--timeout 20`, and `--global-timeout 110` in one place.
+- Benefit: `--fetch-content --max-content-length 8000` delivers deep content without extra commands.
+- Benefit: the auto-timestamped filename prevents overwriting previous runs of the same query.
+- Benefit: exit code pass-through enables upstream pipelines to branch on success or failure.
+- Result: a repeatable, auditable, collision-free research command your team can trust in production.
 
----
-
-### Recipe 15 — Bash function wrapper `ddg-deep`
-
-**Goal:** Reusable function that applies safe defaults (timeout, retries, sane `--num`, JSON output, auto-timestamped file).
-
-**Command:**
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
 ddg-deep() {
@@ -556,7 +540,7 @@ ddg-deep() {
 ddg-deep "rust async runtime comparison 2026"
 ```
 
-**Expected output:**
+Expected output:
 ```
 Saved: ./ddg-rust-async-runtime-comparison-2026-20260414T153000Z.json
 1. Tokio — asynchronous Rust runtime
@@ -566,23 +550,22 @@ Saved: ./ddg-rust-async-runtime-comparison-2026-20260414T153000Z.json
 5. Glommio — thread-per-core runtime
 ```
 
-**Why this works:** A function encodes your opinionated defaults in one place. Every invocation inherits the safe timeout / retry / `--global-timeout` combo without the operator having to remember them.
-
----
-
 ## RECEITAS EM PORTUGUÊS
 
-### Receita 01 — Pesquisa rápida (top 5 como CSV)
+### Receita 01 — Top 5 resultados como CSV em 1 comando
+- Ganho: extraia 5 pares título+URL ranqueados como CSV em menos de 200ms sem parser nem scraper.
+- Problema: agentes LLM desperdiçam tokens parseando JSON bruto em formato tabular para ferramentas downstream.
+- Benefício: `-q` direciona todo o tracing para stderr, deixando stdout como JSON puro para pipe.
+- Benefício: `jaq -r` emite linhas CSV diretamente — sem arquivos intermediários, sem dependências extras.
+- Benefício: `timeout 30` limita o comando com precisão contra requisições travadas em pipelines de CI.
+- Resultado: linhas CSV prontas para colar, consumíveis por qualquer planilha, carregador ETL ou contexto de agente.
 
-**Objetivo:** Pegar os 5 primeiros títulos + URLs de uma query e cuspir como CSV.
-
-**Comando:**
 ```bash
 timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
   | jaq -r '.resultados[] | [.posicao, .titulo, .url] | @csv'
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 1,"Tokio — runtime assíncrono para Rust","https://tokio.rs/"
 2,"async-std: Versão assíncrona da std","https://async.rs/"
@@ -591,15 +574,14 @@ timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
 5,"Comparando runtimes async em Rust","https://example.com/..."
 ```
 
-**Por que funciona:** `-q` silencia o tracing e deixa o stdout como JSON puro; `jaq -r` emite CSV bruto sem aspas externas. `timeout 30` protege contra requisições travadas.
+### Receita 02 — Relatório Markdown arquivado em disco
+- Ganho: gere um relatório Markdown revisável por humanos para qualquer query com 1 flag.
+- Problema: equipes perdem contexto de pesquisa quando os resultados existem apenas em abas do navegador.
+- Benefício: `-o` cria diretórios pai e grava o relatório atomicamente em disco.
+- Benefício: o formatter `markdown` gera artefatos prontos para PR com títulos, URLs e snippets.
+- Benefício: `-n 15` captura 3x mais sinal do que a visualização padrão de top-5.
+- Resultado: um arquivo `.md` durável revisável no GitHub, VS Code ou `glow` sem pós-processamento.
 
----
-
-### Receita 02 — Relatório Markdown em arquivo
-
-**Objetivo:** Gerar um relatório Markdown limpo para uma query, gravado em disco.
-
-**Comando:**
 ```bash
 timeout 45 duckduckgo-search-cli -q \
   -n 15 \
@@ -608,26 +590,25 @@ timeout 45 duckduckgo-search-cli -q \
   "rust webassembly edge computing"
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 (sem stdout; arquivo gravado)
 $ bat -p reports/rust-webassembly.md | head -6
 # Search results — rust webassembly edge computing
 _Fetched: 2026-04-14T12:34:56Z — 15 results_
 
-1. **WASM na borda com Rust** — https://example.com/...
+1. WASM na borda com Rust — https://example.com/...
    > Snippet curto descrevendo a página...
 ```
 
-**Por que funciona:** `-o` cria diretórios pai e grava com `0o644` no Unix. O formatter `markdown` gera um artefato revisável por humanos — bom para descrições de PR e relatórios de status.
+### Receita 03 — Pesquisa paralela multi-query com pontuação de deduplicação
+- Ganho: execute 5 queries simultaneamente e ranqueie URLs por frequência de citação cruzada em 1 pipeline.
+- Problema: queries sequenciais perdem quais fontes aparecem consistentemente entre subtópicos.
+- Benefício: `--queries-file` com `--parallel 5` faz fan-out de 5 buscas preservando a polidez por host.
+- Benefício: o array `buscas[]` no JSON de saída contém todos os resultados em 1 único arquivo consolidado.
+- Benefício: `uniq -c | sort -rn` ranqueia URLs pela frequência com que aparecem entre as queries.
+- Resultado: uma lista ranqueada identificando fontes canônicas — a base para seleção de fontes em RAG.
 
----
-
-### Receita 03 — Pesquisa paralela multi-query com deduplicação
-
-**Objetivo:** Rodar cinco queries em paralelo, deduplicar URLs entre todos os resultados e contar ocorrências.
-
-**Comando:**
 ```bash
 printf '%s\n' \
   "rust async runtimes" \
@@ -650,7 +631,7 @@ jaq -r '.buscas[].resultados[].url' /tmp/multi.json \
   | head -10
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
       4 https://tokio.rs/
       3 https://github.com/async-rs/async-std
@@ -659,15 +640,14 @@ jaq -r '.buscas[].resultados[].url' /tmp/multi.json \
       1 https://github.com/smol-rs/smol
 ```
 
-**Por que funciona:** `--queries-file` com `--parallel 5` faz fan-out preservando a polidez por host. O JSON consolidado tem o array `buscas[]`; `jaq` achata os resultados e `uniq -c` dá a frequência por URL — ótimo para identificar fontes canônicas.
+### Receita 04 — Construtor de whitelist de domínios para filtros RAG
+- Ganho: extraia uma lista deduplicada de domínios de origem confiáveis de qualquer tópico de pesquisa em 1 pipeline.
+- Problema: sistemas RAG ingerem fontes de baixa qualidade quando nenhum filtro de domínio é aplicado.
+- Benefício: `rg -oP` extrai apenas esquema e host — descarta componentes de path ruidosos.
+- Benefício: `sort -u` gera uma lista estável ordenada alfabeticamente adequada para arquivos de política.
+- Benefício: o pipe direto do stdout evita gravar arquivos de resultado intermediários.
+- Resultado: uma allow-list pronta para uso para grounding de LLM, política de conteúdo ou filtros de ingestão de documentos.
 
----
-
-### Receita 04 — Extração de whitelist de domínios
-
-**Objetivo:** Construir uma whitelist de domínios confiáveis a partir de N queries sobre um tema.
-
-**Comando:**
 ```bash
 printf '%s\n' \
   "postgres tuning best practices" \
@@ -686,7 +666,7 @@ timeout 120 duckduckgo-search-cli -q \
 bat -p /tmp/pg-whitelist.txt
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 https://pgdash.io
 https://postgresqlco.nf
@@ -696,15 +676,14 @@ https://www.enterprisedb.com
 https://www.postgresql.org
 ```
 
-**Por que funciona:** `rg -oP` extrai apenas a origem (esquema + host); `sort -u` gera uma lista única e estável — matéria-prima para arquivos de política, allow-lists ou filtros de fontes RAG.
+### Receita 05 — Monitor de notícias das últimas 24h com snapshots com timestamp
+- Ganho: capture um snapshot diário dos resultados das últimas 24h de qualquer tópico com nomes de arquivo seguros para rotação.
+- Problema: jobs de cron sobrescrevem snapshots anteriores quando os nomes de arquivo são estáticos.
+- Benefício: `--time-filter d` mapeia para o parâmetro `df=d` do DuckDuckGo, restringindo às últimas 24 horas.
+- Benefício: a variável `${STAMP}` no nome do arquivo impede sobrescrita entre invocações.
+- Benefício: cada arquivo JSON é autocontido e consultável independentemente após o fato.
+- Resultado: um arquivo rotativo de snapshots com data pronto para diff, análise de tendências ou workflows de alerta.
 
----
-
-### Receita 05 — Monitoramento de notícias filtrado por tempo (últimas 24h)
-
-**Objetivo:** Toda manhã, buscar resultados das últimas 24 horas sobre um tema e salvar JSON com timestamp.
-
-**Comando:**
 ```bash
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 mkdir -p /var/log/ddg-monitor
@@ -721,7 +700,7 @@ jaq -r '.resultados[] | "\(.posicao). \(.titulo) — \(.url)"' \
   | head -5
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 1. Início da aplicação do AI Act na UE — https://...
 2. Novo benchmark de segurança em IA divulgado — https://...
@@ -730,15 +709,14 @@ jaq -r '.resultados[] | "\(.posicao). \(.titulo) — \(.url)"' \
 5. Audiência no Senado sobre modelos de fronteira — https://...
 ```
 
-**Por que funciona:** `--time-filter d` restringe às últimas 24 horas (`df=d` no DuckDuckGo). O arquivo com timestamp no nome simplifica rotação em cron/systemd sem sobrescrita.
+### Receita 06 — Payload de pesquisa profunda pronto para a janela de contexto do LLM
+- Ganho: busque os 10 primeiros resultados com até 5k caracteres de conteúdo de página por resultado em 1 comando.
+- Problema: LLMs alimentados apenas com snippets perdem o detalhe necessário para síntese precisa.
+- Benefício: `--fetch-content` popula o campo `conteudo` com texto sem HTML por resultado.
+- Benefício: `--max-content-length 5000` limita o uso de tokens preservando conteúdo significativo da página.
+- Benefício: o pipe pelo `jaq` produz um arquivo Markdown seccionado com `##` que cabe diretamente em uma janela de contexto.
+- Resultado: um payload de contexto longo pronto para LLM sem scrapers intermediários nem sessões de navegador.
 
----
-
-### Receita 06 — Pesquisa profunda com extração de conteúdo para contexto de LLM
-
-**Objetivo:** Buscar os 10 primeiros resultados E extrair até 5k caracteres de conteúdo por página, prontos para alimentar um LLM.
-
-**Comando:**
 ```bash
 timeout 180 duckduckgo-search-cli -q \
   -n 10 \
@@ -757,7 +735,7 @@ wc -l /tmp/llm-context.md
 bat -p /tmp/llm-context.md | head -20
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 1243 /tmp/llm-context.md
 ## Uma introdução à privacidade diferencial
@@ -768,15 +746,15 @@ Privacidade diferencial é um framework matemático...
 ---
 ```
 
-**Por que funciona:** `--fetch-content` popula o campo `conteudo` por resultado com texto HTML-stripped limitado por `--max-content-length`. Jogando em um `.md`, você obtém payload de contexto longo pronto para LLM — sem scraper intermediário.
+### Receita 07 — Crawling seguro com rate-limit abaixo de thresholds anti-abuso
+- Ganho: execute pesquisa multi-query sem acionar defesas anti-bot usando 3 flags.
+- Problema: queries paralelas sem limite por host atingem os throttles anti-abuso do DuckDuckGo.
+- Benefício: `--parallel 2` limita a concorrência a 2 queries simultâneas.
+- Benefício: `--per-host-limit 1` garante 1 requisição em voo por host por vez.
+- Benefício: `--retries 3` absorve falhas transitórias sem intervenção do operador.
+- Benefício: `--global-timeout 280` garante que o job inteiro encerra limpo dentro do `timeout 300`.
+- Resultado: execução de pesquisa polida que sobrevive a execuções longas sem acionar bloqueios.
 
----
-
-### Receita 07 — Pesquisa segura com rate-limit
-
-**Objetivo:** Executar queries sensíveis com polidez — paralelismo mínimo, 1 requisição por host, retries conservadores.
-
-**Comando:**
 ```bash
 timeout 300 duckduckgo-search-cli -q \
   --queries-file /tmp/sensitive.txt \
@@ -792,7 +770,7 @@ timeout 300 duckduckgo-search-cli -q \
 jaq -r '.quantidade_queries, (.buscas[].metadados.tempo_execucao_ms)' /tmp/safe-research.json
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 5
 1823
@@ -802,15 +780,14 @@ jaq -r '.quantidade_queries, (.buscas[].metadados.tempo_execucao_ms)' /tmp/safe-
 1902
 ```
 
-**Por que funciona:** `--parallel 2 --per-host-limit 1` mantém o volume abaixo de thresholds anti-abuso; `--retries 3` absorve falhas transitórias; `--global-timeout 280` garante que o job inteiro caiba dentro do `timeout 300` externo com folga.
+### Receita 08 — Busca via proxy com verificação de vazamento de IP
+- Ganho: verifique que todo o tráfego foi roteado por um proxy SOCKS5 com 1 campo JSON autoritativo.
+- Problema: ferramentas com proxy frequentemente voltam silenciosamente para conexões diretas quando o proxy está inacessível.
+- Benefício: `metadados.usou_proxy` só vai para `true` quando o proxy foi de fato conectado ao cliente HTTP.
+- Benefício: `false` é um sinal inequívoco de que o proxy nunca foi conectado e o IP real vazou.
+- Benefício: `jaq` extrai apenas os 3 campos que importam — sem parsing do conjunto de resultados completo.
+- Resultado: verificação de proxy em uma linha que serve como smoke test para qualquer ambiente tunelado.
 
----
-
-### Receita 08 — Pesquisa via proxy com verificação
-
-**Objetivo:** Rotear todo o tráfego via proxy SOCKS5 e verificar que o run realmente usou.
-
-**Comando:**
 ```bash
 timeout 60 duckduckgo-search-cli -q \
   --proxy socks5://127.0.0.1:1080 \
@@ -820,7 +797,7 @@ timeout 60 duckduckgo-search-cli -q \
   | jaq '.metadados | {usou_proxy, user_agent, tempo_execucao_ms}'
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```json
 {
   "usou_proxy": true,
@@ -829,15 +806,14 @@ timeout 60 duckduckgo-search-cli -q \
 }
 ```
 
-**Por que funciona:** `metadados.usou_proxy` só vai para `true` quando o proxy foi de fato plugado no cliente HTTP — é o sinal autoritativo. Se vier `false`, o proxy não engatou e o IP real vazou.
+### Receita 09 — Pipeline zero-ruído para cron e systemd
+- Ganho: execute snapshots de busca horários sem supervisão com exit codes limpos e sem poluição de log.
+- Problema: jobs de cron que emitem ruído de tracing poluem logs do sistema e acionam alertas falsos.
+- Benefício: `-q` direciona todo o tracing para stderr e para longe da captura de stdout do cron.
+- Benefício: `--global-timeout` é definido menor que o `timeout` externo para que a CLI encerre limpa.
+- Benefício: a CLI encerra com um exit code significativo em vez de ser SIGKILL'd pelo timer externo.
+- Resultado: um job de snapshot silencioso por hora que gera artefatos de auditoria observáveis por exit code.
 
----
-
-### Receita 09 — Pipeline silencioso para cron / systemd
-
-**Objetivo:** Execução não-supervisionada — sem tracing, corte duro de tempo, output durável.
-
-**Comando:**
 ```bash
 # /etc/cron.d/ddg-snapshot
 # 15 * * * * user timeout 120 duckduckgo-search-cli -q \
@@ -850,20 +826,19 @@ timeout 60 duckduckgo-search-cli -q \
 #   2>> /var/log/ddg/errors.log
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 (sem stdout; snapshots JSON horários aterrissam em /var/log/ddg/; erros, se houver, acumulam em errors.log)
 ```
 
-**Por que funciona:** `-q` elimina o ruído de tracing que polui logs de cron; `--global-timeout` é menor que o `timeout` externo, então a CLI encerra limpa com exit code significativo em vez de levar SIGKILL.
+### Receita 10 — Detector de bloqueio anti-bot com roteamento por exit code
+- Ganho: distinga bloqueios HTTP-202 anti-bot de falhas reais sem parsear corpos de resposta.
+- Problema: tratamento de erro genérico retenta toda falha da mesma forma, desperdiçando orçamento de rate-limit.
+- Benefício: exit code 3 é reservado exclusivamente para a assinatura anti-bot HTTP-202.
+- Benefício: rotear no exit code 3 permite que a lógica de retry direcione apenas bloqueios, como rotacionar proxy.
+- Benefício: exit codes 4 e 5 surfaciam timeouts globais e zero resultados como estados observáveis separados.
+- Resultado: uma função shell observável que registra cada classe de resultado no destino correto.
 
----
-
-### Receita 10 — Detectar queries bloqueadas (exit code 3)
-
-**Objetivo:** Distinguir falhas reais de bloqueios anti-bot (HTTP 202) e logar separadamente.
-
-**Comando:**
 ```bash
 run_ddg() {
   local q="$1"
@@ -883,21 +858,20 @@ run_ddg "query legítima"
 run_ddg "query provavelmente bloqueada que parece bot"
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 OK: query legítima
 BLOQUEADO: query provavelmente bloqueada que parece bot
 ```
 
-**Por que funciona:** O exit code 3 é reservado exclusivamente para a assinatura HTTP-202 anti-bot. Ramificar nele permite direcionar retries só para bloqueios (ex: rotacionar proxy) em vez de disparar fallback para todo tipo de erro.
+### Receita 11 — Auditoria de amplitude: gap de cobertura top 5 vs top 15
+- Ganho: identifique exatamente quais URLs uma query top-5 perde em comparação ao top-15 com diferença de conjuntos.
+- Problema: definir o padrão para top-5 perde fontes significativas que ranqueiam entre as posições 6 e 15.
+- Benefício: dois arquivos JSON independentes permitem comparação limpa de conjuntos sem estado compartilhado.
+- Benefício: `sort -u` normaliza ambas as listas para que `comm -13` calcule a diferença exata de conjuntos.
+- Benefício: a saída nomeia apenas URLs únicas no conjunto mais amplo — sem falsos positivos.
+- Resultado: uma auditoria baseada em evidências que quantifica o custo de amplitude de uma configuração `--num` estreita.
 
----
-
-### Receita 11 — Comparar conjuntos top 5 vs top 15
-
-**Objetivo:** Quantificar quais URLs aparecem no top 15 e seriam perdidas no top 5.
-
-**Comando:**
 ```bash
 Q="llm inference benchmarking"
 
@@ -911,7 +885,7 @@ echo "=== Apenas no top 15 (perdidos no top 5) ==="
 comm -13 /tmp/urls5.txt /tmp/urls15.txt
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 === Apenas no top 15 (perdidos no top 5) ===
 https://arxiv.org/abs/2404.12345
@@ -920,15 +894,14 @@ https://huggingface.co/blog/...
 ...
 ```
 
-**Por que funciona:** `sort -u` normaliza a entrada de `comm -13`, que imprime apenas as linhas exclusivas do segundo arquivo — uma diferença de conjuntos limpa que mostra exatamente quanto alcance adicional se ganha ampliando `--num`.
+### Receita 12 — Comparação Markdown lado-a-lado de duas queries
+- Ganho: renderize duas queries como uma tabela Markdown com ranks correspondentes em 10 linhas de shell.
+- Problema: comparar duas estratégias de busca requer um layout visual lado-a-lado sem navegador.
+- Benefício: dois payloads JSON independentes mantêm a comparação portátil e reproduzível.
+- Benefício: o acesso indexado via `jaq` extrai cada título por posição de rank sem dependência de jq.
+- Benefício: a tabela resultante é renderizada nativamente no GitHub, VS Code e `glow` sem ferramentas extras.
+- Resultado: um artefato de comparação Markdown pronto para commit produzido em 1 execução de pipeline.
 
----
-
-### Receita 12 — Comparação lado-a-lado em Markdown de duas queries
-
-**Objetivo:** Construir um `.md` de comparação com duas queries renderizadas em colunas.
-
-**Comando:**
 ```bash
 Q1="rust web framework axum"
 Q2="rust web framework actix"
@@ -949,7 +922,7 @@ timeout 30 duckduckgo-search-cli -q -n 5 -f json "$Q2" > /tmp/b.json
 bat -p /tmp/compare.md
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 | # | rust web framework axum | rust web framework actix |
 |---|-----|-----|
@@ -959,15 +932,14 @@ bat -p /tmp/compare.md
 ...
 ```
 
-**Por que funciona:** Dois payloads JSON independentes + loop shell com indexação via `jaq` geram uma tabela Markdown sem nenhuma biblioteca de tabela — renderizável universalmente em GitHub, VS Code, `glow`, etc.
+### Receita 13 — Exportação NDJSON para ClickHouse, BigQuery e DuckDB
+- Ganho: achate uma execução multi-query em 1 objeto JSON por linha pronto para `COPY FROM` direto.
+- Problema: arrays JSON aninhados requerem transformação antes da ingestão em datastores colunares.
+- Benefício: `jaq -c` emite NDJSON compacto com 1 objeto por linha — formato nativo para loaders em massa.
+- Benefício: o schema achatado inclui campos `query` e `ts` para agrupamento e particionamento.
+- Benefício: 10 queries com 15 resultados cada produz exatamente 150 linhas — previsível para dimensionamento de pipeline.
+- Resultado: um arquivo `.ndjson` carregável em qualquer store colunar com um único comando `COPY`.
 
----
-
-### Receita 13 — JSON Lines (NDJSON) para ingestão ETL
-
-**Objetivo:** Achatamento de uma execução multi-query em um resultado por linha (NDJSON), pronto para `COPY` em ClickHouse / BigQuery / DuckDB.
-
-**Comando:**
 ```bash
 timeout 120 duckduckgo-search-cli -q \
   --queries-file /tmp/etl-queries.txt \
@@ -990,7 +962,7 @@ wc -l /tmp/results.ndjson
 bat -p -r 1:3 /tmp/results.ndjson
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 150 /tmp/results.ndjson
 {"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":1,"titulo":"...","url":"...","snippet":"..."}
@@ -998,15 +970,14 @@ bat -p -r 1:3 /tmp/results.ndjson
 {"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":3,"titulo":"...","url":"...","snippet":"..."}
 ```
 
-**Por que funciona:** `jaq -c` emite NDJSON compacto com um objeto por linha — formato nativo para `COPY FROM` na maioria dos bancos colunares. O formato é plano e carrega a query para agrupamento.
+### Receita 14 — Pipeline busca-para-sumarização com LLM local
+- Ganho: transforme uma query de busca em uma sumarização de 5 bullets ancorada em fontes buscadas em 2 comandos.
+- Problema: LLMs locais alucinam sem contexto de grounding, mas montar esse contexto requer um scraper.
+- Benefício: `--fetch-content --max-content-length 3000` entrega texto de página sem HTML dentro do JSON.
+- Benefício: `jaq` formata o JSON multi-resultado na string única que a API de chat estilo OpenAI espera.
+- Benefício: `xh` cuida da serialização JSON do corpo da requisição automaticamente — sem flags de curl.
+- Resultado: um pipeline de sumarização ancorada de query para bullets com citações sem navegador nem scraper.
 
----
-
-### Receita 14 — Busca e sumarização com LLM local
-
-**Objetivo:** Enviar JSON consolidado a um LLM local compatível com OpenAI (ex: `llama.cpp server`, Ollama) para sumarização.
-
-**Comando:**
 ```bash
 timeout 60 duckduckgo-search-cli -q \
   -n 10 --fetch-content --max-content-length 3000 \
@@ -1025,7 +996,7 @@ timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
   | jaq -r '.choices[0].message.content'
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 - RAG combina retrieval + geração para ancorar LLMs com contexto fresco (https://...).
 - Embeddings + banco vetorial são a camada canônica de retrieval (https://...).
@@ -1034,15 +1005,15 @@ timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
 - Avaliação tipicamente usa faithfulness + context recall (https://...).
 ```
 
-**Por que funciona:** A CLI produz JSON estruturado com conteúdo opcional; `jaq` molda no formato de string única que a API estilo OpenAI espera. `xh` cuida da codificação JSON automaticamente.
+### Receita 15 — Função bash com defaults seguros e opinativos
+- Ganho: codifique timeout, retries, fetch-content e saída JSON em 1 chamada de função reutilizável.
+- Problema: operadores esquecem combinações seguras de flags e produzem execuções de busca travadas ou não confiáveis.
+- Benefício: a função codifica `--retries 3`, `--timeout 20` e `--global-timeout 110` em um único lugar.
+- Benefício: `--fetch-content --max-content-length 8000` entrega conteúdo profundo sem comandos extras.
+- Benefício: o nome de arquivo com timestamp automático impede sobrescrita de execuções anteriores da mesma query.
+- Benefício: o repasse do exit code permite que pipelines upstream ramifiquem em sucesso ou falha.
+- Resultado: um comando de pesquisa repetível, auditável e sem colisão em que sua equipe pode confiar em produção.
 
----
-
-### Receita 15 — Função bash `ddg-deep`
-
-**Objetivo:** Função reutilizável que aplica defaults seguros (timeout, retries, `--num` razoável, saída JSON, arquivo com timestamp automático).
-
-**Comando:**
 ```bash
 # Adicionar ao ~/.bashrc ou ~/.zshrc
 ddg-deep() {
@@ -1078,7 +1049,7 @@ ddg-deep() {
 ddg-deep "comparação de runtimes async em rust 2026"
 ```
 
-**Saída esperada:**
+Saída esperada:
 ```
 Salvo: ./ddg-comparacao-de-runtimes-async-em-rust-2026-20260414T153000Z.json
 1. Tokio — runtime assíncrono para Rust
@@ -1088,11 +1059,7 @@ Salvo: ./ddg-comparacao-de-runtimes-async-em-rust-2026-20260414T153000Z.json
 5. Glommio — runtime thread-per-core
 ```
 
-**Por que funciona:** Uma função codifica seus defaults opinativos em um único lugar. Cada invocação herda a combinação segura de timeout / retries / `--global-timeout` sem o operador precisar lembrar.
-
----
-
-## Recipe-to-Use-Case Table / Tabela Receita → Caso de Uso
+## Recipe-to-Use-Case Table / Tabela Receita para Caso de Uso
 
 | Recipe / Receita | Use case / Caso de uso | Tools used / Ferramentas |
 |---|---|---|
@@ -1109,9 +1076,7 @@ Salvo: ./ddg-comparacao-de-runtimes-async-em-rust-2026-20260414T153000Z.json
 | 11 | Auditoria de amplitude de resultados / Result breadth audit | `duckduckgo-search-cli`, `jaq`, `comm`, `sort`, `timeout` |
 | 12 | Comparação A/B em Markdown / Markdown A/B comparison | `duckduckgo-search-cli`, `jaq`, `bat`, `timeout` |
 | 13 | Exportação NDJSON para ETL / NDJSON export for ETL | `duckduckgo-search-cli`, `jaq -c`, `bat`, `timeout` |
-| 14 | Pipeline busca→sumarização com LLM / Search→summarize LLM pipeline | `duckduckgo-search-cli --fetch-content`, `jaq`, `xh`, `timeout` |
+| 14 | Pipeline busca para sumarização com LLM / Search-to-summarize LLM pipeline | `duckduckgo-search-cli --fetch-content`, `jaq`, `xh`, `timeout` |
 | 15 | Defaults opinativos reutilizáveis / Reusable opinionated defaults | `duckduckgo-search-cli`, função bash, `jaq`, `date`, `timeout` |
-
----
 
 _End of COOKBOOK / Fim do Livro de Receitas._
