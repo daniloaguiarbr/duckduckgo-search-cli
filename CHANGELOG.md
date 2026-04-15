@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-04-15
+
+### Changed
+
+- **`README.md`** — Nova seção persuasiva "Agent Skill" (EN + PT) posicionada
+  entre a tabela de agentes e a seção de Documentação, no pico de atenção do
+  leitor. Copywriting AIDA destacando a skill bilíngue empacotada em `skill/`:
+  auto-ativação semântica sem slash command, 14 seções canônicas MUST/NEVER,
+  contrato JSON anti-alucinação, economia de tokens em cada turno de busca,
+  instalação em um comando (`git clone` + `cp -r`). Benefícios explícitos para
+  LLMs (decisão automática de quando buscar) e desenvolvedores (zero prompt
+  engineering, zero tool registration). Tarball do crates.io inalterado —
+  skills continuam vivendo apenas no GitHub.
+
 ## [0.4.2] - 2026-04-15
 
 ### Added

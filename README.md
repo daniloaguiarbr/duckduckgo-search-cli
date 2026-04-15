@@ -60,6 +60,26 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 
+### Agent Skill — bundled, bilingual, auto-activating
+
+Stop writing system prompts that remind your agent to search. This repo already ships a pre-built Claude Agent Skill, and Claude picks it up automatically the moment a user mentions research, verification, fresh docs or URL grounding — in less than a second, with zero prompt engineering.
+
+- **Two production-grade skills live in this repo.** `skill/duckduckgo-search-cli-en/SKILL.md` and `skill/duckduckgo-search-cli-pt/SKILL.md` — English and Brazilian Portuguese, each with a unique `name` field so both can coexist in the same Claude install.
+- **Auto-activation, straight out of the box.** The `description` field is front-loaded with the triggers users actually type ("search the web", "ground this", "verify this URL", "pesquise online", "traga resultados atualizados"). Claude matches on semantics — no slash command, no tool registration.
+- **14 canonical MUST/NEVER sections per skill.** Mandatory `-q -f json` contract, `jaq` parsing, deterministic exit codes, batch mode, content extraction, endpoint fallback, retries, post-validation — the agent reads this once and stops inventing flags forever.
+- **Token-efficient by design.** One ~1,000-word skill replaces a sprawling system prompt. Loaded once per session, referenced every time — trims hundreds of tokens off every future search turn.
+- **Anti-hallucination guarantee.** Every flag the agent might invoke is documented inside the skill with a frozen JSON contract. No made-up arguments, no retry loops, no wasted tool calls.
+- **Installs in one command.** Copy the folder into your Claude config and you are done — the skill lives on GitHub, not in the crates.io tarball, so always pull the freshest version from `main`.
+
+```bash
+# One-shot install (clone and copy whichever language you prefer).
+git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
+cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
+cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-pt ~/.claude/skills/
+
+# Restart Claude Code (or reload the Agent SDK). That is the whole setup.
+```
+
 ### 📚 Documentation
 
 Three deep-dive guides ship with the crate. Read them once — they pay back forever.
@@ -252,6 +272,26 @@ Basta que o agente possa executar um comando de shell. Quase todo agente sério 
 - **`rustls-tls` puro.** Sem OpenSSL, sem surpresas no SChannel, builds musl estáticas funcionam de primeira em qualquer container Alpine.
 - **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
 - **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
+
+### Skill de agente — empacotada, bilíngue, auto-ativada
+
+Pare de escrever system prompts lembrando seu agente de pesquisar. Este repo já entrega uma Claude Agent Skill pronta, e o Claude a dispara sozinho no instante em que o usuário fala em pesquisa, verificação, docs atualizadas ou grounding de URL — em menos de um segundo, sem engenharia de prompt.
+
+- **Duas skills production-grade no repo.** `skill/duckduckgo-search-cli-en/SKILL.md` e `skill/duckduckgo-search-cli-pt/SKILL.md` — inglês e português brasileiro, cada uma com `name` único para coexistir na mesma instalação do Claude.
+- **Auto-ativação de fábrica.** O campo `description` vem carregado com os triggers que o usuário realmente digita ("pesquise online", "verifique essa URL", "traga resultados atualizados", "search the web", "ground this"). O Claude casa por semântica — sem slash command, sem registro manual de tool.
+- **14 seções canônicas MUST/NEVER por skill.** Contrato obrigatório `-q -f json`, parsing com `jaq`, exit codes determinísticos, batch, extração de conteúdo, fallback de endpoint, retries, validação pós-invocação — o agente lê uma vez e para de inventar flags para sempre.
+- **Econômica em tokens.** Uma skill de ~1.000 palavras substitui um system prompt inchado. Carregada uma vez por sessão, referenciada sempre — economiza centenas de tokens em cada turno de busca.
+- **Garantia anti-alucinação.** Cada flag que o agente pode invocar está documentada dentro da skill com contrato JSON congelado. Sem argumentos inventados, sem loops de retry, sem tool call desperdiçado.
+- **Instalação em um comando.** Copie a pasta para o config do Claude e acabou — a skill mora no GitHub, fora do tarball do crates.io, então sempre puxe a versão mais fresca do `main`.
+
+```bash
+# Instalação direta (clone e copie a linguagem que preferir).
+git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
+cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-pt ~/.claude/skills/
+cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
+
+# Reinicie o Claude Code (ou recarregue o Agent SDK). É todo o setup.
+```
 
 ### 📚 Documentação
 
