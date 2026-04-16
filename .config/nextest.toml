@@ -1,0 +1,40 @@
+# Configuração de nextest para duckduckgo-search-cli.
+#
+# - Timeout por teste: 60s (detecta testes pendurados conforme CLAUDE.md).
+# - Retries automáticos em testes de rede (wiremock pode sofrer contenção transitória).
+# - Profile "ci" com fail-fast=false para coletar todos os fails em uma rodada.
+# - Profile "default" com fail-fast=true para iteração local rápida.
+#
+# Uso:
+#   cargo nextest run                 # profile default (local)
+#   cargo nextest run --profile ci    # profile ci (pipeline)
+#   cargo nextest run --retries 2     # override ad-hoc
+
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 2 }
+test-threads = "num-cpus"
+fail-fast = true
+status-level = "pass"
+final-status-level = "fail"
+
+[profile.default.junit]
+path = "junit.xml"
+
+[profile.ci]
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 2 }
+retries = { backoff = "exponential", count = 2, delay = "1s", jitter = true }
+status-level = "retry"
+final-status-level = "flaky"
+
+# Overrides granulares por padrão de nome do teste.
+
+[[profile.default.overrides]]
+filter = "test(/wiremock/) | test(/integracao_search/) | test(/integracao_parallel/)"
+retries = { backoff = "exponential", count = 2, delay = "500ms", jitter = true }
+slow-timeout = { period = "45s", terminate-after = 2 }
+
+[[profile.ci.overrides]]
+filter = "test(/wiremock/) | test(/integracao_search/) | test(/integracao_parallel/) | test(/e2e_cli/)"
+retries = { backoff = "exponential", count = 3, delay = "1s", jitter = true }
+slow-timeout = { period = "90s", terminate-after = 2 }

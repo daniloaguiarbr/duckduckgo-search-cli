@@ -31,3 +31,7 @@ projeto_duckduckgo-search-cli.md
 # Coverage
 *.profraw
 *.profdata
+
+# Nextest outputs
+junit.xml
+target/nextest/
