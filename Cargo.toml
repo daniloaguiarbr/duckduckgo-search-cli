@@ -101,7 +101,7 @@ encoding_rs = "0.8"
 # está com um bug de imports em 0.7.0; por isso ativamos apenas "tokio-runtime" aqui. A funcionalidade
 # de auto-download de Chromium pode ser adicionada via dependência explícita quando for implementar
 # fetch-content na iteração 5.
-chromiumoxide = { version = "0.7", features = ["tokio-runtime"], optional = true }
+chromiumoxide = { version = "0.8", features = ["tokio-runtime"], optional = true }
 tempfile = { version = "3", optional = true }
 futures = { version = "0.3", optional = true }
 
