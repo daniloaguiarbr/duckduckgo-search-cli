@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-16
+
+### Security
+- Path traversal validation on `--output` — rejects `..` components and writes to system directories (`/etc`, `/usr`, `C:\Windows`).
+- Proxy credential masking — error messages no longer expose passwords from `--proxy http://user:pass@host` URLs.
+
+### Added
+- `src/paths.rs` — centralized path validation, parent directory creation, and Unix permission application.
+- `src/signals.rs` — centralized SIGPIPE restoration (Unix) and Ctrl+C/SIGINT handler (cross-platform).
+- `ErroCliDdg` enum with `thiserror` — 11 typed error variants with `exit_code()` and `codigo_erro()` methods.
+- `mascarar_url_proxy()` in `http.rs` — redacts credentials from proxy URLs in error context.
+- 21 new unit tests across `paths.rs`, `signals.rs`, `error.rs`, and `http.rs`.
+
+### Changed
+- `thiserror = "2"` added to dependencies for structured domain errors.
+- `src/main.rs` reduced from 63 to 23 lines — signal handling extracted to `signals.rs`.
+- `src/output.rs` file writes now validate paths via `paths::validar_caminho_saida()` before I/O.
+- `deny.toml` updated with RUSTSEC-2026-0097 exception (rand 0.8 unsound with custom logger — not applicable).
+
 ## [0.4.4] - 2026-04-16
 
 ### Fixed

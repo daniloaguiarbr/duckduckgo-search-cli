@@ -22,7 +22,9 @@
 //! | [`content`]   | Extração HTTP + readability para `--fetch-content` (iter. 5).|
 //! | [`fetch_conteudo`] | Fan-out paralelo + rate-limit per-host (iter. 5 / 6).  |
 //! | [`selectors`] | Carregamento de `ConfiguracaoSeletores` externa (iter. 6).  |
+//! | [`signals`]   | Handlers de sinais cross-platform (SIGPIPE, Ctrl+C).         |
 //! | [`config_init`] | Subcomando `init-config` (iter. 6).                       |
+//! | [`paths`]     | Validação e sanitização de paths para I/O.                   |
 //! | `browser`     | Chrome headless cross-platform sob feature `chrome` (iter.7).|
 //!
 //! ## Ponto de Entrada
@@ -39,10 +41,12 @@ pub mod fetch_conteudo;
 pub mod http;
 pub mod output;
 pub mod parallel;
+pub mod paths;
 pub mod pipeline;
 pub mod platform;
 pub mod search;
 pub mod selectors;
+pub mod signals;
 pub mod types;
 
 // browser.rs só compila com a feature `chrome` (zero overhead no MVP).

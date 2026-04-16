@@ -68,7 +68,7 @@ Expected output:
 ### Recipe 02 — Archived Markdown report to disk
 - Gain: produce a human-reviewable Markdown report for any query with 1 flag.
 - Problem: teams lose research context when search results exist only in browser tabs.
-- Benefit: `-o` creates parent directories and writes the report atomically to disk.
+- Benefit: `-o` creates parent directories atomically and v0.5.0 validates path safety — rejects `..` and system directories
 - Benefit: the `markdown` formatter generates PR-ready artifacts with titles, URLs, and snippets.
 - Benefit: `-n 15` captures 3x more signal than the default top-5 view.
 - Result: a durable `.md` file reviewable in GitHub, VS Code, or `glow` with zero post-processing.
@@ -274,7 +274,7 @@ Expected output:
 ### Recipe 08 — Proxy-routed search with leak verification
 - Gain: verify that all traffic routed through a SOCKS5 proxy with 1 authoritative JSON field.
 - Problem: proxied tools often silently fall back to direct connections when the proxy is unreachable.
-- Benefit: `metadados.usou_proxy` is set to `true` only when the proxy was wired into the HTTP client.
+- Benefit: `metadados.usou_proxy` confirms proxy connection and v0.5.0 masks proxy credentials in all error output automatically
 - Benefit: `false` is an unambiguous signal that the proxy never attached and the real IP is exposed.
 - Benefit: `jaq` extracts only the 3 fields that matter — no parsing of the full result set needed.
 - Result: one-liner proxy verification that doubles as a smoke test for any tunneled environment.
@@ -594,7 +594,7 @@ Saída esperada:
 ### Receita 02 — Relatório Markdown arquivado em disco
 - Ganho: gere um relatório Markdown revisável por humanos para qualquer query com 1 flag.
 - Problema: equipes perdem contexto de pesquisa quando os resultados existem apenas em abas do navegador.
-- Benefício: `-o` cria diretórios pai e grava o relatório atomicamente em disco.
+- Benefício: `-o` cria diretórios pai atomicamente e v0.5.0 valida segurança do path — rejeita `..` e diretórios de sistema
 - Benefício: o formatter `markdown` gera artefatos prontos para PR com títulos, URLs e snippets.
 - Benefício: `-n 15` captura 3x mais sinal do que a visualização padrão de top-5.
 - Resultado: um arquivo `.md` durável revisável no GitHub, VS Code ou `glow` sem pós-processamento.
@@ -800,7 +800,7 @@ Saída esperada:
 ### Receita 08 — Busca via proxy com verificação de vazamento de IP
 - Ganho: verifique que todo o tráfego foi roteado por um proxy SOCKS5 com 1 campo JSON autoritativo.
 - Problema: ferramentas com proxy frequentemente voltam silenciosamente para conexões diretas quando o proxy está inacessível.
-- Benefício: `metadados.usou_proxy` só vai para `true` quando o proxy foi de fato conectado ao cliente HTTP.
+- Benefício: `metadados.usou_proxy` confirma conexão de proxy e v0.5.0 mascara credenciais de proxy em toda saída de erro automaticamente
 - Benefício: `false` é um sinal inequívoco de que o proxy nunca foi conectado e o IP real vazou.
 - Benefício: `jaq` extrai apenas os 3 campos que importam — sem parsing do conjunto de resultados completo.
 - Resultado: verificação de proxy em uma linha que serve como smoke test para qualquer ambiente tunelado.

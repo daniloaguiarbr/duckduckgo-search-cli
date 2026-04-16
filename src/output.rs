@@ -345,12 +345,8 @@ fn emitir_bloco_stream(bloco: &str, arquivo_saida: Option<&Path>) -> Result<()> 
 /// primeira criação. Cria diretórios pai se necessário.
 fn anexar_linha_em_arquivo(caminho: &Path, linha: &str) -> Result<()> {
     use std::fs::OpenOptions;
-    if let Some(pai) = caminho.parent() {
-        if !pai.as_os_str().is_empty() && !pai.exists() {
-            fs::create_dir_all(pai)
-                .with_context(|| format!("falha ao criar diretórios pai: {}", pai.display()))?;
-        }
-    }
+    crate::paths::validar_caminho_saida(caminho)?;
+    crate::paths::criar_diretorios_pai(caminho)?;
     let precisava_criar = !caminho.exists();
     let mut arquivo = OpenOptions::new()
         .create(true)
@@ -366,7 +362,7 @@ fn anexar_linha_em_arquivo(caminho: &Path, linha: &str) -> Result<()> {
 
     #[cfg(unix)]
     if precisava_criar {
-        aplicar_permissoes_644(caminho)?;
+        crate::paths::aplicar_permissoes_644(caminho)?;
     }
     #[cfg(not(unix))]
     let _ = precisava_criar;
@@ -377,28 +373,14 @@ fn anexar_linha_em_arquivo(caminho: &Path, linha: &str) -> Result<()> {
 /// Escreve `conteudo` no `caminho`, criando diretórios pai se necessário.
 /// Aplica permissões 0o644 no Unix (somente o dono escreve, todos leem).
 fn escrever_em_arquivo(caminho: &Path, conteudo: &str) -> Result<()> {
-    if let Some(pai) = caminho.parent() {
-        if !pai.as_os_str().is_empty() && !pai.exists() {
-            fs::create_dir_all(pai)
-                .with_context(|| format!("falha ao criar diretórios pai: {}", pai.display()))?;
-        }
-    }
+    crate::paths::validar_caminho_saida(caminho)?;
+    crate::paths::criar_diretorios_pai(caminho)?;
     fs::write(caminho, conteudo)
         .with_context(|| format!("falha ao gravar arquivo: {}", caminho.display()))?;
 
-    #[cfg(unix)]
-    aplicar_permissoes_644(caminho)?;
+    crate::paths::aplicar_permissoes_644(caminho)?;
 
     tracing::info!(caminho = %caminho.display(), bytes = conteudo.len(), "saída gravada em arquivo");
-    Ok(())
-}
-
-#[cfg(unix)]
-fn aplicar_permissoes_644(caminho: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let permissoes = std::fs::Permissions::from_mode(0o644);
-    fs::set_permissions(caminho, permissoes)
-        .with_context(|| format!("falha ao aplicar permissões 0o644 em {}", caminho.display()))?;
     Ok(())
 }
 

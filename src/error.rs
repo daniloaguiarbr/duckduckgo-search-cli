@@ -38,6 +38,85 @@ pub mod exit_codes {
     pub const ZERO_RESULTADOS: i32 = 5;
 }
 
+/// Enum tipado de erros do domínio da CLI.
+///
+/// Cada variante mapeia para um exit code e um código de erro JSON específico.
+/// Introduzido de forma incremental — o codebase continua usando `anyhow::Result`
+/// para propagação, e este enum é usado para tipagem explícita onde necessário.
+#[derive(thiserror::Error, Debug)]
+pub enum ErroCliDdg {
+    #[error("erro HTTP: {mensagem}")]
+    ErroHttp {
+        mensagem: String,
+        #[source]
+        causa: Option<anyhow::Error>,
+    },
+
+    #[error("rate limiting detectado pelo DuckDuckGo")]
+    RateLimited,
+
+    #[error("bloqueio anti-bot detectado (HTTP 202 anomaly)")]
+    Bloqueado,
+
+    #[error("zero resultados em todas as queries")]
+    SemResultados,
+
+    #[error("configuração inválida: {mensagem}")]
+    ConfiguracaoInvalida { mensagem: String },
+
+    #[error("timeout global excedido ({segundos}s)")]
+    TimeoutGlobal { segundos: u64 },
+
+    #[error("operação cancelada via SIGINT")]
+    Cancelado,
+
+    #[error("erro de proxy: {mensagem}")]
+    ErroProxy { mensagem: String },
+
+    #[error("erro de rede: {mensagem}")]
+    ErroRede { mensagem: String },
+
+    #[error("pipe fechado pelo consumidor (BrokenPipe)")]
+    PipeBroken,
+
+    #[error("caminho de saída inválido: {mensagem}")]
+    ErroPath { mensagem: String },
+}
+
+impl ErroCliDdg {
+    /// Retorna o exit code correspondente a esta variante de erro.
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Self::ErroHttp { .. } | Self::ErroRede { .. } => exit_codes::ERRO_GENERICO,
+            Self::ConfiguracaoInvalida { .. } | Self::ErroProxy { .. } | Self::ErroPath { .. } => {
+                exit_codes::CONFIGURACAO_INVALIDA
+            }
+            Self::RateLimited | Self::Bloqueado => exit_codes::RATE_LIMITED_OU_BLOQUEADO,
+            Self::TimeoutGlobal { .. } => exit_codes::TIMEOUT_GLOBAL,
+            Self::SemResultados => exit_codes::ZERO_RESULTADOS,
+            Self::Cancelado => exit_codes::ERRO_GENERICO,
+            Self::PipeBroken => exit_codes::SUCESSO,
+        }
+    }
+
+    /// Retorna o código de erro string para uso no campo `error` do JSON de saída.
+    pub fn codigo_erro(&self) -> &'static str {
+        match self {
+            Self::ErroHttp { .. } => codigos::HTTP_ERROR,
+            Self::RateLimited => codigos::RATE_LIMITED,
+            Self::Bloqueado => codigos::BLOCKED,
+            Self::SemResultados => codigos::NO_RESULTS_FOUND,
+            Self::ConfiguracaoInvalida { .. } => codigos::SELECTOR_CONFIG_INVALID,
+            Self::TimeoutGlobal { .. } => codigos::TIMEOUT,
+            Self::Cancelado => codigos::CANCELLED,
+            Self::ErroProxy { .. } => codigos::PROXY_ERROR,
+            Self::ErroRede { .. } => codigos::NETWORK_ERROR,
+            Self::PipeBroken => codigos::HTTP_ERROR, // BrokenPipe não tem código dedicado
+            Self::ErroPath { .. } => codigos::SELECTOR_CONFIG_INVALID, // reutiliza por ora
+        }
+    }
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -57,5 +136,51 @@ mod testes {
         assert_eq!(exit_codes::RATE_LIMITED_OU_BLOQUEADO, 3);
         assert_eq!(exit_codes::TIMEOUT_GLOBAL, 4);
         assert_eq!(exit_codes::ZERO_RESULTADOS, 5);
+    }
+
+    #[test]
+    fn erro_cli_ddg_exit_codes_corretos() {
+        assert_eq!(
+            ErroCliDdg::RateLimited.exit_code(),
+            exit_codes::RATE_LIMITED_OU_BLOQUEADO
+        );
+        assert_eq!(
+            ErroCliDdg::Bloqueado.exit_code(),
+            exit_codes::RATE_LIMITED_OU_BLOQUEADO
+        );
+        assert_eq!(
+            ErroCliDdg::SemResultados.exit_code(),
+            exit_codes::ZERO_RESULTADOS
+        );
+        assert_eq!(
+            ErroCliDdg::TimeoutGlobal { segundos: 60 }.exit_code(),
+            exit_codes::TIMEOUT_GLOBAL
+        );
+        assert_eq!(
+            ErroCliDdg::ConfiguracaoInvalida {
+                mensagem: "teste".into()
+            }
+            .exit_code(),
+            exit_codes::CONFIGURACAO_INVALIDA
+        );
+        assert_eq!(ErroCliDdg::PipeBroken.exit_code(), exit_codes::SUCESSO);
+    }
+
+    #[test]
+    fn erro_cli_ddg_display_nao_vazio() {
+        let erro = ErroCliDdg::ErroHttp {
+            mensagem: "timeout".into(),
+            causa: None,
+        };
+        let texto = format!("{erro}");
+        assert!(!texto.is_empty());
+        assert!(texto.contains("timeout"));
+    }
+
+    #[test]
+    fn erro_cli_ddg_codigos_erro_string() {
+        assert_eq!(ErroCliDdg::RateLimited.codigo_erro(), "rate_limited");
+        assert_eq!(ErroCliDdg::Bloqueado.codigo_erro(), "blocked");
+        assert_eq!(ErroCliDdg::SemResultados.codigo_erro(), "no_results_found");
     }
 }

@@ -59,6 +59,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Pure `rustls-tls`.** No OpenSSL, no SChannel surprises, static musl builds work on the first try inside any Alpine container.
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
+- **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
 
 ### Agent Skill — bundled, bilingual, auto-activating
 
@@ -157,7 +158,7 @@ duckduckgo-search-cli init-config --force
 | -------------------------- | ---------- | ------------------------------------------------------------------ |
 | `-n`, `--num`              | `15`       | Max results per query (auto-paginates when > 10).                  |
 | `-f`, `--format`           | `auto`     | `json`, `text`, `markdown`, or `auto` (TTY-aware).                 |
-| `-o`, `--output`           | stdout     | Write to file (parent dirs auto-created, Unix 0o644).              |
+| `-o`, `--output`           | stdout     | Write to file (v0.5.0: path validation, parent dirs, Unix 0o644). |
 | `-t`, `--timeout`          | `15`       | Per-request timeout (seconds).                                     |
 | `--global-timeout`         | `60`       | Whole-pipeline timeout (1..=3600 seconds).                         |
 | `-l`, `--lang`             | `pt`       | DuckDuckGo `kl` language code.                                     |
@@ -217,6 +218,7 @@ duckduckgo-search-cli init-config --force
 5. **UTF-8 issues on Windows** — the binary auto-switches cmd.exe to code page 65001; if you still see mojibake, run `chcp 65001` before the command.
 6. **How do I integrate with Claude Code, Cursor, Aider, or another agent?** — expose the binary as a shell tool. Most agents accept a command template such as `duckduckgo-search-cli "{query}" --num 15 -q -f json`. The stable schema keeps the tool contract stable across releases.
 7. **Pipe to jaq/jq returns empty** — check `echo ${PIPESTATUS[*]}` after the pipe. If the first number is non-zero, the CLI errored before producing output. Common causes: DuckDuckGo rate-limiting (exit 5), global timeout (exit 4), or missing query. Always pass `-q -f json` when piping.
+8. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal. Paths targeting system directories (`/etc`, `/usr`, `/bin`, `C:\Windows`) are blocked. Use paths under your home directory, `/tmp`, or the current working directory.
 
 ### Migration notes (v0.3.x → v0.4.0)
 
@@ -431,6 +433,7 @@ duckduckgo-search-cli init-config --force
 5. **Problemas UTF-8 no Windows** — o binário muda cmd.exe para code page 65001 automaticamente; se ver mojibake, execute `chcp 65001` antes.
 6. **Como integro com Claude Code, Cursor, Aider ou outro agente?** — exponha o binário como shell tool. A maioria dos agentes aceita um template de comando como `duckduckgo-search-cli "{query}" --num 15 -q -f json`. O schema estável mantém o contrato da tool estável entre releases.
 7. **Pipe para jaq/jq retorna vazio** — verifique `echo ${PIPESTATUS[*]}` após o pipe. Se o primeiro número for diferente de zero, o CLI errou antes de produzir output. Causas comuns: rate-limiting do DuckDuckGo (exit 5), timeout global (exit 4) ou query ausente. Sempre passe `-q -f json` ao usar pipe.
+8. **`--output` rejeita meu path (exit 2)** — v0.5.0 valida paths de saída antes de escrever. Paths contendo `..` são rejeitados para prevenir travessia de diretório. Paths apontando para diretórios de sistema (`/etc`, `/usr`, `/bin`, `C:\Windows`) são bloqueados. Use paths no seu diretório home, `/tmp` ou no diretório de trabalho atual.
 
 ### Notas de migração (v0.3.x → v0.4.0)
 

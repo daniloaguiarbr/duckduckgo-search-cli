@@ -61,10 +61,11 @@ duckduckgo-search-cli "q" -q --num 30 --pages 3   # override pages when needing 
 duckduckgo-search-cli --queries-file q.txt -q --parallel 5
 ```
 
-#### R06 — Use `--output` for large result sets to get atomic writes and correct permissions
-- `--output` creates parent directories automatically, sets Unix permissions `0o644`, and forces `json` even in TTY mode.
-- Shell redirection (`>`) does none of these and silently truncates on partial failures.
-- Use `--output` for any result set larger than a single-query response.
+#### R06 — Use `--output` for large result sets — v0.5.0 validates path safety automatically
+- `--output` creates parent directories, sets Unix `0o644`, and forces `json` in TTY mode
+- v0.5.0 validates paths BEFORE writing — rejects `..` and system directories (`/etc`, `/usr`, `C:\Windows`)
+- Agents generate dynamic filenames safely — the CLI rejects path traversal attacks automatically
+- Shell redirection (`>`) skips validation, truncates on failure, and ignores permissions
 
 ```bash
 duckduckgo-search-cli "q" --num 50 --pages 4 --output /tmp/out/results.json -q
@@ -310,6 +311,8 @@ duckduckgo-search-cli "q" --proxy http://user:pw@host:8080
 export HTTPS_PROXY="http://user:pw@host:8080"
 duckduckgo-search-cli "q" -q
 ```
+- NOTE (v0.5.0): error messages now MASK proxy credentials automatically — `http://us***@host` replaces full URL
+- Argv leakage via `ps` and `/proc` remains — environment variables are STILL the safe path
 
 #### R29 — Understand proxy precedence to avoid routing surprises in multi-layer environments
 - Precedence order: `--no-proxy` > `--proxy <URL>` > `HTTPS_PROXY` / `HTTP_PROXY` environment > none.
@@ -334,6 +337,12 @@ duckduckgo-search-cli "q" -q --no-proxy   # bypass all proxies
 duckduckgo-search-cli init-config --dry-run
 duckduckgo-search-cli init-config --force   # only after review
 ```
+
+#### R32 — Trust v0.5.0 path validation — NEVER implement manual path checks in agent scripts
+- `--output` rejects `..` components and writes to `/etc`, `/usr`, `/bin`, `/sbin`, `C:\Windows`, `C:\Program Files`
+- Agents skip manual `realpath` or `canonicalize` checks — the CLI handles this internally
+- Path rejection returns exit 2 (config invalid) with a descriptive error on stderr
+- This guarantee applies to `--output` ONLY — stdin, `--queries-file`, and `--proxy` paths are NOT validated
 
 ### G. Anti-Patterns — Patterns That Appear to Work Until They Break Silently
 #### AP-01 — Parsing text output with grep
@@ -470,10 +479,11 @@ duckduckgo-search-cli "consulta" -q --num 30 --pages 3
 duckduckgo-search-cli --queries-file q.txt -q --parallel 5
 ```
 
-#### R06 — Use `--output` para conjuntos grandes de resultados e obtenha escritas atômicas com permissões corretas
-- `--output` cria diretórios-pai automaticamente, aplica permissões Unix `0o644` e força `json` mesmo em modo TTY.
-- Redirecionamento de shell (`>`) não faz nenhum desses e trunca silenciosamente em falhas parciais.
-- Use `--output` para qualquer conjunto de resultados maior que uma resposta de query única.
+#### R06 — Use `--output` para conjuntos grandes — v0.5.0 valida segurança do path automaticamente
+- `--output` cria diretórios pai, aplica Unix `0o644` e força `json` em modo TTY
+- v0.5.0 valida paths ANTES de escrever — rejeita `..` e diretórios de sistema (`/etc`, `/usr`, `C:\Windows`)
+- Agentes geram nomes de arquivo dinâmicos com segurança — o CLI rejeita path traversal automaticamente
+- Redirecionamento de shell (`>`) pula validação, trunca em falhas e ignora permissões
 
 ```bash
 duckduckgo-search-cli "consulta" --num 50 --pages 4 --output /tmp/saida/resultados.json -q
@@ -719,6 +729,8 @@ duckduckgo-search-cli "consulta" --proxy http://user:senha@host:8080
 export HTTPS_PROXY="http://user:senha@host:8080"
 duckduckgo-search-cli "consulta" -q
 ```
+- NOTA (v0.5.0): mensagens de erro agora MASCARAM credenciais de proxy automaticamente — `http://us***@host` substitui URL completa
+- Vazamento via argv em `ps` e `/proc` permanece — variáveis de ambiente CONTINUAM sendo o caminho seguro
 
 #### R29 — Entenda a precedência de proxy para evitar surpresas de roteamento em ambientes multicamada
 - Ordem de precedência: `--no-proxy` > `--proxy <URL>` > `HTTPS_PROXY` / `HTTP_PROXY` de ambiente > nenhum.
@@ -743,6 +755,12 @@ duckduckgo-search-cli "consulta" -q --no-proxy   # bypass de todos os proxies
 duckduckgo-search-cli init-config --dry-run
 duckduckgo-search-cli init-config --force   # apenas após revisão
 ```
+
+#### R32 — Confie na validação de path do v0.5.0 — JAMAIS implemente checks manuais de path em scripts de agente
+- `--output` rejeita componentes `..` e escritas em `/etc`, `/usr`, `/bin`, `/sbin`, `C:\Windows`, `C:\Program Files`
+- Agentes dispensam checks manuais de `realpath` ou `canonicalize` — o CLI trata internamente
+- Rejeição de path retorna exit 2 (config inválida) com erro descritivo em stderr
+- Esta garantia se aplica APENAS ao `--output` — stdin, `--queries-file` e `--proxy` NÃO são validados
 
 ### G. Anti-Padrões — Padrões Que Parecem Funcionar Até Quebrarem Silenciosamente
 #### AP-01 — Parsear saída textual com grep

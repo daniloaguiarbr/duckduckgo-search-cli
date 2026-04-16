@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-pt
-description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados". Invoca a CLI `duckduckgo-search-cli` v0.4.x via Bash com contrato JSON estável e zero API key. Versão em português brasileiro.
+description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados". Invoca a CLI `duckduckgo-search-cli` v0.5.0 via Bash com contrato JSON estável, zero API key, validação de path traversal no --output, e mascaramento automático de credenciais em mensagens de erro. Versão em português brasileiro.
 ---
 
 # Skill — `duckduckgo-search-cli` (PT-BR)
@@ -31,12 +31,14 @@ timeout 60 duckduckgo-search-cli "<query>" -q -f json --num 15 | jaq '.resultado
 ## Proibições Absolutas
 - PROIBIDO usar `-f text` ou `-f markdown` para parsing programático.
 - PROIBIDO omitir `-q` em qualquer pipeline que leia stdout.
-- PROIBIDO usar `--stream` — flag reservada, SEM implementação em v0.4.x.
+- PROIBIDO usar `--stream` — flag reservada, SEM implementação em v0.5.0.
 - PROIBIDO usar `--parallel` acima de 5 sem controle de IP de saída.
 - PROIBIDO usar `--per-host-limit` acima de 2 — dispara anti-bot HTTP 202.
 - PROIBIDO loops de retry em shell — use `--retries` nativo com backoff exponencial.
 - PROIBIDO hardcodar API keys, proxies ou User-Agents em argumentos.
 - PROIBIDO assumir `snippet`, `url_exibicao`, `titulo_original` sempre presentes.
+- PROIBIDO passar `--output` com `..` no path — v0.5.0 rejeita path traversal
+- PROIBIDO passar `--output` apontando para `/etc`, `/usr` ou `C:\Windows` — dirs de sistema bloqueados
 
 ## Parsing JSON Obrigatório com jaq
 - SEMPRE use `jaq` (NUNCA `jq`) para processar o output JSON.
@@ -149,3 +151,13 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - Na dúvida entre alucinar e invocar a CLI, INVOQUE a CLI sempre.
 - Custo de 1 invocação é 60-300ms. Custo de alucinação é retrabalho e perda de confiança.
 - SEMPRE prefira dado verificado com URL a suposição plausível sem fonte.
+
+
+## Garantias de Segurança (v0.5.0)
+- `--output` valida paths ANTES de escrever — `..` e diretórios de sistema rejeitados automaticamente
+- Credenciais de proxy em URLs `--proxy` JAMAIS aparecem em mensagens de erro ou stderr
+- Mascaramento transforma `http://user:pass@host` em `http://us***@host` em toda saída de erro
+- Agentes geram nomes de arquivo dinâmicos sem validação manual — o CLI rejeita paths inseguros
+- SIGPIPE restaurado no Unix — pipes para `jaq`, `head`, `wc` terminam limpos sem erros EPIPE
+- BrokenPipe detectado na cadeia de erros — retorna exit 0 em vez de propagar como exit 1
+- Erros tipados via enum `ErroCliDdg` — 11 variantes com mapeamento determinístico de `exit_code()`

@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.4.4"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
@@ -73,8 +73,9 @@ toml = "0.8"
 # URL encoding/decoding (para desencapsular redirects /l/?uddg= do DuckDuckGo).
 urlencoding = "2"
 
-# Tratamento de erros — anyhow para propagação ergonômica.
+# Tratamento de erros — anyhow para propagação ergonômica + thiserror para enums tipados.
 anyhow = "1"
+thiserror = "2"
 
 # Logging — tracing + tracing-subscriber com env-filter para RUST_LOG.
 tracing = "0.1"

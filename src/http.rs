@@ -244,6 +244,45 @@ pub fn construir_cliente(
     )
 }
 
+/// Mascara credenciais em uma URL de proxy para uso seguro em logs e mensagens de erro.
+///
+/// Transforma `http://user:password@proxy:8080` em `http://us***@proxy:8080`.
+/// Se a URL não contiver credenciais, retorna a representação segura sem userinfo.
+fn mascarar_url_proxy(url_bruta: &str) -> String {
+    match reqwest::Url::parse(url_bruta) {
+        Ok(parseada) => {
+            let usuario = parseada.username();
+            let tem_senha = parseada.password().is_some();
+
+            if usuario.is_empty() && !tem_senha {
+                // Sem credenciais — retorna scheme + host + port
+                return format!(
+                    "{}://{}{}",
+                    parseada.scheme(),
+                    parseada.host_str().unwrap_or("?"),
+                    parseada.port().map(|p| format!(":{p}")).unwrap_or_default()
+                );
+            }
+
+            // Mascara: primeiros 2 chars do username + *** (password sempre oculto)
+            let usuario_mascarado = if usuario.len() > 2 {
+                format!("{}***", &usuario[..2])
+            } else {
+                format!("{usuario}***")
+            };
+
+            format!(
+                "{}://{}@{}{}",
+                parseada.scheme(),
+                usuario_mascarado,
+                parseada.host_str().unwrap_or("?"),
+                parseada.port().map(|p| format!(":{p}")).unwrap_or_default()
+            )
+        }
+        Err(_) => "***URL_MALFORMADA***".to_string(),
+    }
+}
+
 /// Variante que aceita configuração de proxy.
 ///
 /// Nota sobre basic-auth: quando a URL do proxy contém `user:pass@host:port`, o
@@ -279,15 +318,19 @@ pub fn construir_cliente_com_proxy(
         }
         ConfiguracaoProxy::Url(url) => {
             let parseada = reqwest::Url::parse(url)
-                .with_context(|| format!("URL de proxy inválida: {url:?}"))?;
+                .with_context(|| format!("URL de proxy inválida: {}", mascarar_url_proxy(url)))?;
             let user = parseada.username().to_string();
             let senha = parseada
                 .password()
                 .map(|s| s.to_string())
                 .unwrap_or_default();
 
-            let mut proxy_rq = reqwest::Proxy::all(url)
-                .with_context(|| format!("falha ao configurar Proxy::all({url:?})"))?;
+            let mut proxy_rq = reqwest::Proxy::all(url).with_context(|| {
+                format!(
+                    "falha ao configurar Proxy::all({})",
+                    mascarar_url_proxy(url)
+                )
+            })?;
 
             // Adiciona Proxy-Authorization se o userinfo foi explicitado.
             if !user.is_empty() {
@@ -508,6 +551,71 @@ mod testes {
         let headers = headers_padrao("en", "us").expect("deve montar headers");
         assert!(headers.get(reqwest::header::DNT).is_none());
         assert!(headers.get(reqwest::header::REFERER).is_none());
+    }
+
+    #[test]
+    fn mascara_url_proxy_com_credenciais() {
+        let resultado = mascarar_url_proxy("http://admin:s3cret@proxy.local:8080");
+        assert!(!resultado.contains("s3cret"), "password vazou: {resultado}");
+        assert!(
+            !resultado.contains("admin"),
+            "username completo vazou: {resultado}"
+        );
+        assert!(
+            resultado.contains("ad***"),
+            "username mascarado ausente: {resultado}"
+        );
+        assert!(
+            resultado.contains("proxy.local"),
+            "host ausente: {resultado}"
+        );
+        assert!(resultado.contains("8080"), "porta ausente: {resultado}");
+    }
+
+    #[test]
+    fn mascara_url_proxy_sem_credenciais() {
+        let resultado = mascarar_url_proxy("http://proxy.local:8080");
+        assert_eq!(resultado, "http://proxy.local:8080");
+    }
+
+    #[test]
+    fn mascara_url_proxy_so_username() {
+        let resultado = mascarar_url_proxy("http://user@proxy.local:3128");
+        assert!(
+            resultado.contains("us***"),
+            "username mascarado ausente: {resultado}"
+        );
+        assert!(
+            !resultado.contains("user@"),
+            "username completo vazou: {resultado}"
+        );
+    }
+
+    #[test]
+    fn mascara_url_proxy_malformada() {
+        let resultado = mascarar_url_proxy("not-a-url");
+        assert_eq!(resultado, "***URL_MALFORMADA***");
+    }
+
+    #[test]
+    fn mascara_url_proxy_socks5() {
+        let resultado = mascarar_url_proxy("socks5://root:toor@127.0.0.1:1080");
+        assert!(!resultado.contains("toor"), "password vazou: {resultado}");
+        assert!(
+            resultado.contains("socks5://"),
+            "scheme ausente: {resultado}"
+        );
+        assert!(resultado.contains("127.0.0.1"), "host ausente: {resultado}");
+    }
+
+    #[test]
+    fn mascara_url_proxy_username_curto() {
+        let resultado = mascarar_url_proxy("http://a:pass@proxy:80");
+        assert!(
+            resultado.contains("a***"),
+            "username curto mascarado: {resultado}"
+        );
+        assert!(!resultado.contains("pass"), "password vazou: {resultado}");
     }
 
     #[test]
