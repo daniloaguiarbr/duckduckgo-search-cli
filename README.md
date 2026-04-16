@@ -216,6 +216,7 @@ duckduckgo-search-cli init-config --force
 4. **Chrome not found** — install Chromium via your package manager, or pass `--chrome-path /path/to/chrome`; the feature must be compiled with `cargo install duckduckgo-search-cli --features chrome`.
 5. **UTF-8 issues on Windows** — the binary auto-switches cmd.exe to code page 65001; if you still see mojibake, run `chcp 65001` before the command.
 6. **How do I integrate with Claude Code, Cursor, Aider, or another agent?** — expose the binary as a shell tool. Most agents accept a command template such as `duckduckgo-search-cli "{query}" --num 15 -q -f json`. The stable schema keeps the tool contract stable across releases.
+7. **Pipe to jaq/jq returns empty** — check `echo ${PIPESTATUS[*]}` after the pipe. If the first number is non-zero, the CLI errored before producing output. Common causes: DuckDuckGo rate-limiting (exit 5), global timeout (exit 4), or missing query. Always pass `-q -f json` when piping.
 
 ### Migration notes (v0.3.x → v0.4.0)
 
@@ -429,6 +430,7 @@ duckduckgo-search-cli init-config --force
 4. **Chrome não encontrado** — instale Chromium pelo gerenciador de pacotes ou passe `--chrome-path /caminho/chrome`; a feature precisa ser compilada com `cargo install duckduckgo-search-cli --features chrome`.
 5. **Problemas UTF-8 no Windows** — o binário muda cmd.exe para code page 65001 automaticamente; se ver mojibake, execute `chcp 65001` antes.
 6. **Como integro com Claude Code, Cursor, Aider ou outro agente?** — exponha o binário como shell tool. A maioria dos agentes aceita um template de comando como `duckduckgo-search-cli "{query}" --num 15 -q -f json`. O schema estável mantém o contrato da tool estável entre releases.
+7. **Pipe para jaq/jq retorna vazio** — verifique `echo ${PIPESTATUS[*]}` após o pipe. Se o primeiro número for diferente de zero, o CLI errou antes de produzir output. Causas comuns: rate-limiting do DuckDuckGo (exit 5), timeout global (exit 4) ou query ausente. Sempre passe `-q -f json` ao usar pipe.
 
 ### Notas de migração (v0.3.x → v0.4.0)
 

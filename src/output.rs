@@ -264,6 +264,17 @@ fn escrever_em_stdout(conteudo: &str) -> Result<()> {
     Ok(())
 }
 
+/// Verifica se um `anyhow::Error` contém `io::ErrorKind::BrokenPipe` na cadeia
+/// de causas. Broken pipe indica que o leitor do pipe fechou (ex: `| jaq`,
+/// `| head`) — comportamento normal em pipelines Unix, NÃO um erro.
+pub(crate) fn eh_broken_pipe(erro: &anyhow::Error) -> bool {
+    erro.chain().any(|causa| {
+        causa
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::BrokenPipe)
+    })
+}
+
 /// Público: imprime UMA linha terminada em `\n` em stdout, com flush imediato.
 /// Usado por subcomandos auxiliares (ex: `init-config`) que precisam emitir JSON.
 pub fn imprimir_linha_stdout(conteudo: &str) -> Result<()> {
@@ -804,5 +815,32 @@ mod testes {
         // JSON começa com `{` e tem "query".
         assert!(conteudo.trim_start().starts_with('{'));
         assert!(conteudo.contains("\"query\""));
+    }
+
+    #[test]
+    fn eh_broken_pipe_detecta_broken_pipe_direto() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe fechado");
+        let anyhow_err = anyhow::Error::new(io_err);
+        assert!(eh_broken_pipe(&anyhow_err));
+    }
+
+    #[test]
+    fn eh_broken_pipe_rejeita_outros_erros_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "arquivo não encontrado");
+        let anyhow_err = anyhow::Error::new(io_err);
+        assert!(!eh_broken_pipe(&anyhow_err));
+    }
+
+    #[test]
+    fn eh_broken_pipe_detecta_broken_pipe_aninhado_em_context() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe");
+        let anyhow_err = anyhow::Error::new(io_err).context("falha ao escrever em stdout");
+        assert!(eh_broken_pipe(&anyhow_err));
+    }
+
+    #[test]
+    fn eh_broken_pipe_rejeita_erro_sem_io_error() {
+        let anyhow_err = anyhow::anyhow!("erro genérico sem IO");
+        assert!(!eh_broken_pipe(&anyhow_err));
     }
 }

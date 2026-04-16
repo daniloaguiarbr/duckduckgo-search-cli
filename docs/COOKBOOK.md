@@ -550,6 +550,23 @@ Saved: ./ddg-rust-async-runtime-comparison-2026-20260414T153000Z.json
 5. Glommio — thread-per-core runtime
 ```
 
+### Recipe 16 — Pipe diagnostic with PIPESTATUS
+- Gain: detect silent CLI failures hidden by shell pipe exit code semantics.
+- Problem: `cmd | jaq` reports only `jaq`'s exit code — a CLI exit 5 (zero results) is invisible.
+- Benefit: `${PIPESTATUS[0]}` captures the CLI exit code even inside a pipe.
+- Benefit: routing on PIPESTATUS prevents silent data loss in automated pipelines.
+- Result: observable pipe that surfaces both CLI and consumer exit codes.
+
+```bash
+timeout 60 duckduckgo-search-cli "rust async" -q -n 5 -f json \
+  | jaq -r '.resultados[].url'
+echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
+# CLI=0 JQ=0  → success
+# CLI=5 JQ=0  → zero results (jaq got empty array)
+# CLI=3 JQ=0  → anti-bot block
+# CLI=4 JQ=0  → global timeout
+```
+
 ## RECEITAS EM PORTUGUÊS
 
 ### Receita 01 — Top 5 resultados como CSV em 1 comando
@@ -1059,6 +1076,23 @@ Salvo: ./ddg-comparacao-de-runtimes-async-em-rust-2026-20260414T153000Z.json
 5. Glommio — runtime thread-per-core
 ```
 
+### Receita 16 — Diagnóstico de pipe com PIPESTATUS
+- Ganho: detecte falhas silenciosas do CLI ocultas pela semântica de exit code do shell em pipes.
+- Problema: `cmd | jaq` reporta apenas o exit code do `jaq` — um exit 5 (zero resultados) do CLI é invisível.
+- Benefício: `${PIPESTATUS[0]}` captura o exit code do CLI mesmo dentro de um pipe.
+- Benefício: roteamento por PIPESTATUS previne perda silenciosa de dados em pipelines automatizados.
+- Resultado: pipe observável que expõe exit codes do CLI e do consumidor.
+
+```bash
+timeout 60 duckduckgo-search-cli "rust async" -q -n 5 -f json \
+  | jaq -r '.resultados[].url'
+echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
+# CLI=0 JQ=0  → sucesso
+# CLI=5 JQ=0  → zero resultados (jaq recebeu array vazio)
+# CLI=3 JQ=0  → bloqueio anti-bot
+# CLI=4 JQ=0  → timeout global
+```
+
 ## Recipe-to-Use-Case Table / Tabela Receita para Caso de Uso
 
 | Recipe / Receita | Use case / Caso de uso | Tools used / Ferramentas |
@@ -1078,5 +1112,6 @@ Salvo: ./ddg-comparacao-de-runtimes-async-em-rust-2026-20260414T153000Z.json
 | 13 | Exportação NDJSON para ETL / NDJSON export for ETL | `duckduckgo-search-cli`, `jaq -c`, `bat`, `timeout` |
 | 14 | Pipeline busca para sumarização com LLM / Search-to-summarize LLM pipeline | `duckduckgo-search-cli --fetch-content`, `jaq`, `xh`, `timeout` |
 | 15 | Defaults opinativos reutilizáveis / Reusable opinionated defaults | `duckduckgo-search-cli`, função bash, `jaq`, `date`, `timeout` |
+| 16 | Diagnóstico de pipe com PIPESTATUS / Pipe diagnostic with PIPESTATUS | `duckduckgo-search-cli`, `jaq`, `PIPESTATUS`, `timeout` |
 
 _End of COOKBOOK / Fim do Livro de Receitas._

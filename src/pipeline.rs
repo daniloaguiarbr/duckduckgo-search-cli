@@ -131,6 +131,10 @@ async fn executar_pipeline_streaming(
                 }
             };
             if let Err(erro) = res {
+                if crate::output::eh_broken_pipe(&erro) {
+                    tracing::debug!("BrokenPipe em streaming — encerrando consumer");
+                    return Ok(());
+                }
                 tracing::error!(
                     ?erro,
                     "falha ao emitir item de streaming — abortando consumer"

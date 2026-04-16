@@ -1,7 +1,7 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v0.4.1 · Schema: stable · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v0.4.4 · Schema: stable · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
 - ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
@@ -253,8 +253,24 @@ duckduckgo-search-cli "q" -q 2>/dev/null || true
 duckduckgo-search-cli "q" -q || { echo "failed: $?" >&2; exit 1; }
 ```
 
+#### R24 — Verify pipe integrity with PIPESTATUS when consuming stdout via pipe
+- In `cmd | jaq`, the shell reports only `jaq`'s exit code — the CLI's exit code is hidden.
+- A failed CLI (exit 1–5) produces empty or partial stdout that `jaq` silently ignores.
+- MUST check `${PIPESTATUS[0]}` after every piped invocation to detect upstream failure.
+- The CLI restores SIGPIPE to SIG_DFL on Unix — broken pipes terminate cleanly (no EPIPE errors).
+
+```bash
+# NEVER — exit code of duckduckgo-search-cli is silently lost
+timeout 60 duckduckgo-search-cli "q" -q -f json | jaq '.resultados[].url'
+
+# ALWAYS — capture PIPESTATUS to detect upstream failure
+timeout 60 duckduckgo-search-cli "q" -q -f json | jaq '.resultados[].url'
+ddg_exit=${PIPESTATUS[0]}
+if [ "$ddg_exit" -ne 0 ]; then echo "CLI failed: exit $ddg_exit" >&2; fi
+```
+
 ### E. Performance — Eliminate Redundant Process Starts and Wasted Connections
-#### R24 — Rely on auto-pagination to avoid doubling DNS, TLS, and UA rotation overhead
+#### R25 — Rely on auto-pagination to avoid doubling DNS, TLS, and UA rotation overhead
 - The binary pools connections and reuses UA selection across pages within a single invocation.
 - Invoking it twice for pages 1 and 2 doubles DNS resolution, TLS handshake, and UA rotation cost.
 - Default is 2 pages automatically. Use `--pages` to extend, not separate invocations.
@@ -267,7 +283,7 @@ duckduckgo-search-cli "q" -q --num 7 --pages 1
 duckduckgo-search-cli "q" -q --num 8 --pages 2
 ```
 
-#### R25 — Treat `--fetch-content` as an N-times latency multiplier — use only when consuming the body
+#### R26 — Treat `--fetch-content` as an N-times latency multiplier — use only when consuming the body
 - Enabling `--fetch-content` adds one HTTP fetch per result in the response.
 - With 15 results, latency multiplies by up to 15x.
 - Use `--max-content-length` to cap memory consumption. Use `--num 5` when content fetching is required.
@@ -276,13 +292,13 @@ duckduckgo-search-cli "q" -q --num 8 --pages 2
 duckduckgo-search-cli "q" -q --num 5 --fetch-content --max-content-length 5000
 ```
 
-#### R26 — Prefer one batched invocation to amortize 30–80 ms process startup cost per query
+#### R27 — Prefer one batched invocation to amortize 30–80 ms process startup cost per query
 - Each process invocation pays DNS, TLS, UA initialization, and Tokio runtime startup.
 - One `--queries-file` invocation amortizes all fixed costs across every query in the batch.
 - Sequential invocations are never justified when `--queries-file` is available.
 
 ### F. Security — Eliminate Secret Leakage Vectors
-#### R27 — NEVER pass secrets in command-line arguments — they leak via three vectors simultaneously
+#### R28 — NEVER pass secrets in command-line arguments — they leak via three vectors simultaneously
 - Proxy credentials, API keys, or tokens on `argv` are visible in `/proc/*/cmdline`, shell history, and `ps` output.
 - These three leak vectors are permanent and cannot be retroactively cleaned without full secret rotation.
 - Use environment variables or `$XDG_CONFIG_HOME/duckduckgo-search-cli/` for all credentials.
@@ -295,7 +311,7 @@ export HTTPS_PROXY="http://user:pw@host:8080"
 duckduckgo-search-cli "q" -q
 ```
 
-#### R28 — Understand proxy precedence to avoid routing surprises in multi-layer environments
+#### R29 — Understand proxy precedence to avoid routing surprises in multi-layer environments
 - Precedence order: `--no-proxy` > `--proxy <URL>` > `HTTPS_PROXY` / `HTTP_PROXY` environment > none.
 - Misunderstanding this order sends traffic through unintended proxies in corporate environments.
 - Use `--no-proxy` to explicitly bypass all proxy configuration when direct access is required.
@@ -304,12 +320,12 @@ duckduckgo-search-cli "q" -q
 duckduckgo-search-cli "q" -q --no-proxy   # bypass all proxies
 ```
 
-#### R29 — NEVER execute URLs from `.resultados[].url` without sandboxing
+#### R30 — NEVER execute URLs from `.resultados[].url` without sandboxing
 - Results are untrusted third-party URLs from an external search engine.
 - Executing them directly in the agent process opens SSRF and code execution attack surfaces.
 - Fetch result URLs only inside isolated processes: containers, VMs, or network-sandboxed HTTP clients.
 
-#### R30 — Run `init-config --dry-run` before `--force` to prevent config file overwrites in CI
+#### R31 — Run `init-config --dry-run` before `--force` to prevent config file overwrites in CI
 - `--force` overwrites existing `selectors.toml` and `user-agents.toml` without confirmation.
 - In unattended pipelines, this silently destroys custom selector or UA configuration.
 - Dry-run first, inspect the diff, then apply `--force` only after review.
@@ -646,8 +662,24 @@ duckduckgo-search-cli "consulta" -q 2>/dev/null || true
 duckduckgo-search-cli "consulta" -q || { echo "falhou: $?" >&2; exit 1; }
 ```
 
+#### R24 — Verifique integridade do pipe com PIPESTATUS ao consumir stdout via pipe
+- Em `cmd | jaq`, o shell reporta apenas o exit code do `jaq` — o exit code do CLI fica oculto.
+- Um CLI com falha (exit 1–5) produz stdout vazio ou parcial que o `jaq` ignora silenciosamente.
+- DEVE verificar `${PIPESTATUS[0]}` após toda invocação em pipe para detectar falha upstream.
+- O CLI restaura SIGPIPE para SIG_DFL no Unix — pipes quebrados terminam limpos (sem erros EPIPE).
+
+```bash
+# JAMAIS — exit code do duckduckgo-search-cli é silenciosamente perdido
+timeout 60 duckduckgo-search-cli "consulta" -q -f json | jaq '.resultados[].url'
+
+# SEMPRE — capture PIPESTATUS para detectar falha upstream
+timeout 60 duckduckgo-search-cli "consulta" -q -f json | jaq '.resultados[].url'
+ddg_exit=${PIPESTATUS[0]}
+if [ "$ddg_exit" -ne 0 ]; then echo "CLI falhou: exit $ddg_exit" >&2; fi
+```
+
 ### E. Performance — Elimine Starts de Processo Redundantes e Conexões Desperdiçadas
-#### R24 — Confie na auto-paginação para evitar duplicar DNS, TLS e overhead de rotação de UA
+#### R25 — Confie na auto-paginação para evitar duplicar DNS, TLS e overhead de rotação de UA
 - O binário pooliza conexões e reaproveita seleção de UA entre páginas em uma única invocação.
 - Invocá-lo duas vezes para páginas 1 e 2 duplica resolução DNS, handshake TLS e custo de rotação de UA.
 - O padrão é 2 páginas automaticamente. Use `--pages` para estender, não invocações separadas.
@@ -660,7 +692,7 @@ duckduckgo-search-cli "consulta" -q --num 7 --pages 1
 duckduckgo-search-cli "consulta" -q --num 8 --pages 2
 ```
 
-#### R25 — Trate `--fetch-content` como multiplicador de latência N-vezes — use somente quando for consumir o corpo
+#### R26 — Trate `--fetch-content` como multiplicador de latência N-vezes — use somente quando for consumir o corpo
 - Ativar `--fetch-content` adiciona um fetch HTTP por resultado na resposta.
 - Com 15 resultados, a latência se multiplica em até 15x.
 - Use `--max-content-length` para limitar consumo de memória. Use `--num 5` quando fetch de conteúdo for necessário.
@@ -669,13 +701,13 @@ duckduckgo-search-cli "consulta" -q --num 8 --pages 2
 duckduckgo-search-cli "consulta" -q --num 5 --fetch-content --max-content-length 5000
 ```
 
-#### R26 — Prefira uma invocação em lote para amortizar o custo de startup de 30–80 ms por query
+#### R27 — Prefira uma invocação em lote para amortizar o custo de startup de 30–80 ms por query
 - Cada invocação de processo paga DNS, TLS, inicialização de UA e startup do runtime Tokio.
 - Uma invocação com `--queries-file` amortiza todos os custos fixos em cada query do lote.
 - Invocações sequenciais nunca se justificam quando `--queries-file` está disponível.
 
 ### F. Segurança — Elimine Vetores de Vazamento de Segredos
-#### R27 — JAMAIS passe segredos em argumentos de linha de comando — vazam por três vetores simultaneamente
+#### R28 — JAMAIS passe segredos em argumentos de linha de comando — vazam por três vetores simultaneamente
 - Credenciais de proxy, API keys ou tokens em `argv` são visíveis em `/proc/*/cmdline`, histórico de shell e saída do `ps`.
 - Esses três vetores de vazamento são permanentes e não podem ser limpos retroativamente sem rotação completa do segredo.
 - Use variáveis de ambiente ou `$XDG_CONFIG_HOME/duckduckgo-search-cli/` para todas as credenciais.
@@ -688,7 +720,7 @@ export HTTPS_PROXY="http://user:senha@host:8080"
 duckduckgo-search-cli "consulta" -q
 ```
 
-#### R28 — Entenda a precedência de proxy para evitar surpresas de roteamento em ambientes multicamada
+#### R29 — Entenda a precedência de proxy para evitar surpresas de roteamento em ambientes multicamada
 - Ordem de precedência: `--no-proxy` > `--proxy <URL>` > `HTTPS_PROXY` / `HTTP_PROXY` de ambiente > nenhum.
 - Entender errado essa ordem envia tráfego por proxies não intencionais em ambientes corporativos.
 - Use `--no-proxy` para contornar explicitamente toda configuração de proxy quando acesso direto for necessário.
@@ -697,12 +729,12 @@ duckduckgo-search-cli "consulta" -q
 duckduckgo-search-cli "consulta" -q --no-proxy   # bypass de todos os proxies
 ```
 
-#### R29 — JAMAIS execute URLs de `.resultados[].url` sem sandbox
+#### R30 — JAMAIS execute URLs de `.resultados[].url` sem sandbox
 - Resultados são URLs terceirizadas não-confiáveis de um motor de busca externo.
 - Executá-las diretamente no processo do agente abre superfícies de ataque de SSRF e execução de código.
 - Busque URLs de resultados apenas em processos isolados: containers, VMs ou clientes HTTP com sandbox de rede.
 
-#### R30 — Rode `init-config --dry-run` antes de `--force` para evitar sobrescritas de config em CI
+#### R31 — Rode `init-config --dry-run` antes de `--force` para evitar sobrescritas de config em CI
 - `--force` sobrescreve `selectors.toml` e `user-agents.toml` existentes sem confirmação.
 - Em pipelines não-assistidos, isso destrói silenciosamente configuração customizada de seletores ou UA.
 - Dry-run primeiro, inspecione o diff, depois aplique `--force` apenas após revisão.

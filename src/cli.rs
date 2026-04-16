@@ -76,7 +76,19 @@ pub enum SafeSearchCli {
     long_about = "CLI em Rust que consulta o endpoint HTML estático do DuckDuckGo \
                   (https://html.duckduckgo.com/html/) usando requests HTTP puros, \
                   sem Chrome, sem APIs pagas e sem cache. Retorna resultados \
-                  orgânicos estruturados em JSON prontos para consumo por LLMs."
+                  orgânicos estruturados em JSON prontos para consumo por LLMs.",
+    after_long_help = "\
+EXIT CODES:\n\
+    0    Success — at least one query returned results\n\
+    1    Runtime error (network, parse, I/O)\n\
+    2    Invalid configuration (flag out of range, bad proxy)\n\
+    3    DuckDuckGo 202 block anomaly (soft-rate-limit)\n\
+    4    Global timeout exceeded\n\
+    5    Zero results across all queries\n\
+\n\
+PIPE USAGE:\n\
+    duckduckgo-search-cli -q -f json \"query\" | jaq '.resultados[].url'\n\
+    Logs go to stderr (-q suppresses them). JSON goes to stdout."
 )]
 pub struct ArgumentosRaiz {
     /// Subcomando opcional (`init-config`). Sem subcomando = buscar (default).

@@ -43,6 +43,7 @@
     "metadados": {"tempo_execucao_ms": 1234, "user_agent": "..."}
   }
   ```
+- Pipe safety: SIGPIPE restored to SIG_DFL on Unix — pipes terminate cleanly. BrokenPipe returns exit 0. Always check `${PIPESTATUS[0]}` after piped invocations.
 - Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
 # ENGLISH SECTION

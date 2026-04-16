@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-04-16
+
+### Fixed
+- SIGPIPE restored to SIG_DFL on Unix — pipes to `jaq`, `head`, and other consumers no longer lose stdout silently.
+- BrokenPipe errors detected in anyhow chain and treated as exit 0 (not exit 1) at all output boundaries.
+
+### Added
+- `--help` now shows EXIT CODES (0–5) and PIPE USAGE sections via `after_long_help`.
+- 3 E2E tests for pipe regression: exit codes in help, short help exclusion, stdout byte count.
+- README troubleshooting item 7: "Pipe to jaq/jq returns empty" with PIPESTATUS diagnostic (EN + PT).
+- `docs_rules/rules_rust.md`: SIGPIPE + BrokenPipe added to I/O checklist.
+- `docs/AGENT_RULES.md`: R24 pipe safety rule with PIPESTATUS diagnostic.
+- `docs/COOKBOOK.md`: Recipe 16 pipe diagnostic (EN + PT).
+- `docs/INTEGRATIONS.md`: pipe safety clause in baseline contract.
+- Exit code branching section in both skill files (EN + PT).
+
 ## [0.4.3] - 2026-04-15
 
 ### Changed

@@ -131,6 +131,11 @@ pub async fn run(cancelamento: CancellationToken) -> i32 {
             if let Err(erro) =
                 output::emitir_resultado(&resultado, formato, arquivo_saida.as_deref())
             {
+                if output::eh_broken_pipe(&erro) {
+                    // Pipe fechado pelo consumidor (ex: `| jaq`, `| head`).
+                    // Comportamento Unix padrão — exit 0 silenciosamente.
+                    return exit_codes::SUCESSO;
+                }
                 tracing::error!(?erro, "Falha ao emitir resultado");
                 eprintln!("Erro ao escrever output: {erro:#}");
                 return exit_codes::ERRO_GENERICO;
@@ -167,6 +172,9 @@ fn executar_init_config(args: ArgumentosInitConfig) -> i32 {
     match serde_json::to_string_pretty(&relatorio) {
         Ok(json) => {
             if let Err(erro) = output::imprimir_linha_stdout(&json) {
+                if output::eh_broken_pipe(&erro) {
+                    return exit_codes::SUCESSO;
+                }
                 tracing::error!(?erro, "falha ao emitir relatório");
                 return exit_codes::ERRO_GENERICO;
             }

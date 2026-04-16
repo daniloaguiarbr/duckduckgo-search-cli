@@ -135,6 +135,16 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - MUST prefer results with low `posicao` (DuckDuckGo ranking) as primary sources.
 - NEVER combine facts from multiple results without attributing each to its URL.
 
+## Exit Code Routing
+- MUST check exit code BEFORE parsing stdout
+- Exit 0: parse `.resultados[]` normally
+- Exit 1: runtime error — read stderr, retry with `-v`
+- Exit 2: config error — run `init-config --force`
+- Exit 3: anti-bot block — back off 300s, switch `--endpoint lite`
+- Exit 4: global timeout — raise `--global-timeout`
+- Exit 5: zero results — refine query, try different `--lang`
+- In pipes: check `${PIPESTATUS[0]}` to capture CLI exit code
+
 ## Golden Rule
 - When in doubt between hallucinating and invoking the CLI, ALWAYS invoke the CLI.
 - Cost of one invocation is 60-300ms. Cost of hallucination is rework and loss of trust.

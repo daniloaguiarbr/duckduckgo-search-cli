@@ -246,6 +246,54 @@ fn flag_desconhecida_retorna_exit_2() {
         .code(2);
 }
 
+// ---------------------------------------------------------------------------
+// Testes de pipe e exit codes no --help (prevenção de regressão SIGPIPE)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn help_longo_contem_secao_exit_codes() {
+    // Verifica que `--help` (long help) exibe a seção EXIT CODES adicionada
+    // via after_long_help no clap. Previne regressão se alguém remover o atributo.
+    Command::cargo_bin(NOME_BIN)
+        .expect("binário compilado")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("EXIT CODES:")
+                .and(predicate::str::contains("PIPE USAGE:"))
+                .and(predicate::str::contains("Zero results across all queries")),
+        );
+}
+
+#[test]
+fn help_curto_nao_contem_exit_codes() {
+    // `-h` (short help) NÃO deve exibir after_long_help — apenas `--help` exibe.
+    Command::cargo_bin(NOME_BIN)
+        .expect("binário compilado")
+        .arg("-h")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("EXIT CODES:").not());
+}
+
+#[test]
+fn stdout_do_help_nao_perde_bytes() {
+    // Captura stdout do --help e valida que tem tamanho razoável.
+    // Previne regressão de SIGPIPE/BrokenPipe que poderia truncar output.
+    let output = Command::cargo_bin(NOME_BIN)
+        .expect("binário compilado")
+        .arg("--help")
+        .output()
+        .expect("executar --help");
+    assert!(output.status.success(), "exit code deve ser 0");
+    assert!(
+        output.stdout.len() > 500,
+        "stdout do --help deve ter pelo menos 500 bytes, obteve {}",
+        output.stdout.len()
+    );
+}
+
 #[test]
 fn retries_acima_do_maximo_retorna_exit_2() {
     let output = Command::cargo_bin(NOME_BIN)
