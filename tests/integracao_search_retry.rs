@@ -52,6 +52,7 @@ fn configuracoes_base(endpoint: Endpoint, paginas: u32, retries: u32) -> Configu
         modo_verboso: false,
         modo_silencioso: true,
         user_agent: "Mozilla/5.0 (teste)".to_string(),
+        perfil_browser: duckduckgo_search_cli::http::criar_perfil_browser("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
         paralelismo: 1,
         paginas,
         retries,
@@ -74,9 +75,15 @@ fn configuracoes_base(endpoint: Endpoint, paginas: u32, retries: u32) -> Configu
     }
 }
 
-/// HTML mínimo (>100 bytes) com 3 resultados orgânicos para passar o filtro anti-bloqueio.
+/// HTML com 3 resultados orgânicos — corpo acima de 5 000 bytes (limiar anti-bloqueio).
 fn html_3_resultados() -> String {
-    r#"<html><body>
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    format!(
+        r#"<html><body>
+    {padding}
     <div id="links">
       <div class="result">
         <a class="result__a" href="//exemplo.com/um">Resultado Um</a>
@@ -92,11 +99,15 @@ fn html_3_resultados() -> String {
       </div>
     </div>
     </body></html>"#
-        .to_string()
+    )
 }
 
 fn html_com_tokens_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&str]) -> String {
-    let mut html = String::from("<html><body>");
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    let mut html = format!("<html><body>{padding}");
     html.push_str(&format!(
         r#"<form><input name="vqd" value="{vqd}"><input name="s" value="{s}"><input name="dc" value="{dc}"></form>"#
     ));
@@ -113,9 +124,15 @@ fn html_com_tokens_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&str]) 
     html
 }
 
-/// HTML SEM os tokens vqd/s/dc (para forçar caminho "sem paginação possível").
+/// HTML SEM tokens vqd/s/dc — corpo acima de 5 000 bytes (limiar anti-bloqueio).
 fn html_sem_tokens_vqd() -> String {
-    r#"<html><body>
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    format!(
+        r#"<html><body>
+    {padding}
     <div id="links">
       <div class="result">
         <a class="result__a" href="//exemplo.com/sem-tokens">Resultado Sem Tokens</a>
@@ -127,7 +144,7 @@ fn html_sem_tokens_vqd() -> String {
       </div>
     </div>
     </body></html>"#
-        .to_string()
+    )
 }
 
 /// Guard para configurar env vars durante um teste e limpar ao sair.
@@ -527,7 +544,13 @@ async fn paginacao_para_quando_pagina_seguinte_perde_tokens_vqd() {
         .await;
 
     // Página 2: tem resultados MAS perdeu tokens vqd → paginação para após adicionar pg 2.
-    let html_pg2_sem_tokens = r#"<html><body>
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    let html_pg2_sem_tokens = format!(
+        r#"<html><body>
+    {padding}
     <div id="links">
       <div class="result">
         <a class="result__a" href="//exemplo.com/p2a">Pg 2 A</a>
@@ -538,7 +561,8 @@ async fn paginacao_para_quando_pagina_seguinte_perde_tokens_vqd() {
         <a class="result__snippet">snippet pg2b com texto suficiente.</a>
       </div>
     </div>
-    </body></html>"#;
+    </body></html>"#
+    );
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=vqd-lost-1"))
@@ -643,7 +667,13 @@ async fn fallback_lite_falha_mantem_resultados_vazios() {
     let mock_lite = MockServer::start().await;
 
     // HTML retorna 200 mas com zero `.result` → dispara fallback Lite.
-    let html_vazio = r#"<html><head><title>vazio</title></head><body><div id="links"><p>Nenhum resultado encontrado para teste de fallback Lite. Texto suficiente para passar 100 bytes.</p></div></body></html>"#;
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding_fb =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    let html_vazio = format!(
+        r#"<html><head><title>vazio</title></head><body>{padding_fb}<div id="links"><p>Nenhum resultado encontrado para teste de fallback Lite.</p></div></body></html>"#
+    );
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(

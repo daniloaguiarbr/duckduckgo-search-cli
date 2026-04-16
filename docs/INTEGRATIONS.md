@@ -47,6 +47,7 @@
 - Path safety (v0.5.0): `--output` validates paths BEFORE writing — rejects `..` components and system directories (`/etc`, `/usr`, `C:\Windows`). Agents skip manual path sanitization
 - Credential safety (v0.5.0): proxy credentials in `--proxy` URLs NEVER appear in error messages — automatic masking to `http://us***@host` format
 - Typed errors (v0.5.0): `ErroCliDdg` enum with 11 variants — deterministic `exit_code()` mapping for programmatic error handling
+- Anti-blocking (v0.6.0): `PerfilBrowser` injects per-family `Sec-Fetch-*`, Client Hints, and RFC 7231 `Accept-Language` — agents MUST NOT add duplicate headers; HTTP 202 anomaly detection and 5 KB silent-block detection run automatically
 - Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
 # ENGLISH SECTION

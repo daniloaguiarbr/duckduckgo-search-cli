@@ -74,6 +74,7 @@ fn configuracoes_teste_wm(
         modo_verboso: false,
         modo_silencioso: true,
         user_agent: "Mozilla/5.0 (teste-parallel)".to_string(),
+        perfil_browser: duckduckgo_search_cli::http::criar_perfil_browser("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
         paralelismo,
         paginas,
         retries: 0,
@@ -94,10 +95,13 @@ fn configuracoes_teste_wm(
     }
 }
 
-/// HTML mínimo com 2 resultados orgânicos suficiente para `extrair_resultados`
-/// retornar > 0 itens e satisfazer a sanidade anti-bloqueio (> 100 bytes).
+/// HTML com 2 resultados orgânicos com corpo acima de 5 000 bytes (limiar anti-bloqueio).
 fn html_dois_resultados() -> String {
-    r#"<html><body>
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding = "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. Este comentário é apenas preenchimento e não afeta a extração de resultados. -->".repeat(30);
+    format!(
+        r#"<html><body>
+    {padding}
     <div id="links">
       <div class="result">
         <a class="result__a" href="//exemplo.com/a">Resultado A</a>
@@ -111,13 +115,16 @@ fn html_dois_resultados() -> String {
       </div>
     </div>
     </body></html>"#
-        .to_string()
+    )
 }
 
-/// HTML com tokens vqd/s/dc para permitir paginação multi-página.
+/// HTML com tokens vqd/s/dc para paginação — corpo acima de 5 000 bytes (limiar anti-bloqueio).
 fn html_pagina_com_tokens(vqd: &str, s: &str, dc: &str, prefixo: &str) -> String {
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding = "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. Este comentário é apenas preenchimento e não afeta a extração de resultados. -->".repeat(30);
     format!(
         r#"<html><body>
+        {padding}
         <form><input name="vqd" value="{vqd}"><input name="s" value="{s}"><input name="dc" value="{dc}"></form>
         <div id="links">
           <div class="result">

@@ -174,7 +174,7 @@ pub async fn executar_busca_unica(
 
     let config_proxy = ConfiguracaoProxy::a_partir_de(cfg.proxy.as_deref(), cfg.sem_proxy);
     let cliente = http::construir_cliente_com_proxy(
-        &cfg.user_agent,
+        &cfg.perfil_browser,
         cfg.timeout_segundos,
         &cfg.idioma,
         &cfg.pais,

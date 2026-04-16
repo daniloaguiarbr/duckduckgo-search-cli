@@ -61,6 +61,7 @@ fn cfg_multi(queries: Vec<String>, formato: FormatoSaida, stream: bool) -> Confi
         modo_verboso: false,
         modo_silencioso: true,
         user_agent: "Mozilla/5.0 (teste)".to_string(),
+        perfil_browser: duckduckgo_search_cli::http::criar_perfil_browser("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
         paralelismo: 2,
         paginas: 1,
         retries: 0,
@@ -83,10 +84,16 @@ fn cfg_multi(queries: Vec<String>, formato: FormatoSaida, stream: bool) -> Confi
     }
 }
 
-/// HTML mínimo com 2 resultados — suficiente para Estratégia 1.
+/// HTML com 2 resultados — corpo acima de 5 000 bytes (limiar anti-bloqueio silencioso).
 fn html_2_resultados(titulo_a: &str, titulo_b: &str) -> String {
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
     format!(
-        r#"<html><body><div id="links">
+        r#"<html><body>
+        {padding}
+        <div id="links">
           <div class="result">
             <a class="result__a" href="//exemplo.com/a">{titulo_a}</a>
             <a class="result__snippet">snippet A</a>

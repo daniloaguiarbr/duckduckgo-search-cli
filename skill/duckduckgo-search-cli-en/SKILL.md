@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-en
-description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results". Invokes the `duckduckgo-search-cli` v0.5.0 CLI via Bash with a stable JSON contract, zero API key, path traversal validation on --output, and automatic credential masking in error messages. English version.
+description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results". Invokes the `duckduckgo-search-cli` v0.6.0 CLI via Bash with a stable JSON contract, zero API key, per-browser Sec-Fetch-* fingerprint profiles for anti-bot evasion, path traversal validation on --output, and automatic credential masking in error messages. English version.
 ---
 
 # Skill — `duckduckgo-search-cli` (EN)
@@ -31,13 +31,13 @@ timeout 60 duckduckgo-search-cli "<query>" -q -f json --num 15 | jaq '.resultado
 ## Absolute Prohibitions
 - FORBIDDEN to use `-f text` or `-f markdown` for programmatic parsing.
 - FORBIDDEN to omit `-q` in any pipeline that reads stdout.
-- FORBIDDEN to use `--stream` — flag reserved, NOT implemented in v0.5.0.
+- FORBIDDEN to use `--stream` — flag reserved, NOT implemented in v0.6.0.
 - FORBIDDEN to raise `--parallel` above 5 without outbound IP control.
 - FORBIDDEN to raise `--per-host-limit` above 2 — triggers HTTP 202 anti-bot.
 - FORBIDDEN to retry in shell loops — use native `--retries` with exponential backoff.
 - FORBIDDEN to hardcode API keys, proxies, or User-Agents in arguments.
 - FORBIDDEN to assume `snippet`, `url_exibicao`, `titulo_original` are always present.
-- FORBIDDEN to pass `--output` with `..` in the path — v0.5.0 rejects path traversal
+- FORBIDDEN to pass `--output` with `..` in the path — v0.6.0 rejects path traversal
 - FORBIDDEN to pass `--output` targeting `/etc`, `/usr`, or `C:\Windows` — system dirs blocked
 
 ## Mandatory JSON Parsing with jaq
@@ -153,7 +153,7 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - ALWAYS prefer verified data with URL over plausible assumption without source.
 
 
-## Security Guarantees (v0.5.0)
+## Security Guarantees (v0.6.0)
 - `--output` validates paths BEFORE writing — `..` and system directories rejected automatically
 - Proxy credentials in `--proxy` URLs NEVER appear in error messages or stderr
 - Credential masking transforms `http://user:pass@host` into `http://us***@host` in all error output
@@ -161,3 +161,6 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - SIGPIPE restored on Unix — pipes to `jaq`, `head`, `wc` terminate cleanly without EPIPE errors
 - BrokenPipe detected in error chain — returns exit 0 instead of propagating as exit 1
 - Typed errors via `ErroCliDdg` enum — 11 variants with deterministic `exit_code()` mapping
+- Anti-blocking (v0.6.0): `PerfilBrowser` injects per-family `Sec-Fetch-*` headers and Client Hints — NEVER add duplicate headers
+- HTTP 202 anomaly detection with exponential backoff runs automatically — trust exit code 3, do not retry in shell
+- Silent-block detection: responses under 5 KB are treated as blocks, not successes — 5 KB threshold is automatic

@@ -22,12 +22,6 @@ ignore = [
     # Impacto: baixo — runtime I/O apenas para automação de navegador em modo `--fetch-content`.
     # Revisar quando `chromiumoxide 0.8+` for lançado migrando para `smol` ou `tokio` puro.
     "RUSTSEC-2025-0052",
-    # RUSTSEC-2026-0097 — `rand 0.8.5` unsound com custom logger chamando `rand::rng()`.
-    # Condições de ativação: feature `log` + custom logger + reseeding durante log + trace.
-    # Projeto usa `tracing` (não `log`) e rand apenas para seleção de User-Agent.
-    # Nenhuma condição de ativação presente. Dependência transitiva via `scraper`.
-    # Upgrade para rand 0.9+ requer migração de API em `scraper` upstream.
-    "RUSTSEC-2026-0097",
 ]
 
 [licenses]

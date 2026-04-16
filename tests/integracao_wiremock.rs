@@ -46,6 +46,7 @@ fn configuracoes_base(endpoint: Endpoint, paginas: u32, retries: u32) -> Configu
         modo_verboso: false,
         modo_silencioso: true,
         user_agent: "Mozilla/5.0 (teste)".to_string(),
+        perfil_browser: duckduckgo_search_cli::http::criar_perfil_browser("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
         paralelismo: 1,
         paginas,
         retries,
@@ -69,7 +70,13 @@ fn configuracoes_base(endpoint: Endpoint, paginas: u32, retries: u32) -> Configu
 }
 
 fn html_com_3_resultados_classe() -> String {
-    r#"<html><body>
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    format!(
+        r#"<html><body>
+    {padding}
     <div id="links">
       <div class="result">
         <a class="result__a" href="//exemplo.com/um">Resultado Um</a>
@@ -89,11 +96,15 @@ fn html_com_3_resultados_classe() -> String {
       </div>
     </div>
     </body></html>"#
-        .to_string()
+    )
 }
 
 fn html_com_tokens_vqd_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&str]) -> String {
-    let mut html = String::from("<html><body>");
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    let mut html = format!("<html><body>{padding}");
     html.push_str(&format!(
         r#"<form><input name="vqd" value="{vqd}"><input name="s" value="{s}"><input name="dc" value="{dc}"></form>"#
     ));
@@ -111,12 +122,24 @@ fn html_com_tokens_vqd_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&st
 }
 
 fn html_vazio_sem_result() -> String {
-    // HTML sem `.result` mas com tamanho > 100 bytes para passar a sanidade anti-bloqueio.
-    r#"<html><head><title>DuckDuckGo sem resultados</title></head><body><div id="links"><p>Nenhum resultado para esta busca específica foi encontrado aqui.</p></div></body></html>"#.to_string()
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // HTML sem `.result` para testar o caminho de zero resultados.
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    format!(
+        r#"<html><head><title>DuckDuckGo sem resultados</title></head><body>{padding}<div id="links"><p>Nenhum resultado para esta busca específica foi encontrado aqui.</p></div></body></html>"#
+    )
 }
 
 fn html_lite_tabela() -> String {
-    r#"<html><body>
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    format!(
+        r#"<html><body>
+    {padding}
     <table>
       <tr><td valign="top">1.&nbsp;</td><td><a class="result-link" href="//exemplo.com/lite1">Lite Um</a></td></tr>
       <tr><td>&nbsp;</td><td class="result-snippet">Descrição detalhada do primeiro resultado lite.</td></tr>
@@ -124,7 +147,7 @@ fn html_lite_tabela() -> String {
       <tr><td>&nbsp;</td><td class="result-snippet">Descrição detalhada do segundo resultado lite.</td></tr>
     </table>
     </body></html>"#
-        .to_string()
+    )
 }
 
 /// Guard para configurar env vars durante um teste e limpar ao sair.
@@ -427,7 +450,13 @@ async fn testa_filtro_anuncios() {
     let mock_server = MockServer::start().await;
 
     // HTML misto: 2 orgânicos + 2 anúncios (um por classe, outro por data-nrn).
-    let html = r#"<html><body>
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    let html = format!(
+        r#"<html><body>
+    {padding}
     <div id="links">
       <div class="result result--ad">
         <a class="result__a" href="//anuncio1.com">Anúncio Um</a>
@@ -447,7 +476,8 @@ async fn testa_filtro_anuncios() {
         <a class="result__a" href="//duckduckgo.com/y.js?ad=x">Tracker</a>
       </div>
     </div>
-    </body></html>"#;
+    </body></html>"#
+    );
 
     Mock::given(method("GET"))
         .and(path("/"))
@@ -498,7 +528,13 @@ async fn testa_heuristica_official_site() {
     let mock_server = MockServer::start().await;
 
     // HTML com resultado que tem título literal "Official site" + .result__url.
-    let html = r#"<html><body>
+    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    let padding =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    let html = format!(
+        r#"<html><body>
+    {padding}
     <div id="links">
       <div class="result">
         <a class="result__a" href="//saofidelis.rj.gov.br/">Official site</a>
@@ -511,7 +547,8 @@ async fn testa_heuristica_official_site() {
         <a class="result__snippet">Snippet qualquer.</a>
       </div>
     </div>
-    </body></html>"#;
+    </body></html>"#
+    );
 
     Mock::given(method("GET"))
         .and(path("/"))
@@ -980,4 +1017,110 @@ async fn testa_auto_paginacao_respeita_pages_explicito() {
     );
     assert_eq!(agregado.resultados[0].titulo, "Pg1-1");
     assert_eq!(agregado.resultados[11].titulo, "Pg2-1");
+}
+
+// ---------------------------------------------------------------------------
+// Teste 15: HTTP 202 na primeira tentativa → recupera na segunda com 200 OK.
+// Verifica que `flag_rate_limit` foi ativada e resultado vem com sucesso.
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn testa_202_recupera_na_segunda_tentativa() {
+    let _g = env_lock().lock().await;
+    let mock_server = MockServer::start().await;
+
+    // Primeira tentativa retorna 202 (anomalia anti-bot DDG).
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(202).set_body_string(""))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&mock_server)
+        .await;
+
+    // Segunda tentativa retorna 200 com HTML válido.
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html_com_3_resultados_classe())
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .with_priority(2)
+        .mount(&mock_server)
+        .await;
+
+    let base = format!("{}/", mock_server.uri());
+    let _env = GuardaEnv::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+    ]);
+
+    let cliente = cliente_teste();
+    // 1 retry → até 2 tentativas no total.
+    let cfg = configuracoes_base(Endpoint::Html, 1, 1);
+    let flag = Arc::new(AtomicBool::new(false));
+    let token = CancellationToken::new();
+
+    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+        .await
+        .expect("deve recuperar após 202 na primeira tentativa");
+
+    assert_eq!(
+        agregado.resultados.len(),
+        3,
+        "deve ter extraído 3 resultados após recuperação do 202"
+    );
+    assert!(
+        flag.load(std::sync::atomic::Ordering::Relaxed),
+        "flag_rate_limit deve ter sido ativada pelo HTTP 202"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Teste 16: HTTP 202 em TODAS as tentativas → `MotivoFalhaRetry::Blocked`.
+// Verifica que `flag_rate_limit` foi ativada e a CLI termina com Blocked.
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn testa_202_esgota_retries_retorna_blocked() {
+    let _g = env_lock().lock().await;
+    let mock_server = MockServer::start().await;
+
+    // Todas as tentativas retornam 202 (DDG nunca deixa passar).
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(202).set_body_string(""))
+        .mount(&mock_server)
+        .await;
+
+    let base = format!("{}/", mock_server.uri());
+    let _env = GuardaEnv::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+    ]);
+
+    let cliente = cliente_teste();
+    // 1 retry → até 2 tentativas (esgotam em 202).
+    let cfg = configuracoes_base(Endpoint::Html, 1, 1);
+    let flag = Arc::new(AtomicBool::new(false));
+    let token = CancellationToken::new();
+
+    let resultado = executar_com_retry(
+        &cliente,
+        &format!("{}/", mock_server.uri()),
+        cfg.retries,
+        &flag,
+        &token,
+    )
+    .await;
+
+    match resultado {
+        Err(MotivoFalhaRetry::Blocked) => {}
+        other => panic!(
+            "esperava MotivoFalhaRetry::Blocked após esgotar retries com 202, recebi {other:?}"
+        ),
+    }
+    assert!(
+        flag.load(std::sync::atomic::Ordering::Relaxed),
+        "flag_rate_limit deve ter sido ativada pelo HTTP 202"
+    );
 }
