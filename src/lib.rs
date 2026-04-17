@@ -1,36 +1,36 @@
 //! # duckduckgo-search-cli
 //!
-//! CLI em Rust para pesquisa no DuckDuckGo via HTTP puro, com output estruturado
-//! em JSON para consumo por LLMs. Sem API paga. Sem Chrome (na fase de busca).
-//! Sem cache. Cross-platform universal (Linux incluindo Alpine/NixOS/Flatpak/Snap,
-//! macOS incluindo Apple Silicon, Windows incluindo cmd.exe e PowerShell).
+//! Rust CLI for searching DuckDuckGo via pure HTTP, with structured JSON output
+//! for LLM consumption. No paid API. No Chrome (during the search phase).
+//! No cache. Universal cross-platform (Linux including Alpine/NixOS/Flatpak/Snap,
+//! macOS including Apple Silicon, Windows including cmd.exe and PowerShell).
 //!
-//! ## Estrutura de Módulos
+//! ## Module Structure
 //!
-//! | Módulo        | Responsabilidade                                             |
+//! | Module        | Responsibility                                               |
 //! |---------------|--------------------------------------------------------------|
-//! | [`cli`]       | Structs clap (parsing de argumentos da linha de comando).    |
-//! | [`http`]      | Construção do `reqwest::Client` e seleção de User-Agent.     |
-//! | [`search`]    | URL e request HTTP ao endpoint do DuckDuckGo.                |
-//! | [`extraction`]| Parsing HTML com `scraper` e filtragem de anúncios.          |
-//! | [`pipeline`]  | Orquestração single/multi, deduplicação e leitura de fontes. |
-//! | [`parallel`]  | Fan-out multi-query com JoinSet, Semaphore, CancellationToken.|
-//! | [`output`]    | Serialização JSON e escrita em stdout (ÚNICO com `println!`).|
-//! | [`platform`]  | Inicialização cross-platform (UTF-8 no Windows, TTY detect). |
-//! | [`types`]     | Structs e enums compartilhados.                              |
-//! | [`error`]     | Códigos de erro e exit codes.                                |
-//! | [`content`]   | Extração HTTP + readability para `--fetch-content` (iter. 5).|
-//! | [`fetch_conteudo`] | Fan-out paralelo + rate-limit per-host (iter. 5 / 6).  |
-//! | [`selectors`] | Carregamento de `ConfiguracaoSeletores` externa (iter. 6).  |
-//! | [`signals`]   | Handlers de sinais cross-platform (SIGPIPE, Ctrl+C).         |
-//! | [`config_init`] | Subcomando `init-config` (iter. 6).                       |
-//! | [`paths`]     | Validação e sanitização de paths para I/O.                   |
-//! | `browser`     | Chrome headless cross-platform sob feature `chrome` (iter.7).|
+//! | [`cli`]       | Clap structs (command-line argument parsing).                |
+//! | [`http`]      | `reqwest::Client` construction and User-Agent selection.     |
+//! | [`search`]    | URL building and HTTP request to the DuckDuckGo endpoint.    |
+//! | [`extraction`]| HTML parsing with `scraper` and ad filtering.                |
+//! | [`pipeline`]  | Single/multi orchestration, deduplication and source reading.|
+//! | [`parallel`]  | Multi-query fan-out with JoinSet, Semaphore, CancellationToken.|
+//! | [`output`]    | JSON serialization and stdout writing (ONLY module with `println!`).|
+//! | [`platform`]  | Cross-platform initialization (UTF-8 on Windows, TTY detect).|
+//! | [`types`]     | Shared structs and enums.                                    |
+//! | [`error`]     | Error codes and exit codes.                                  |
+//! | [`content`]   | HTTP + readability extraction for `--fetch-content` (iter. 5).|
+//! | [`fetch_conteudo`] | Parallel fan-out + per-host rate-limit (iter. 5 / 6).  |
+//! | [`selectors`] | Loading of external `ConfiguracaoSeletores` (iter. 6).      |
+//! | [`signals`]   | Cross-platform signal handlers (SIGPIPE, Ctrl+C).            |
+//! | [`config_init`] | `init-config` subcommand (iter. 6).                       |
+//! | [`paths`]     | Path validation and sanitization for I/O.                    |
+//! | `browser`     | Headless Chrome cross-platform under feature `chrome` (iter.7).|
 //!
-//! ## Ponto de Entrada
+//! ## Entry Point
 //!
-//! A função pública [`run`] é chamada por `main.rs` e retorna um exit code
-//! conforme seção 17.7 da especificação.
+//! The public function [`run`] is called by `main.rs` and returns an exit code
+//! as specified in section 17.7 of the specification.
 
 pub mod cli;
 pub mod config_init;
@@ -64,9 +64,9 @@ use clap::Parser;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{fmt, EnvFilter};
 
-/// Ponto de entrada da biblioteca. Chamado por `main.rs`.
+/// Library entry point. Called by `main.rs`.
 ///
-/// Retorna o exit code apropriado (0 sucesso, 1 erro genérico, 2 config inválida, etc.).
+/// Returns the appropriate exit code (0 success, 1 generic error, 2 invalid config, etc.).
 pub async fn run(cancelamento: CancellationToken) -> i32 {
     // Parse da linha de comando — clap termina o processo com código 2 em caso de erro.
     let raiz = ArgumentosRaiz::parse();
@@ -155,10 +155,10 @@ pub async fn run(cancelamento: CancellationToken) -> i32 {
     }
 }
 
-/// Executa o subcomando `init-config` e imprime o relatório em formato JSON.
+/// Executes the `init-config` subcommand and prints the report in JSON format.
 ///
-/// Retorna `SUCESSO` se todos os arquivos foram processados (inclusive ignorados);
-/// retorna `ERRO_GENERICO` se falha fatal (ex: diretório de config indeterminado).
+/// Returns `SUCESSO` if all files were processed (including skipped ones);
+/// returns `ERRO_GENERICO` on fatal failure (e.g., config directory undetermined).
 fn executar_init_config(args: ArgumentosInitConfig) -> i32 {
     // Inicializa logging mínimo (info) para o relatório.
     inicializar_logging(false, false);
@@ -201,11 +201,11 @@ fn executar_init_config(args: ArgumentosInitConfig) -> i32 {
     exit_codes::SUCESSO
 }
 
-/// Inicializa o subscriber de tracing escrevendo em stderr.
+/// Initializes the tracing subscriber writing to stderr.
 ///
-/// - `--quiet` → apenas `ERROR`.
-/// - `--verbose` → `DEBUG` e acima.
-/// - Default → `INFO` e acima (mas respeita `RUST_LOG` se definido).
+/// - `--quiet` → `ERROR` only.
+/// - `--verbose` → `DEBUG` and above.
+/// - Default → `INFO` and above (but respects `RUST_LOG` if set).
 fn inicializar_logging(verboso: bool, silencioso: bool) {
     let filtro = if silencioso {
         EnvFilter::new("error")
@@ -227,11 +227,11 @@ fn inicializar_logging(verboso: bool, silencioso: bool) {
     let _ = tracing::subscriber::set_global_default(subscriber);
 }
 
-/// Converte argumentos brutos da CLI em `Configuracoes` com validação.
+/// Converts raw CLI arguments into validated `Configuracoes`.
 ///
-/// Combina queries vindas de: (1) argumentos posicionais, (2) arquivo em
-/// `--queries-file`, (3) stdin quando este não é TTY. Deduplica preservando
-/// a ordem da primeira ocorrência.
+/// Combines queries from: (1) positional arguments, (2) file via
+/// `--queries-file`, (3) stdin when it is not a TTY. Deduplicates while
+/// preserving the order of first occurrence.
 fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
     let formato = FormatoSaida::a_partir_de_str(&argumentos.formato)
         .with_context(|| format!("formato desconhecido: {:?}", argumentos.formato))?;
@@ -350,7 +350,7 @@ fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
     })
 }
 
-/// Converte o enum `EndpointCli` (clap) em `Endpoint` (tipo interno).
+/// Converts the `EndpointCli` enum (clap) into the internal `Endpoint` type.
 fn converter_endpoint(origem: EndpointCli) -> Endpoint {
     match origem {
         EndpointCli::Html => Endpoint::Html,
@@ -358,7 +358,7 @@ fn converter_endpoint(origem: EndpointCli) -> Endpoint {
     }
 }
 
-/// Converte o enum `FiltroTemporalCli` (clap) em `FiltroTemporal` (tipo interno).
+/// Converts the `FiltroTemporalCli` enum (clap) into the internal `FiltroTemporal` type.
 fn converter_filtro_temporal(origem: FiltroTemporalCli) -> FiltroTemporal {
     match origem {
         FiltroTemporalCli::D => FiltroTemporal::Dia,
@@ -368,7 +368,7 @@ fn converter_filtro_temporal(origem: FiltroTemporalCli) -> FiltroTemporal {
     }
 }
 
-/// Converte o enum `SafeSearchCli` (clap) em `SafeSearch` (tipo interno).
+/// Converts the `SafeSearchCli` enum (clap) into the internal `SafeSearch` type.
 fn converter_safe_search(origem: SafeSearchCli) -> SafeSearch {
     match origem {
         SafeSearchCli::Off => SafeSearch::Off,

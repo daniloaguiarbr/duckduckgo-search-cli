@@ -1,17 +1,17 @@
-//! Fan-out paralelo de extração de conteúdo (flag `--fetch-content`).
+//! Parallel fan-out for content extraction (flag `--fetch-content`).
 //!
-//! Para cada resultado de uma `SaidaBusca`, spawn uma task async limitada por
-//! `Semaphore` (mesma capacidade de `--parallel`). Cada task chama
-//! [`crate::content::extrair_conteudo_http`] e preenche `ResultadoBusca.conteudo`,
-//! `.tamanho_conteudo` e `.metodo_extracao_conteudo` quando bem-sucedida.
+//! For each result in a `SaidaBusca`, spawns an async task bounded by a
+//! `Semaphore` (same capacity as `--parallel`). Each task calls
+//! [`crate::content::extrair_conteudo_http`] and fills `ResultadoBusca.conteudo`,
+//! `.tamanho_conteudo` and `.metodo_extracao_conteudo` when successful.
 //!
-//! Também atualiza os campos de `MetadadosBusca`:
-//! - `fetches_simultaneos` = total de tasks spawnadas.
-//! - `sucessos_fetch` = tasks com `conteudo` não-vazio retornado.
-//! - `falhas_fetch` = tasks que retornaram erro ou conteúdo vazio.
+//! Also updates the `MetadadosBusca` fields:
+//! - `fetches_simultaneos` = total spawned tasks.
+//! - `sucessos_fetch` = tasks that returned non-empty `conteudo`.
+//! - `falhas_fetch` = tasks that returned an error or empty content.
 //!
-//! A extração respeita `CancellationToken` — cancelamento global aborta todas
-//! as tasks em voo rapidamente.
+//! Extraction respects `CancellationToken` — global cancellation aborts all
+//! in-flight tasks quickly.
 
 use crate::content;
 use crate::types::{Configuracoes, SaidaBusca};
@@ -25,14 +25,14 @@ use tokio_util::sync::CancellationToken;
 #[cfg(feature = "chrome")]
 use crate::browser::{detectar_chrome, extrair_texto_com_chrome, NavegadorChrome};
 
-/// Mapa `host → Semaphore` para rate-limit per-host compartilhado entre tasks.
+/// Map `host → Semaphore` for per-host rate-limiting shared across tasks.
 pub type MapaSemaforosPorHost = Arc<Mutex<HashMap<String, Arc<Semaphore>>>>;
 
-/// Obtém (ou cria sob lock) o semáforo para o `host` dado com capacidade `limite`.
+/// Gets (or creates under lock) the semaphore for the given `host` with capacity `limite`.
 ///
-/// A lookup primeira sob lock, criando lazy se o host não existe. O `Arc<Semaphore>`
-/// retornado é clonado e emprestado pelas tasks — o lock não é mantido durante
-/// `.acquire_owned().await`.
+/// Performs an initial lookup under the lock, lazily creating an entry if the host
+/// does not exist. The returned `Arc<Semaphore>` is cloned and borrowed by tasks —
+/// the lock is not held during `.acquire_owned().await`.
 pub async fn obter_semaforo_para_host(
     mapa: &MapaSemaforosPorHost,
     host: &str,
@@ -45,21 +45,21 @@ pub async fn obter_semaforo_para_host(
         .clone()
 }
 
-/// Extrai o host de uma URL. Retorna `"unknown"` quando a URL é malformada —
-/// todas as URLs malformadas compartilham o mesmo slot (é uma fallback segura).
+/// Extracts the host from a URL. Returns `"unknown"` when the URL is malformed —
+/// all malformed URLs share the same slot (this is a safe fallback).
 ///
-/// Hosts são normalizados para minúsculas para que `Exemplo.COM` e `exemplo.com`
-/// compartilhem o mesmo `Semaphore` per-host.
+/// Hosts are normalised to lowercase so that `Exemplo.COM` and `exemplo.com`
+/// share the same per-host `Semaphore`.
 ///
-/// # Exemplo
+/// # Example
 ///
 /// ```
 /// use duckduckgo_search_cli::fetch_conteudo::extrair_host;
 ///
 /// assert_eq!(extrair_host("https://www.example.com/path?q=1"), "www.example.com");
-/// assert_eq!(extrair_host("https://API.test/x"), "api.test"); // minúsculas
-/// assert_eq!(extrair_host("não-é-url"), "unknown");            // malformada
-/// assert_eq!(extrair_host(""), "unknown");                      // vazia
+/// assert_eq!(extrair_host("https://API.test/x"), "api.test"); // lowercased
+/// assert_eq!(extrair_host("not-a-url"), "unknown");             // malformed
+/// assert_eq!(extrair_host(""), "unknown");                      // empty
 /// ```
 pub fn extrair_host(url: &str) -> String {
     reqwest::Url::parse(url)
@@ -68,11 +68,11 @@ pub fn extrair_host(url: &str) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// Enriquece uma `SaidaBusca` com conteúdo textual de cada URL em paralelo.
+/// Enriches a `SaidaBusca` with textual content from each URL in parallel.
 ///
-/// Modifica `saida` IN-PLACE. Não retorna erro fatal — falhas individuais são
-/// registradas em `metadados.falhas_fetch` e o campo `content` fica ausente no
-/// `ResultadoBusca` correspondente.
+/// Modifies `saida` IN-PLACE. Does not return a fatal error — individual failures
+/// are recorded in `metadados.falhas_fetch` and the `content` field is absent in
+/// the corresponding `ResultadoBusca`.
 pub async fn enriquecer_com_conteudo(
     saida: &mut SaidaBusca,
     cliente: &Client,

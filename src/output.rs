@@ -1,20 +1,20 @@
-//! Formatação e emissão do resultado final em stdout ou arquivo.
+//! Formatting and emission of the final result to stdout or a file.
 //!
-//! **REGRA INVIOLÁVEL**: este é o ÚNICO módulo autorizado a usar `println!`
-//! ou `write!`/`writeln!` em `stdout`/arquivo de saída. Todos os demais módulos
-//! devem usar `tracing::*` para logs (que vão para stderr).
+//! **INVIOLABLE RULE**: this is the ONLY module authorized to use `println!`
+//! or `write!`/`writeln!` to `stdout`/output file. All other modules
+//! must use `tracing::*` for logs (which go to stderr).
 //!
-//! Formatos suportados:
-//! - `json` (default em pipe / sempre que LLM consome): JSON pretty-print.
-//! - `text` (default em TTY): formato compacto otimizado para tokens de LLM e
-//!   leitura humana — `[N] título / URL / snippet`.
-//! - `markdown`: renderização Markdown (ideal para arquivos `.md` / GitHub).
-//! - `auto`: detecção via TTY — `text` em terminal interativo, `json` em pipe.
+//! Supported formats:
+//! - `json` (default in pipe / whenever LLM consumes): JSON pretty-print.
+//! - `text` (default in TTY): compact format optimized for LLM tokens and
+//!   human reading — `[N] title / URL / snippet`.
+//! - `markdown`: Markdown rendering (ideal for `.md` files / GitHub).
+//! - `auto`: TTY detection — `text` in interactive terminal, `json` in pipe.
 //!
-//! Roteamento de saída:
-//! - Sem `--output PATH`: escreve em `stdout`.
-//! - Com `--output PATH`: cria diretórios pai se necessário, escreve no
-//!   arquivo com permissões 0o644 no Unix.
+//! Output routing:
+//! - Without `--output PATH`: writes to `stdout`.
+//! - With `--output PATH`: creates parent directories if needed, writes to
+//!   the file with 0o644 permissions on Unix.
 
 use crate::pipeline::ResultadoPipeline;
 use crate::types::{FormatoSaida, ResultadoBusca, SaidaBusca, SaidaBuscaMultipla};
@@ -23,10 +23,10 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-/// Imprime o resultado da busca no formato e destino especificados.
+/// Prints the search result in the specified format and destination.
 ///
-/// `caminho_saida = None` → stdout. `Some(path)` → arquivo (com criação dos
-/// diretórios pai se ausentes).
+/// `caminho_saida = None` → stdout. `Some(path)` → file (with creation of
+/// parent directories if absent).
 pub fn emitir_resultado(
     resultado: &ResultadoPipeline,
     formato: FormatoSaida,
@@ -51,27 +51,27 @@ pub fn emitir_resultado(
     }
 }
 
-/// Wrapper retrocompatível para chamadores que ainda usam apenas (resultado, formato).
-/// Mantido para reduzir churn nos testes existentes; novos call-sites devem usar
-/// `emitir_resultado` com `caminho_saida` explícito.
+/// Backwards-compatible wrapper for callers that still use only (result, format).
+/// Kept to reduce churn in existing tests; new call-sites should use
+/// `emitir_resultado` with an explicit `caminho_saida`.
 pub fn emitir(saida: &SaidaBusca, formato: FormatoSaida) -> Result<()> {
     let formato_resolvido = resolver_formato_auto(formato, None);
     let texto = formatar_unica(saida, formato_resolvido)?;
     escrever_em_stdout(&texto)
 }
 
-/// Wrapper retrocompatível para multi-query.
+/// Backwards-compatible wrapper for multi-query.
 pub fn emitir_multipla(saida: &SaidaBuscaMultipla, formato: FormatoSaida) -> Result<()> {
     let formato_resolvido = resolver_formato_auto(formato, None);
     let texto = formatar_multipla(saida, formato_resolvido)?;
     escrever_em_stdout(&texto)
 }
 
-/// Resolve `FormatoSaida::Auto` no formato concreto baseado em TTY detection.
+/// Resolves `FormatoSaida::Auto` to the concrete format based on TTY detection.
 ///
-/// - Saindo para arquivo (`caminho_saida = Some`) → JSON (estável e parseável).
-/// - Auto + stdout TTY → Text (ergonômico para humanos).
-/// - Auto + stdout pipe → JSON (consumo programático).
+/// - Outputting to file (`caminho_saida = Some`) → JSON (stable and parseable).
+/// - Auto + stdout TTY → Text (ergonomic for humans).
+/// - Auto + stdout pipe → JSON (programmatic consumption).
 fn resolver_formato_auto(formato: FormatoSaida, caminho_saida: Option<&Path>) -> FormatoSaida {
     match formato {
         FormatoSaida::Auto => {
@@ -106,7 +106,7 @@ fn formatar_multipla(saida: &SaidaBuscaMultipla, formato: FormatoSaida) -> Resul
     }
 }
 
-/// Formato `text` para single-query — compacto, otimizado para LLM tokens.
+/// `text` format for single-query — compact, optimized for LLM tokens.
 ///
 /// ```text
 /// Query: <query> | Engine: duckduckgo | Endpoint: html | Results: N
@@ -168,7 +168,7 @@ fn formatar_resultado_text(r: &ResultadoBusca) -> String {
     bloco
 }
 
-/// Formato `markdown` para single-query — ideal para `.md` e GitHub.
+/// `markdown` format for single-query — ideal for `.md` files and GitHub.
 ///
 /// ```markdown
 /// # Resultados: <query>
@@ -245,8 +245,8 @@ fn formatar_multipla_markdown(saida: &SaidaBuscaMultipla) -> String {
     buffer
 }
 
-/// Escapa caracteres Markdown que poderiam quebrar a renderização em títulos
-/// ou snippets. Conservador: escapa apenas `[`, `]`, `*` e backticks.
+/// Escapes Markdown characters that could break rendering in titles
+/// or snippets. Conservative: only escapes `[`, `]`, `*`, and backticks.
 fn escapar_markdown(texto: &str) -> String {
     texto
         .replace('\\', "\\\\")
@@ -264,9 +264,9 @@ fn escrever_em_stdout(conteudo: &str) -> Result<()> {
     Ok(())
 }
 
-/// Verifica se um `anyhow::Error` contém `io::ErrorKind::BrokenPipe` na cadeia
-/// de causas. Broken pipe indica que o leitor do pipe fechou (ex: `| jaq`,
-/// `| head`) — comportamento normal em pipelines Unix, NÃO um erro.
+/// Checks whether an `anyhow::Error` contains `io::ErrorKind::BrokenPipe` in the
+/// cause chain. Broken pipe indicates the pipe reader closed (e.g. `| jaq`,
+/// `| head`) — normal behavior in Unix pipelines, NOT an error.
 pub(crate) fn eh_broken_pipe(erro: &anyhow::Error) -> bool {
     erro.chain().any(|causa| {
         causa
@@ -275,17 +275,17 @@ pub(crate) fn eh_broken_pipe(erro: &anyhow::Error) -> bool {
     })
 }
 
-/// Público: imprime UMA linha terminada em `\n` em stdout, com flush imediato.
-/// Usado por subcomandos auxiliares (ex: `init-config`) que precisam emitir JSON.
+/// Public: prints ONE line terminated with `\n` to stdout, with immediate flush.
+/// Used by auxiliary subcommands (e.g. `init-config`) that need to emit JSON.
 pub fn imprimir_linha_stdout(conteudo: &str) -> Result<()> {
     escrever_em_stdout(conteudo)
 }
 
-/// Público: emite uma `SaidaBusca` como UMA linha NDJSON (JSON compacto + `\n`).
+/// Public: emits a `SaidaBusca` as ONE NDJSON line (compact JSON + `\n`).
 ///
-/// Se `arquivo_saida = Some`, abre o arquivo em modo append e escreve — usado pelo
-/// consumer do `--stream` multi-query para gravar streamando sem segurar tudo em memória.
-/// Se `None`, escreve em stdout com flush imediato (para pipes em tempo real).
+/// If `arquivo_saida = Some`, opens the file in append mode and writes — used by
+/// the `--stream` multi-query consumer to write streaming without holding everything in memory.
+/// If `None`, writes to stdout with immediate flush (for real-time pipes).
 pub fn emitir_ndjson(saida: &crate::types::SaidaBusca, arquivo_saida: Option<&Path>) -> Result<()> {
     let linha =
         serde_json::to_string(saida).context("falha ao serializar SaidaBusca como NDJSON")?;
@@ -301,7 +301,7 @@ pub fn emitir_ndjson(saida: &crate::types::SaidaBusca, arquivo_saida: Option<&Pa
     }
 }
 
-/// Emite um bloco de texto (formato `text`) em streaming, representando UMA query.
+/// Emits a text block (`text` format) in streaming mode, representing ONE query.
 pub fn emitir_stream_text(
     indice: usize,
     saida: &crate::types::SaidaBusca,
@@ -313,7 +313,7 @@ pub fn emitir_stream_text(
     emitir_bloco_stream(&bloco, arquivo_saida)
 }
 
-/// Emite um bloco de Markdown em streaming, representando UMA query.
+/// Emits a Markdown block in streaming mode, representing ONE query.
 pub fn emitir_stream_markdown(
     indice: usize,
     saida: &crate::types::SaidaBusca,
@@ -327,7 +327,7 @@ pub fn emitir_stream_markdown(
     emitir_bloco_stream(&bloco, arquivo_saida)
 }
 
-/// Emite `bloco` em stdout ou anexa ao arquivo indicado. Usado por streams text/md.
+/// Emits `bloco` to stdout or appends to the indicated file. Used by text/md streams.
 fn emitir_bloco_stream(bloco: &str, arquivo_saida: Option<&Path>) -> Result<()> {
     match arquivo_saida {
         Some(caminho) => anexar_linha_em_arquivo(caminho, bloco),
@@ -341,8 +341,8 @@ fn emitir_bloco_stream(bloco: &str, arquivo_saida: Option<&Path>) -> Result<()> 
     }
 }
 
-/// Anexa UMA linha a um arquivo (modo append + criação), aplicando 0o644 no Unix na
-/// primeira criação. Cria diretórios pai se necessário.
+/// Appends ONE line to a file (append + create mode), applying 0o644 on Unix on
+/// first creation. Creates parent directories if needed.
 fn anexar_linha_em_arquivo(caminho: &Path, linha: &str) -> Result<()> {
     use std::fs::OpenOptions;
     crate::paths::validar_caminho_saida(caminho)?;
@@ -370,8 +370,8 @@ fn anexar_linha_em_arquivo(caminho: &Path, linha: &str) -> Result<()> {
     Ok(())
 }
 
-/// Escreve `conteudo` no `caminho`, criando diretórios pai se necessário.
-/// Aplica permissões 0o644 no Unix (somente o dono escreve, todos leem).
+/// Writes `conteudo` to `caminho`, creating parent directories if needed.
+/// Applies 0o644 permissions on Unix (owner writes, everyone reads).
 fn escrever_em_arquivo(caminho: &Path, conteudo: &str) -> Result<()> {
     crate::paths::validar_caminho_saida(caminho)?;
     crate::paths::criar_diretorios_pai(caminho)?;

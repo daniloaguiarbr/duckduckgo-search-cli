@@ -31,6 +31,12 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Cobertura `parallel.rs` 50% → 81%; `pipeline.rs` 55% → 82%; `fetch_conteudo.rs` 68% → 85%; `output.rs` 70% → 87%
 
 
+## [0.6.3] - 2026-04-17
+### Alterado
+- Tradução de todos os 96 doc comments (`///` e `//!`) em 19 arquivos-fonte de português para inglês — docs.rs agora exibe documentação completamente em inglês para o público internacional do crates.io.
+- Nenhuma alteração de comportamento, API pública ou campos JSON de saída.
+
+
 ## [0.6.2] - 2026-04-17
 ### Adicionado
 - 19 novos arquivos de documentação — conformidade completa com rules_rust_documentacao.md (28 gaps G01-G28)

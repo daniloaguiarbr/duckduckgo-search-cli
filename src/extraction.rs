@@ -1,46 +1,46 @@
-//! Extração de resultados de busca a partir do HTML do DuckDuckGo.
+//! Extraction of search results from DuckDuckGo HTML.
 //!
-//! Implementa no MVP APENAS a Estratégia 1 (seletores de classe estáveis):
+//! In the MVP implements ONLY Strategy 1 (stable class selectors):
 //! - Container: `#links`.
-//! - Itens: `.result` (múltiplos seletores alternativos).
-//! - Título + URL: `.result__a`.
+//! - Items: `.result` (multiple alternative selectors).
+//! - Title + URL: `.result__a`.
 //! - Snippet: `.result__snippet`.
-//! - URL de exibição: `.result__url`.
+//! - Display URL: `.result__url`.
 //!
-//! Filtragem de anúncios:
-//! - Remove elementos com classe `.result--ad` ou `.badge--ad`.
-//! - Remove elementos com atributo `data-nrn="ad"`.
-//! - Remove resultados cuja URL contém `duckduckgo.com/y.js`.
+//! Ad filtering:
+//! - Removes elements with class `.result--ad` or `.badge--ad`.
+//! - Removes elements with attribute `data-nrn="ad"`.
+//! - Removes results whose URL contains `duckduckgo.com/y.js`.
 //!
-//! Resolução de URLs:
-//! - URLs protocol-relative (`//example.com`) são prefixadas com `https:`.
-//! - URLs com redirect interno do DuckDuckGo (`/l/?uddg=...&rut=...`) são
-//!   desencapsuladas via URL decoding do parâmetro `uddg`.
-//! - URLs do próprio domínio `duckduckgo.com` são filtradas.
+//! URL resolution:
+//! - Protocol-relative URLs (`//example.com`) are prefixed with `https:`.
+//! - URLs containing a DuckDuckGo internal redirect (`/l/?uddg=...&rut=...`) are
+//!   unwrapped via URL-decoding of the `uddg` parameter.
+//! - URLs on the `duckduckgo.com` domain itself are filtered out.
 
 use crate::types::{ConfiguracaoSeletores, ResultadoBusca};
 use scraper::{ElementRef, Html, Selector};
 
-/// Limites bounded para prevenir payloads absurdos (seção 5.4 — regra 4).
+/// Bounded limits to prevent absurdly large payloads (section 5.4 — rule 4).
 const LIMITE_TITULO: usize = 200;
 const LIMITE_URL: usize = 2000;
 const LIMITE_SNIPPET: usize = 500;
 
-/// Extrai os resultados orgânicos da página HTML do DuckDuckGo usando a Estratégia 1.
+/// Extracts the organic results from a DuckDuckGo HTML page using Strategy 1.
 ///
-/// Retorna resultados já filtrados (sem anúncios), com URLs resolvidas e posições
-/// numeradas sequencialmente a partir de 1.
+/// Returns results already filtered (no ads), with resolved URLs and positions
+/// numbered sequentially from 1.
 ///
-/// Se nenhum resultado for encontrado, retorna `Vec` vazio (não é erro — pode ser
-/// query sem resultados; erros reais de HTML malformado são tratados mais acima).
+/// If no results are found, returns an empty `Vec` (not an error — the query may simply
+/// have no results; actual malformed-HTML errors are handled further up the call stack).
 pub fn extrair_resultados(html_bruto: &str) -> Vec<ResultadoBusca> {
     let cfg = ConfiguracaoSeletores::default();
     extrair_resultados_com_cfg(html_bruto, &cfg)
 }
 
-/// Igual a `extrair_resultados`, mas aceita `ConfiguracaoSeletores` customizada.
+/// Same as `extrair_resultados`, but accepts a custom `ConfiguracaoSeletores`.
 ///
-/// Iteração 6: permite que seletores carregados de TOML externo sejam aplicados.
+/// Iteration 6: allows selectors loaded from an external TOML file to be applied.
 pub fn extrair_resultados_com_cfg(
     html_bruto: &str,
     cfg: &ConfiguracaoSeletores,
@@ -49,18 +49,18 @@ pub fn extrair_resultados_com_cfg(
     extrair_com_documento(&documento, cfg)
 }
 
-/// Aplica Estratégia 1 e, caso retorne vazio, aplica Estratégia 2 (fallback semântico).
+/// Applies Strategy 1 and, if it returns empty, applies Strategy 2 (semantic fallback).
 ///
-/// Estratégia 2 busca todos os links `<a href="...">` dentro de `#links` que apontem
-/// para domínio externo; para cada, extrai texto do link como título, desencapsula
-/// o href com `resolver_url` e tenta extrair snippet do elemento pai (procura o
-/// ancestral com texto substancial).
+/// Strategy 2 searches all `<a href="...">` links inside `#links` that point to
+/// an external domain; for each one it extracts the link text as the title, unwraps
+/// the href with `resolver_url`, and attempts to extract a snippet from the parent
+/// element (looks for the ancestor with substantial text).
 pub fn extrair_resultados_com_estrategias(html_bruto: &str) -> Vec<ResultadoBusca> {
     let cfg = ConfiguracaoSeletores::default();
     extrair_resultados_com_estrategias_cfg(html_bruto, &cfg)
 }
 
-/// Igual a `extrair_resultados_com_estrategias`, mas aceita seletores externos.
+/// Same as `extrair_resultados_com_estrategias`, but accepts external selectors.
 pub fn extrair_resultados_com_estrategias_cfg(
     html_bruto: &str,
     cfg: &ConfiguracaoSeletores,
@@ -82,8 +82,8 @@ pub fn extrair_resultados_com_estrategias_cfg(
     resultados
 }
 
-/// Estratégia 2: fallback semântico. Busca todos os `<a href>` externos dentro
-/// do container de resultados (`#links`) e extrai título, URL e snippet.
+/// Strategy 2: semantic fallback. Searches all external `<a href>` links inside
+/// the results container (`#links`) and extracts title, URL and snippet.
 fn extrair_estrategia_2(documento: &Html) -> Vec<ResultadoBusca> {
     // Seletor tenta tanto `#links a[href]` quanto `a[href]` em qualquer `.result`.
     let Ok(seletor_links) = Selector::parse("#links a[href], .result a[href]") else {
@@ -142,8 +142,8 @@ fn extrair_estrategia_2(documento: &Html) -> Vec<ResultadoBusca> {
     resultados
 }
 
-/// Percorre ancestrais do link procurando o primeiro com texto "substancial"
-/// (pelo menos 40 caracteres distintos do próprio título).
+/// Walks the link's ancestors looking for the first one with "substantial" text
+/// (at least 40 characters distinct from the title itself).
 fn extrair_snippet_do_ancestral(link: &ElementRef<'_>, titulo: &str) -> Option<String> {
     let mut atual = link.parent();
     let mut nivel = 0;
@@ -167,17 +167,17 @@ fn extrair_snippet_do_ancestral(link: &ElementRef<'_>, titulo: &str) -> Option<S
     None
 }
 
-/// Estratégia 3: extração para o endpoint Lite (`https://lite.duckduckgo.com/lite/`).
+/// Strategy 3: extraction for the Lite endpoint (`https://lite.duckduckgo.com/lite/`).
 ///
-/// O Lite retorna HTML tabular. Iteramos `<tr>` capturando pares:
-/// 1. `<tr>` com `<a class="result-link">` (ou qualquer `<a>` em `<td>`) → título/URL.
-/// 2. `<tr>` seguinte com `td.result-snippet` (ou `<td>` com texto substancial) → snippet.
+/// Lite returns tabular HTML. We iterate over `<tr>` elements capturing pairs:
+/// 1. `<tr>` with `<a class="result-link">` (or any `<a>` in `<td>`) → title/URL.
+/// 2. The following `<tr>` with `td.result-snippet` (or a `<td>` with substantial text) → snippet.
 pub fn extrair_resultados_lite(html_bruto: &str) -> Vec<ResultadoBusca> {
     let cfg = ConfiguracaoSeletores::default();
     extrair_resultados_lite_com_cfg(html_bruto, &cfg)
 }
 
-/// Igual a `extrair_resultados_lite`, mas aceita seletores externos.
+/// Same as `extrair_resultados_lite`, but accepts external selectors.
 pub fn extrair_resultados_lite_com_cfg(
     html_bruto: &str,
     cfg: &ConfiguracaoSeletores,
@@ -467,7 +467,7 @@ fn extrair_com_documento(documento: &Html, cfg: &ConfiguracaoSeletores) -> Vec<R
     resultados
 }
 
-/// Versão dinâmica: aceita lista de classes configurada no TOML.
+/// Dynamic version: accepts the list of ad classes configured in the TOML file.
 fn contem_classe_anuncio_dinamico(elemento: &ElementRef<'_>, classes_nua: &[String]) -> bool {
     elemento
         .value()
@@ -475,17 +475,17 @@ fn contem_classe_anuncio_dinamico(elemento: &ElementRef<'_>, classes_nua: &[Stri
         .any(|classe| classes_nua.iter().any(|c| c == classe))
 }
 
-/// Aplica a heurística de substituição de "Official site" (v0.3.0).
+/// Applies the "Official site" replacement heuristic (v0.3.0).
 ///
-/// O DuckDuckGo renderiza literalmente o texto `"Official site"` (case-insensitive)
-/// como título quando o domínio do resultado é verificado (ex: rust-lang.org,
-/// wikipedia.org). Esse título não é útil para o consumidor da API — substituímos
-/// pelo `url_exibicao` e preservamos o literal em `titulo_original` para auditoria.
+/// DuckDuckGo renders the literal text `"Official site"` (case-insensitive)
+/// as the title when the result's domain is verified (e.g. rust-lang.org,
+/// wikipedia.org). That title is not useful for API consumers — we replace it
+/// with `url_exibicao` and preserve the literal in `titulo_original` for auditing.
 ///
-/// Retorna `(titulo_final, titulo_original)`:
-/// - Se o título bate exatamente "Official site" (ignore case) E existe `url_exibicao`
-///   não-vazia, retorna `(url_exibicao, Some("Official site"))`.
-/// - Caso contrário, retorna `(titulo, None)` inalterado.
+/// Returns `(titulo_final, titulo_original)`:
+/// - If the title matches exactly "Official site" (case-insensitive) AND a non-empty
+///   `url_exibicao` exists, returns `(url_exibicao, Some("Official site"))`.
+/// - Otherwise returns `(titulo, None)` unchanged.
 fn aplicar_heuristica_official_site(
     titulo: String,
     url_exibicao: Option<&str>,
@@ -499,8 +499,8 @@ fn aplicar_heuristica_official_site(
     (titulo, None)
 }
 
-/// Normaliza texto extraído: colapsa whitespace, trim e trunca em `limite` caracteres
-/// respeitando fronteira de caractere UTF-8.
+/// Normalises extracted text: collapses whitespace, trims and truncates at `limite` characters
+/// respecting UTF-8 character boundaries.
 fn normalizar_texto(bruto: &str, limite: usize) -> String {
     let colapsado: String = bruto.split_whitespace().collect::<Vec<_>>().join(" ");
     if colapsado.chars().count() <= limite {
@@ -510,16 +510,16 @@ fn normalizar_texto(bruto: &str, limite: usize) -> String {
     colapsado.chars().take(limite).collect()
 }
 
-/// Resolve uma URL encontrada no DOM do DuckDuckGo para a URL final.
+/// Resolves a URL found in the DuckDuckGo DOM to the final URL.
 ///
-/// Casos tratados:
+/// Handled cases:
 /// 1. `//example.com/path` → `https://example.com/path` (protocol-relative).
-/// 2. `/l/?uddg=<URL_REAL>&rut=...` → decodifica `uddg` e retorna a URL real.
-/// 3. `//duckduckgo.com/l/?uddg=...` → mesma lógica após normalização.
-/// 4. URLs absolutas externas são retornadas como estão.
-/// 5. URLs do próprio domínio `duckduckgo.com` (exceto `/l/?uddg=`) são filtradas.
+/// 2. `/l/?uddg=<REAL_URL>&rut=...` → decodes `uddg` and returns the real URL.
+/// 3. `//duckduckgo.com/l/?uddg=...` → same logic after normalisation.
+/// 4. Absolute external URLs are returned as-is.
+/// 5. URLs on the `duckduckgo.com` domain itself (except `/l/?uddg=`) are filtered.
 ///
-/// Retorna `None` se a URL for inválida ou do próprio DuckDuckGo.
+/// Returns `None` if the URL is invalid or belongs to DuckDuckGo.
 pub fn resolver_url(href: &str) -> Option<String> {
     let href_trim = href.trim();
     if href_trim.is_empty() {
@@ -549,8 +549,8 @@ pub fn resolver_url(href: &str) -> Option<String> {
     Some(normalizada)
 }
 
-/// Se a URL for um redirect do DuckDuckGo (`/l/?uddg=<URL_REAL>`), extrai e
-/// URL-decoda `uddg`. Retorna `None` se não for redirect ou se o parâmetro ausente.
+/// If the URL is a DuckDuckGo redirect (`/l/?uddg=<REAL_URL>`), extracts and
+/// URL-decodes `uddg`. Returns `None` if it is not a redirect or the parameter is absent.
 fn extrair_uddg(url: &str) -> Option<String> {
     // Busca por "uddg=" na query string.
     let idx_uddg = url.find("uddg=")?;
@@ -565,7 +565,7 @@ fn extrair_uddg(url: &str) -> Option<String> {
         .map(|cow| cow.into_owned())
 }
 
-/// Verifica se a URL aponta para algum subdomínio do DuckDuckGo.
+/// Checks whether the URL points to any subdomain of DuckDuckGo.
 fn eh_url_duckduckgo(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     lower.contains("://duckduckgo.com")

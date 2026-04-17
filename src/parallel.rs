@@ -1,17 +1,17 @@
-//! Paralelismo multi-query com `JoinSet`, `Semaphore`, staggered launch e `CancellationToken`.
+//! Multi-query parallelism with `JoinSet`, `Semaphore`, staggered launch and `CancellationToken`.
 //!
-//! Implementação da iteração 2 conforme seções 4.1–4.6, 13 e 15.8 da especificação.
+//! Implementation of iteration 2 per sections 4.1–4.6, 13 and 15.8 of the specification.
 //!
-//! Contratos importantes:
-//! - `Semaphore` limita concorrência ao valor de `--parallel` (1..=20).
-//! - Staggered launch adiciona `indice * 200ms + jitter(0..300ms)` ANTES do spawn
-//!   para evitar burst síncrono que dispararia rate-limit.
-//! - `CancellationToken` é verificado entre estágios de cada task; quando SIGINT
-//!   dispara, tasks em voo abortam gracefulmente com erro `cancelled`.
-//! - Falha de uma task NÃO aborta o `JoinSet` inteiro. Outras tasks continuam.
-//!   Queries falhas produzem `SaidaBusca` com campo `error` preenchido.
-//! - Decisão de Client por query (isolamento de cookie jar) segue seção 4.3:
-//!   `paginas == 1` → compartilhado; `paginas > 1` → novo Client por query.
+//! Key contracts:
+//! - `Semaphore` limits concurrency to the `--parallel` value (1..=20).
+//! - Staggered launch adds `index * 200ms + jitter(0..300ms)` BEFORE the spawn
+//!   to avoid a synchronous burst that would trigger rate-limiting.
+//! - `CancellationToken` is checked between stages of each task; when SIGINT
+//!   fires, in-flight tasks abort gracefully with a `cancelled` error.
+//! - Failure of one task does NOT abort the entire `JoinSet`. Other tasks continue.
+//!   Failed queries produce a `SaidaBusca` with the `error` field filled in.
+//! - Client-per-query decision (cookie jar isolation) follows section 4.3:
+//!   `paginas == 1` → shared; `paginas > 1` → new Client per query.
 
 use crate::fetch_conteudo;
 use crate::http;
@@ -30,22 +30,22 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-/// Delay base por índice (milissegundos) para staggered launch.
+/// Base delay per index (milliseconds) for staggered launch.
 const DELAY_BASE_STAGGERED_MS: u64 = 200;
 
-/// Jitter máximo adicional (milissegundos) para staggered launch.
+/// Maximum additional jitter (milliseconds) for staggered launch.
 const JITTER_MAXIMO_STAGGERED_MS: u64 = 300;
 
-/// Executa múltiplas queries em paralelo respeitando o limite `--parallel`.
+/// Executes multiple queries in parallel respecting the `--parallel` limit.
 ///
-/// # Argumentos
-/// * `queries` — lista já deduplicada/filtrada de queries.
-/// * `configuracoes` — template de configuração (query individual será sobrescrita).
-/// * `cancelamento` — token que sinaliza SIGINT / timeout global.
+/// # Arguments
+/// * `queries` — already deduplicated/filtered list of queries.
+/// * `configuracoes` — configuration template (individual query will be overwritten).
+/// * `cancelamento` — token that signals SIGINT / global timeout.
 ///
-/// # Comportamento em falha
-/// Se uma query falhar, sua `SaidaBusca` é gerada com `error` preenchido e
-/// `results_count = 0`. O processo NÃO aborta demais queries em voo.
+/// # Failure behaviour
+/// If a query fails, its `SaidaBusca` is generated with `error` filled in and
+/// `results_count = 0`. The process does NOT abort other in-flight queries.
 pub async fn executar_buscas_paralelas(
     queries: Vec<String>,
     configuracoes: Configuracoes,
@@ -217,30 +217,30 @@ pub async fn executar_buscas_paralelas(
     })
 }
 
-/// Estatísticas agregadas de uma execução multi-query em modo streaming.
+/// Aggregated statistics for a multi-query execution in streaming mode.
 #[derive(Debug, Clone, Default)]
 pub struct EstatisticasStream {
-    /// Total de queries submetidas.
+    /// Total queries submitted.
     pub total: u32,
-    /// Queries finalizadas com sucesso (sem campo `error`).
+    /// Queries completed successfully (no `error` field).
     pub sucessos: u32,
-    /// Queries finalizadas com erro.
+    /// Queries completed with an error.
     pub erros: u32,
-    /// Timestamp (RFC 3339) do início da execução.
+    /// Timestamp (RFC 3339) of execution start.
     pub timestamp_inicio: String,
-    /// Paralelismo efetivo.
+    /// Effective parallelism.
     pub paralelismo: u32,
 }
 
-/// Executa múltiplas queries em paralelo EMITINDO resultados via `mpsc::Sender`
-/// conforme cada task termina. O consumer (em `pipeline`) recebe os resultados e
-/// emite NDJSON / text / markdown incrementalmente.
+/// Executes multiple queries in parallel EMITTING results via `mpsc::Sender`
+/// as each task finishes. The consumer (in `pipeline`) receives the results and
+/// emits NDJSON / text / markdown incrementally.
 ///
-/// Retorna `EstatisticasStream` após todas as tasks terminarem.
+/// Returns `EstatisticasStream` after all tasks have finished.
 ///
-/// Os resultados chegam em ORDEM DE CONCLUSÃO (não a ordem das queries de entrada).
-/// Cada item enviado é `(indice_original, SaidaBusca)` para que o consumer saiba
-/// a qual query a saída corresponde.
+/// Results arrive in COMPLETION ORDER (not the order of the input queries).
+/// Each sent item is `(original_index, SaidaBusca)` so the consumer knows
+/// which query produced each output.
 pub async fn executar_buscas_paralelas_streaming(
     queries: Vec<String>,
     configuracoes: Configuracoes,
@@ -415,7 +415,7 @@ pub async fn executar_buscas_paralelas_streaming(
     })
 }
 
-/// Executa UMA query com paginação, retry, fallback Lite e fetch-content (se ativo).
+/// Executes ONE query with pagination, retry, Lite fallback and fetch-content (if enabled).
 async fn executar_query_com_cancelamento(
     query: &str,
     cliente: &Client,
@@ -523,9 +523,9 @@ async fn executar_query_com_cancelamento(
     Ok(saida)
 }
 
-/// Gera uma `SaidaBusca` representando uma query com falha.
+/// Generates a `SaidaBusca` representing a failed query.
 ///
-/// Mantém a posição no output multi mesmo quando uma query individual falhou.
+/// Preserves the position in the multi-query output even when an individual query failed.
 fn saida_de_erro(indice: usize, erro: anyhow::Error, configuracoes: &Configuracoes) -> SaidaBusca {
     let query_ref = configuracoes
         .queries
@@ -562,8 +562,8 @@ fn saida_de_erro(indice: usize, erro: anyhow::Error, configuracoes: &Configuraco
     }
 }
 
-/// Duplica a lógica de `pipeline::calcular_hash_seletores` para evitar dependência
-/// circular de visibilidade. Mantida privada a este módulo.
+/// Duplicates the logic of `pipeline::calcular_hash_seletores` to avoid a circular
+/// visibility dependency. Kept private to this module.
 fn calcular_hash_seletores_pt(cfg: &ConfiguracaoSeletores) -> String {
     match toml::to_string(cfg) {
         Ok(serializado) => {

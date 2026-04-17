@@ -1,11 +1,11 @@
-//! Códigos de erro estruturados conforme seção 14.3 da especificação.
+//! Structured error codes as defined in specification section 14.3.
 //!
-//! No MVP usamos `anyhow::Result<T>` em toda a aplicação para propagação ergonômica
-//! com `?`, e este módulo expõe apenas as constantes de código de erro que aparecem
-//! no campo `error` do JSON de saída quando algo dá errado de forma recuperável.
+//! In the MVP we use `anyhow::Result<T>` throughout the application for ergonomic
+//! propagation with `?`, and this module only exposes the error code constants that appear
+//! in the `error` field of the JSON output when something goes wrong in a recoverable way.
 
-/// Códigos de erro que podem aparecer no campo `error` da saída JSON.
-/// Correspondem aos valores listados na seção 14.3 do blueprint.
+/// Error codes that may appear in the `error` field of the JSON output.
+/// Correspond to the values listed in section 14.3 of the blueprint.
 #[allow(dead_code)] // Variantes serão todas utilizadas ao longo das próximas iterações.
 pub mod codigos {
     pub const HTTP_ERROR: &str = "http_error";
@@ -21,28 +21,28 @@ pub mod codigos {
     pub const PROXY_ERROR: &str = "proxy_error";
 }
 
-/// Exit codes definidos na seção 17.7 da especificação.
+/// Exit codes defined in specification section 17.7.
 #[allow(dead_code)]
 pub mod exit_codes {
-    /// Pelo menos uma query retornou resultados.
+    /// At least one query returned results.
     pub const SUCESSO: i32 = 0;
-    /// Erro genérico (falha de configuração, IO, etc.).
+    /// Generic error (configuration failure, IO, etc.).
     pub const ERRO_GENERICO: i32 = 1;
-    /// Configuração inválida (argumentos da CLI incompatíveis).
+    /// Invalid configuration (incompatible CLI arguments).
     pub const CONFIGURACAO_INVALIDA: i32 = 2;
-    /// Rate limiting ou bloqueio em todas as queries.
+    /// Rate limiting or blocking on all queries.
     pub const RATE_LIMITED_OU_BLOQUEADO: i32 = 3;
-    /// Timeout global excedido.
+    /// Global timeout exceeded.
     pub const TIMEOUT_GLOBAL: i32 = 4;
-    /// Zero resultados em todas as queries.
+    /// Zero results on all queries.
     pub const ZERO_RESULTADOS: i32 = 5;
 }
 
-/// Enum tipado de erros do domínio da CLI.
+/// Typed error enum for the CLI domain.
 ///
-/// Cada variante mapeia para um exit code e um código de erro JSON específico.
-/// Introduzido de forma incremental — o codebase continua usando `anyhow::Result`
-/// para propagação, e este enum é usado para tipagem explícita onde necessário.
+/// Each variant maps to a specific exit code and JSON error code.
+/// Introduced incrementally — the codebase continues using `anyhow::Result`
+/// for propagation, and this enum is used for explicit typing where needed.
 #[derive(thiserror::Error, Debug)]
 pub enum ErroCliDdg {
     #[error("erro HTTP: {mensagem}")]
@@ -84,7 +84,7 @@ pub enum ErroCliDdg {
 }
 
 impl ErroCliDdg {
-    /// Retorna o exit code correspondente a esta variante de erro.
+    /// Returns the exit code corresponding to this error variant.
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::ErroHttp { .. } | Self::ErroRede { .. } => exit_codes::ERRO_GENERICO,
@@ -99,7 +99,7 @@ impl ErroCliDdg {
         }
     }
 
-    /// Retorna o código de erro string para uso no campo `error` do JSON de saída.
+    /// Returns the string error code for use in the `error` field of the JSON output.
     pub fn codigo_erro(&self) -> &'static str {
         match self {
             Self::ErroHttp { .. } => codigos::HTTP_ERROR,

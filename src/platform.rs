@@ -1,22 +1,22 @@
-//! Detecção de plataforma e inicialização cross-platform.
+//! Platform detection and cross-platform initialization.
 //!
-//! Responsabilidades:
-//! 1. No Windows, chamar `SetConsoleOutputCP(65001)` para garantir UTF-8 no console
-//!    cmd.exe e PowerShell legado (noop em Windows Terminal e em pipes/arquivos).
-//! 2. Detecção de TTY para auto-detect de formato (usado pelo módulo `output`).
-//! 3. Resolução de diretório de configuração via `dirs::config_dir()`.
+//! Responsibilities:
+//! 1. On Windows, call `SetConsoleOutputCP(65001)` to ensure UTF-8 in the console
+//!    for cmd.exe and legacy PowerShell (noop in Windows Terminal and in pipes/files).
+//! 2. TTY detection for format auto-detect (used by the `output` module).
+//! 3. Configuration directory resolution via `dirs::config_dir()`.
 //!
-//! A função `iniciar()` DEVE ser chamada exatamente uma vez no começo do `main`.
+//! The `iniciar()` function MUST be called exactly once at the start of `main`.
 
 use std::path::PathBuf;
 
-/// Inicializa configurações específicas da plataforma.
+/// Initializes platform-specific settings.
 ///
-/// No Windows: configura codepage UTF-8 (65001) para output no console.
-/// Em todas as plataformas: não faz nenhuma operação de I/O que possa falhar.
+/// On Windows: configures UTF-8 codepage (65001) for console output.
+/// On all platforms: performs no I/O operation that could fail.
 ///
-/// Esta função é best-effort — se a configuração de codepage falhar no Windows,
-/// apenas emite um warning via `tracing` e continua.
+/// This function is best-effort — if codepage configuration fails on Windows,
+/// it only emits a warning via `tracing` and continues.
 pub fn iniciar() {
     #[cfg(windows)]
     iniciar_windows();
@@ -42,39 +42,39 @@ fn iniciar_windows() {
     }
 }
 
-/// Verifica se `stdout` está conectado a um terminal interativo (TTY).
-/// Usado pelo módulo `output` para auto-detect de formato (text em TTY, json em pipe).
+/// Checks whether `stdout` is connected to an interactive terminal (TTY).
+/// Used by the `output` module for format auto-detect (text in TTY, json in pipe).
 pub fn stdout_eh_tty() -> bool {
     use std::io::IsTerminal;
     std::io::stdout().is_terminal()
 }
 
-/// Retorna o diretório de configuração da aplicação seguindo convenções XDG / Apple / Windows.
+/// Returns the application configuration directory following XDG / Apple / Windows conventions.
 ///
-/// Caminhos resultantes:
-/// - Linux: `$XDG_CONFIG_HOME/duckduckgo-search-cli/` ou `~/.config/duckduckgo-search-cli/`.
+/// Resulting paths:
+/// - Linux: `$XDG_CONFIG_HOME/duckduckgo-search-cli/` or `~/.config/duckduckgo-search-cli/`.
 /// - macOS: `~/Library/Application Support/duckduckgo-search-cli/`.
 /// - Windows: `%APPDATA%\duckduckgo-search-cli\`.
 ///
-/// Retorna `None` se nenhum diretório de configuração puder ser determinado.
+/// Returns `None` if no configuration directory can be determined.
 pub fn diretorio_configuracao() -> Option<PathBuf> {
     dirs::config_dir().map(|base| base.join("duckduckgo-search-cli"))
 }
 
-/// Caminho do arquivo `selectors.toml` externo (se o diretório de config existir).
+/// Path to the external `selectors.toml` file (if the config directory exists).
 ///
-/// Usado pelo carregador lazy de `ConfiguracaoSeletores` — quando o arquivo existe,
-/// substitui os defaults hardcoded.
+/// Used by the lazy loader of `ConfiguracaoSeletores` — when the file exists,
+/// it overrides the hardcoded defaults.
 pub fn caminho_selectors_toml() -> Option<PathBuf> {
     diretorio_configuracao().map(|base| base.join("selectors.toml"))
 }
 
-/// Caminho do arquivo `user-agents.toml` externo (se o diretório de config existir).
+/// Path to the external `user-agents.toml` file (if the config directory exists).
 pub fn caminho_user_agents_toml() -> Option<PathBuf> {
     diretorio_configuracao().map(|base| base.join("user-agents.toml"))
 }
 
-/// Nome identificador da plataforma atual (para logs e User-Agent matching).
+/// Identifier name of the current platform (for logs and User-Agent matching).
 pub fn nome_plataforma() -> &'static str {
     if cfg!(target_os = "linux") {
         "linux"

@@ -1,12 +1,12 @@
-//! Ponto de entrada do binário `duckduckgo-search-cli`.
+//! Entry point for the `duckduckgo-search-cli` binary.
 //!
-//! Esta função faz APENAS o mínimo:
-//! 1. Restaura SIGPIPE via [`duckduckgo_search_cli::signals`].
-//! 2. Cria o `CancellationToken` e instala handler de SIGINT.
-//! 3. Delega para [`duckduckgo_search_cli::run()`] em `lib.rs`.
-//! 4. Propaga o exit code retornado para o sistema operacional.
+//! This function does ONLY the minimum:
+//! 1. Restores SIGPIPE via [`duckduckgo_search_cli::signals`].
+//! 2. Creates the `CancellationToken` and installs the SIGINT handler.
+//! 3. Delegates to [`duckduckgo_search_cli::run()`] in `lib.rs`.
+//! 4. Propagates the returned exit code to the operating system.
 //!
-//! TODA lógica de negócio vive em `lib.rs` e seus submódulos.
+//! ALL business logic lives in `lib.rs` and its submodules.
 
 use std::process::ExitCode;
 use tokio_util::sync::CancellationToken;

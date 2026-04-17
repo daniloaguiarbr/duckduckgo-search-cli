@@ -1,13 +1,13 @@
-//! Carregamento lazy de `ConfiguracaoSeletores` com precedência:
-//! 1. Arquivo `selectors.toml` em `$XDG_CONFIG_HOME/duckduckgo-search-cli/` (se existir e parsear).
-//! 2. Defaults embutidos via `ConfiguracaoSeletores::default()`.
+//! Lazy loading of `ConfiguracaoSeletores` with precedence:
+//! 1. `selectors.toml` file in `$XDG_CONFIG_HOME/duckduckgo-search-cli/` (if it exists and parses).
+//! 2. Embedded defaults via `ConfiguracaoSeletores::default()`.
 //!
-//! Esta iteração 6 externaliza completamente os seletores — permite hotfix de
-//! breakages de layout sem recompilar a CLI. O TOML embutido (`config/selectors.toml`)
-//! é idêntico aos defaults; é copiado para o filesystem pelo subcomando `init-config`.
+//! This iteration 6 fully externalizes the selectors — allows hotfixing layout
+//! breakages without recompiling the CLI. The embedded TOML (`config/selectors.toml`)
+//! is identical to the defaults; it is copied to the filesystem by the `init-config` subcommand.
 //!
-//! Falhas de parsing NÃO abortam a execução — caem silenciosamente para defaults
-//! com log `tracing::warn!` para diagnóstico.
+//! Parsing failures do NOT abort execution — they silently fall back to defaults
+//! with a `tracing::warn!` log for diagnostics.
 
 use crate::platform;
 use crate::types::ConfiguracaoSeletores;
@@ -15,14 +15,14 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::sync::Arc;
 
-/// TOML embutido com os seletores padrão. Usado por `init-config` para criar o
-/// arquivo no filesystem sem depender de conexão de rede.
+/// Embedded TOML with the default CSS selectors. Used by `init-config` to create the
+/// file on the filesystem without requiring a network connection.
 pub const SELECTORS_TOML_PADRAO: &str = include_str!("../config/selectors.toml");
 
-/// Parseia um arquivo TOML arbitrário em `ConfiguracaoSeletores`.
+/// Parses an arbitrary TOML file into `ConfiguracaoSeletores`.
 ///
-/// Retorna `Err(anyhow)` se o arquivo não existe, não for legível ou não parsear.
-/// Usado tanto internamente quanto em testes para validar arquivos customizados.
+/// Returns `Err(anyhow)` if the file does not exist, is not readable, or fails to parse.
+/// Used both internally and in tests to validate custom files.
 pub fn carregar_do_toml(caminho: &Path) -> Result<ConfiguracaoSeletores> {
     let conteudo = std::fs::read_to_string(caminho)
         .with_context(|| format!("falha ao ler arquivo de seletores {}", caminho.display()))?;
@@ -31,13 +31,13 @@ pub fn carregar_do_toml(caminho: &Path) -> Result<ConfiguracaoSeletores> {
     Ok(cfg)
 }
 
-/// Carrega os seletores aplicando a precedência TOML externo → defaults embutidos.
+/// Loads selectors applying precedence rules: external TOML → embedded defaults.
 ///
-/// Tenta em ordem:
-/// 1. Caminho retornado por [`platform::caminho_selectors_toml`].
-/// 2. Fallback para [`ConfiguracaoSeletores::default`] embutido.
+/// Tries in order:
+/// 1. Path returned by [`platform::caminho_selectors_toml`].
+/// 2. Fallback to embedded [`ConfiguracaoSeletores::default`].
 ///
-/// Sempre retorna um `Arc<ConfiguracaoSeletores>` válido — nunca panica.
+/// Always returns a valid `Arc<ConfiguracaoSeletores>` — never panics.
 pub fn carregar_seletores() -> Arc<ConfiguracaoSeletores> {
     if let Some(caminho) = platform::caminho_selectors_toml() {
         if caminho.exists() {

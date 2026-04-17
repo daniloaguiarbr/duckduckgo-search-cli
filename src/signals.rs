@@ -1,24 +1,24 @@
-//! Handlers de sinais cross-platform para o binário CLI.
+//! Cross-platform signal handlers for the CLI binary.
 //!
-//! Centraliza o tratamento de SIGPIPE (Unix) e SIGINT/Ctrl+C (cross-platform)
-//! em um único módulo, conforme RULES SUPREMAS v3.0 Seção 19.
+//! Centralizes handling of SIGPIPE (Unix) and SIGINT/Ctrl+C (cross-platform)
+//! in a single module, per RULES SUPREMAS v3.0 Section 19.
 //!
-//! - [`restaurar_sigpipe`]: restaura SIG_DFL para SIGPIPE no Unix, evitando
-//!   erros silenciosos em pipes (`| jaq`, `| head`).
-//! - [`instalar_handler_cancelamento`]: spawna task que aguarda Ctrl+C e
-//!   sinaliza cancelamento via `CancellationToken`.
+//! - [`restaurar_sigpipe`]: restores SIG_DFL for SIGPIPE on Unix, avoiding
+//!   silent errors in pipes (`| jaq`, `| head`).
+//! - [`instalar_handler_cancelamento`]: spawns a task that awaits Ctrl+C and
+//!   signals cancellation via `CancellationToken`.
 
 use tokio_util::sync::CancellationToken;
 
-/// Restaura o comportamento padrão de SIGPIPE (SIG_DFL) em plataformas Unix.
+/// Restores the default behavior of SIGPIPE (SIG_DFL) on Unix platforms.
 ///
-/// O runtime do Rust ignora SIGPIPE por padrão (SIG_IGN), o que faz com que
-/// writes em pipes fechados retornem EPIPE ao invés de terminar o processo.
-/// Para CLIs que emitem em stdout e são consumidas via pipes (`| jaq`, `| head`),
-/// isso causa erros silenciosos ou output vazio.
+/// The Rust runtime ignores SIGPIPE by default (SIG_IGN), which causes
+/// writes to closed pipes to return EPIPE instead of terminating the process.
+/// For CLIs that emit to stdout and are consumed via pipes (`| jaq`, `| head`),
+/// this causes silent errors or empty output.
 ///
-/// Restaurar SIG_DFL faz o processo terminar limpa e silenciosamente quando o
-/// leitor do pipe fecha — comportamento esperado em ferramentas Unix.
+/// Restoring SIG_DFL makes the process terminate cleanly and silently when the
+/// pipe reader closes — the expected behavior for Unix tools.
 #[cfg(unix)]
 pub fn restaurar_sigpipe() {
     // POSIX: SIGPIPE = 13 em todas as plataformas Unix (Linux, macOS, *BSD).
@@ -34,18 +34,18 @@ pub fn restaurar_sigpipe() {
     }
 }
 
-/// No-op em Windows — SIGPIPE não existe.
+/// No-op on Windows — SIGPIPE does not exist.
 #[cfg(not(unix))]
 pub fn restaurar_sigpipe() {}
 
-/// Spawna uma task assíncrona que aguarda SIGINT (Ctrl+C) e cancela o token.
+/// Spawns an async task that awaits SIGINT (Ctrl+C) and cancels the token.
 ///
-/// `tokio::signal::ctrl_c()` é cross-platform:
-/// - Unix: captura SIGINT
-/// - Windows: captura CTRL_C_EVENT via console API
+/// `tokio::signal::ctrl_c()` is cross-platform:
+/// - Unix: captures SIGINT
+/// - Windows: captures CTRL_C_EVENT via console API
 ///
-/// Quando o sinal é recebido, o `CancellationToken` é cancelado, propagando
-/// o cancelamento para todas as tasks que o observam.
+/// When the signal is received, the `CancellationToken` is cancelled, propagating
+/// cancellation to all tasks observing it.
 pub fn instalar_handler_cancelamento(cancelamento: CancellationToken) {
     tokio::spawn(async move {
         if let Err(erro) = tokio::signal::ctrl_c().await {

@@ -1,16 +1,16 @@
-//! Construção de URLs e execução de requests de busca ao DuckDuckGo.
+//! URL construction and search request execution for DuckDuckGo.
 //!
-//! A iteração 3 adiciona:
-//! - Paginação com token `vqd` via POST form-urlencoded.
-//! - Retry com backoff exponencial em 429 e rotação de UA em 403.
-//! - Endpoint Lite (`https://lite.duckduckgo.com/lite/`).
-//! - Filtro temporal (`df`) e safe-search (`kp`).
-//! - Parametrização de URL base via variáveis de ambiente (para testes wiremock).
+//! Iteration 3 adds:
+//! - Pagination with `vqd` token via POST form-urlencoded.
+//! - Retry with exponential backoff on 429 and UA rotation on 403.
+//! - Lite endpoint (`https://lite.duckduckgo.com/lite/`).
+//! - Time filter (`df`) and safe-search (`kp`).
+//! - Base URL parameterization via environment variables (for wiremock tests).
 //!
-//! URLs base são lidas da env `DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML` e
-//! `DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE` quando presentes; caso contrário usa
-//! os defaults em produção. Os defaults TERMINAM com barra (`/html/` e `/lite/`)
-//! porque o DuckDuckGo trata `/html` (sem barra) como redirect.
+//! Base URLs are read from env `DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML` and
+//! `DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE` when present; otherwise uses
+//! the production defaults. The defaults END with a slash (`/html/` and `/lite/`)
+//! because DuckDuckGo treats `/html` (without slash) as a redirect.
 
 use crate::extraction;
 use crate::types::{Configuracoes, Endpoint, FiltroTemporal, ResultadoBusca, SafeSearch};
@@ -22,37 +22,37 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-/// URL base default do endpoint HTML do DuckDuckGo.
+/// Default base URL for the DuckDuckGo HTML endpoint.
 const URL_ENDPOINT_HTML_DEFAULT: &str = "https://html.duckduckgo.com/html/";
-/// URL base default do endpoint Lite do DuckDuckGo.
+/// Default base URL for the DuckDuckGo Lite endpoint.
 const URL_ENDPOINT_LITE_DEFAULT: &str = "https://lite.duckduckgo.com/lite/";
 
-/// Nome da variável de ambiente que sobrescreve a URL do endpoint HTML (para testes).
+/// Name of the environment variable that overrides the HTML endpoint URL (for tests).
 const ENV_BASE_URL_HTML: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML";
-/// Nome da variável de ambiente que sobrescreve a URL do endpoint Lite (para testes).
+/// Name of the environment variable that overrides the Lite endpoint URL (for tests).
 const ENV_BASE_URL_LITE: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE";
 
-/// Delay mínimo entre páginas consecutivas (ms).
-/// v0.6.0: aumentado de 500 para 800ms para reduzir detecção anti-bot.
+/// Minimum delay between consecutive pages (ms).
+/// v0.6.0: increased from 500 to 800ms to reduce anti-bot detection.
 const DELAY_PAGINACAO_MIN_MS: u64 = 800;
-/// Delay máximo entre páginas consecutivas (ms).
-/// v0.6.0: aumentado de 1000 para 1500ms para reduzir detecção anti-bot.
+/// Maximum delay between consecutive pages (ms).
+/// v0.6.0: increased from 1000 to 1500ms to reduce anti-bot detection.
 const DELAY_PAGINACAO_MAX_MS: u64 = 1500;
 
-/// Limiar em bytes para detecção de bloqueio silencioso.
-/// Respostas reais do DuckDuckGo com resultados têm 50-200KB.
-/// Páginas de bloqueio silencioso têm tipicamente ~3KB.
+/// Byte threshold for silent block detection.
+/// Real DuckDuckGo responses with results are 50-200KB.
+/// Silent block pages are typically ~3KB.
 const LIMIAR_BLOQUEIO_SILENCIOSO: usize = 5_000;
 
-/// Backoff base para retry em 429 (ms). Total = base * 2^tentativa + jitter.
+/// Base backoff for retry on 429 (ms). Total = base * 2^attempt + jitter.
 const BACKOFF_BASE_MS: u64 = 1000;
-/// Jitter máximo adicional no backoff (ms).
+/// Maximum additional jitter in backoff (ms).
 const BACKOFF_JITTER_MAX_MS: u64 = 500;
 
-/// Calcula o delay de backoff exponencial com jitter para a tentativa dada.
+/// Calculates the exponential backoff delay with jitter for the given attempt.
 ///
-/// `tentativa` é 0-based. O expoente é limitado a 10 (`2^10 = 1024`) para
-/// evitar overflow sem necessidade de `checked_shl`.
+/// `tentativa` is 0-based. The exponent is capped at 10 (`2^10 = 1024`) to
+/// avoid overflow without needing `checked_shl`.
 fn calcular_backoff_ms(tentativa: u32) -> u64 {
     let fator = 1u64 << tentativa.min(10);
     let backoff = BACKOFF_BASE_MS.saturating_mul(fator);
@@ -60,23 +60,23 @@ fn calcular_backoff_ms(tentativa: u32) -> u64 {
     backoff.saturating_add(jitter)
 }
 
-/// Retorna a URL base efetiva do endpoint HTML (respeita env var em testes).
+/// Returns the effective base URL for the HTML endpoint (respects env var in tests).
 pub fn url_base_html() -> String {
     std::env::var(ENV_BASE_URL_HTML).unwrap_or_else(|_| URL_ENDPOINT_HTML_DEFAULT.to_string())
 }
 
-/// Retorna a URL base efetiva do endpoint Lite (respeita env var em testes).
+/// Returns the effective base URL for the Lite endpoint (respects env var in tests).
 pub fn url_base_lite() -> String {
     std::env::var(ENV_BASE_URL_LITE).unwrap_or_else(|_| URL_ENDPOINT_LITE_DEFAULT.to_string())
 }
 
-/// Monta a URL de busca GET com query-string apropriada para um dado endpoint.
+/// Builds the GET search URL with the appropriate query-string for a given endpoint.
 ///
-/// Parâmetros:
-/// - `q` — query de busca (URL-encoded).
-/// - `kl` — região, formato `{pais}-{idioma}`.
-/// - `kp` — safe-search (quando presente).
-/// - `df` — filtro temporal (quando presente).
+/// Parameters:
+/// - `q` — search query (URL-encoded).
+/// - `kl` — region, format `{country}-{language}`.
+/// - `kp` — safe-search (when present).
+/// - `df` — time filter (when present).
 pub fn construir_url_busca(
     query: &str,
     idioma: &str,
@@ -103,7 +103,7 @@ pub fn construir_url_busca(
     url
 }
 
-/// Versão simplificada da iteração 1 — mantida para compatibilidade com testes antigos.
+/// Simplified version from iteration 1 — kept for backward compatibility with older tests.
 pub fn construir_url(query: &str, idioma: &str, pais: &str) -> String {
     construir_url_busca(
         query,
@@ -115,10 +115,10 @@ pub fn construir_url(query: &str, idioma: &str, pais: &str) -> String {
     )
 }
 
-/// Formata o parâmetro `kl` do DuckDuckGo como `{pais}-{idioma}` em minúsculas.
+/// Formats the DuckDuckGo `kl` parameter as `{country}-{language}` in lowercase.
 ///
-/// O DuckDuckGo espera `kl` com país em minúsculas, seguido de hífen e idioma
-/// em minúsculas. Inputs com maiúsculas são normalizados.
+/// DuckDuckGo expects `kl` with the country in lowercase, followed by a hyphen and language
+/// in lowercase. Uppercase inputs are normalized.
 ///
 /// # Exemplo
 ///
@@ -126,7 +126,7 @@ pub fn construir_url(query: &str, idioma: &str, pais: &str) -> String {
 /// use duckduckgo_search_cli::search::formatar_kl;
 ///
 /// assert_eq!(formatar_kl("pt", "br"), "br-pt");
-/// assert_eq!(formatar_kl("EN", "US"), "us-en"); // normaliza maiúsculas
+/// assert_eq!(formatar_kl("EN", "US"), "us-en"); // normalizes uppercase input
 /// ```
 pub fn formatar_kl(idioma: &str, pais: &str) -> String {
     format!(
@@ -136,26 +136,26 @@ pub fn formatar_kl(idioma: &str, pais: &str) -> String {
     )
 }
 
-/// Erros específicos retornados por `executar_com_retry`.
+/// Specific errors returned by `executar_com_retry`.
 ///
-/// Usados para que o pipeline possa marcar queries com códigos de erro estruturados
-/// em vez de uma mensagem genérica.
+/// Used so the pipeline can tag queries with structured error codes
+/// instead of a generic message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MotivoFalhaRetry {
-    /// Rate limit persistente após esgotar retries (HTTP 429).
+    /// Persistent rate limit after exhausting retries (HTTP 429).
     RateLimited,
-    /// Bloqueio persistente após esgotar retries (HTTP 403).
+    /// Persistent block after exhausting retries (HTTP 403).
     Blocked,
-    /// Erro HTTP não-recuperável (status 4xx/5xx outro que não 403/429).
+    /// Non-recoverable HTTP error (4xx/5xx status other than 403/429).
     HttpErro(u16),
-    /// Timeout após retry de 1 tentativa.
+    /// Timeout after 1 retry attempt.
     Timeout,
-    /// Erro de rede genérico.
+    /// Generic network error.
     Rede(String),
 }
 
 impl MotivoFalhaRetry {
-    /// Mapeia para o código de erro estruturado em `error::codigos`.
+    /// Maps to the structured error code in `error::codigos`.
     pub fn como_codigo_erro(&self) -> &'static str {
         match self {
             MotivoFalhaRetry::RateLimited => crate::error::codigos::RATE_LIMITED,
@@ -177,18 +177,18 @@ impl MotivoFalhaRetry {
     }
 }
 
-/// Resultado de `executar_com_retry`: ou a resposta HTTP + total de tentativas, ou motivo da falha.
+/// Result of `executar_com_retry`: either the HTTP response + total attempts, or the failure reason.
 #[derive(Debug)]
 pub struct ResultadoRetry {
     pub resposta: Response,
     pub tentativas: u32,
 }
 
-/// Executa um GET com retry e backoff. Parâmetros:
-/// * `cliente` — cliente reqwest (compartilhado).
-/// * `url` — URL alvo completa.
-/// * `retries` — número de retries adicionais (0..=10). 0 = apenas 1 tentativa.
-/// * `flag_rate_limit` — sinaliza para outras tasks que rate limit foi detectado.
+/// Executes a GET request with retry and backoff. Parameters:
+/// * `cliente` — reqwest client (shared).
+/// * `url` — full target URL.
+/// * `retries` — number of additional retries (0..=10). 0 = single attempt only.
+/// * `flag_rate_limit` — signals to other tasks that rate limiting was detected.
 pub async fn executar_com_retry(
     cliente: &Client,
     url: &str,
@@ -306,8 +306,8 @@ pub async fn executar_com_retry(
     Err(ultimo_motivo)
 }
 
-/// Executa a busca inicial no endpoint configurado e retorna o HTML bruto.
-/// Versão de compatibilidade (iteração 1) — usada pelo fluxo single-query simples.
+/// Executes the initial search on the configured endpoint and returns the raw HTML.
+/// Compatibility version (iteration 1) — used by the simple single-query flow.
 pub async fn executar_busca(
     cliente: &Client,
     query: &str,
@@ -356,7 +356,7 @@ pub async fn executar_busca(
     Ok(html)
 }
 
-/// Resultado agregado de uma busca com paginação e potencial fallback de endpoint.
+/// Aggregated result of a search with pagination and potential endpoint fallback.
 pub struct ResultadoBuscaAgregado {
     pub resultados: Vec<ResultadoBusca>,
     pub paginas_buscadas: u32,
@@ -365,8 +365,8 @@ pub struct ResultadoBuscaAgregado {
     pub endpoint_efetivo: Endpoint,
 }
 
-/// Extrai `vqd`, `s` e `dc` do HTML da primeira página (para paginação).
-/// Retorna `None` se algum dos três campos estiver ausente.
+/// Extracts `vqd`, `s` and `dc` from the first page HTML (for pagination).
+/// Returns `None` if any of the three fields is missing.
 pub fn extrair_tokens_paginacao(html: &str) -> Option<(String, String, String)> {
     use scraper::{Html, Selector};
     let doc = Html::parse_document(html);
@@ -395,13 +395,13 @@ pub fn extrair_tokens_paginacao(html: &str) -> Option<(String, String, String)> 
     Some((vqd, s, dc))
 }
 
-/// Executa busca completa com paginação vqd e (opcional) fallback para Lite.
+/// Runs a complete search with vqd pagination and optional fallback to Lite.
 ///
-/// Se o endpoint HTML retornar zero resultados na primeira página (via Estratégias 1 e 2),
-/// tenta automaticamente o endpoint Lite (Estratégia 3).
+/// If the HTML endpoint returns zero results on the first page (via Strategies 1 and 2),
+/// automatically falls back to the Lite endpoint (Strategy 3).
 ///
-/// Retorna estrutura agregada com resultados, buscas relacionadas, páginas efetivamente
-/// buscadas, indicador de fallback e total de tentativas.
+/// Returns an aggregated structure with results, related searches, pages actually
+/// fetched, fallback indicator, and total attempt count.
 pub async fn buscar_com_paginacao(
     cliente: &Client,
     cfg: &Configuracoes,

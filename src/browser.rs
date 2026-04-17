@@ -1,24 +1,24 @@
-//! Detecção cross-platform e lançamento do Chrome headless via `chromiumoxide`.
+//! Cross-platform detection and launch of headless Chrome via `chromiumoxide`.
 //!
-//! Este módulo só é compilado com a feature `chrome`, habilitada via
-//! `cargo build --features chrome`. No modo default (sem feature) o binário
-//! não tem NENHUMA dependência de chromiumoxide/tempfile/futures — zero overhead.
+//! This module is only compiled with the `chrome` feature, enabled via
+//! `cargo build --features chrome`. In default mode (without feature) the binary
+//! has NO dependency on chromiumoxide/tempfile/futures — zero overhead.
 //!
-//! ## Responsabilidades
+//! ## Responsibilities
 //!
-//! 1. [`detectar_chrome`] — detecta o caminho do executável Chrome/Chromium no
-//!    sistema, com hierarquia de 3 camadas (flag manual → env var → auto-detecção).
-//! 2. [`NavegadorChrome`] — wrapper seguro sobre `chromiumoxide::Browser` que
-//!    garante cleanup do processo e handler-task via `impl Drop`.
-//! 3. [`extrair_texto_com_chrome`] — navegação + extração de `document.body.innerText`
-//!    com timeout configurável.
+//! 1. [`detectar_chrome`] — detects the Chrome/Chromium executable path on the
+//!    system, with a 3-layer hierarchy (manual flag → env var → auto-detection).
+//! 2. [`NavegadorChrome`] — safe wrapper over `chromiumoxide::Browser` that
+//!    ensures process cleanup and handler-task via `impl Drop`.
+//! 3. [`extrair_texto_com_chrome`] — navigation + extraction of `document.body.innerText`
+//!    with configurable timeout.
 //!
-//! ## Cleanup e Segurança de Processos (rules_rust.md — Gestão de Memória)
+//! ## Process Cleanup and Safety (rules_rust.md — Memory Management)
 //!
-//! `chromiumoxide::Browser` inicia um processo filho Chrome. Sem cleanup explícito,
-//! o processo vira zumbi. A implementação de [`Drop`] em [`NavegadorChrome`]
-//! aborta a tarefa handler e sinaliza `kill_on_drop` internamente. Para cleanup
-//! síncrono completo, prefira chamar [`NavegadorChrome::desligar`] antes do drop.
+//! `chromiumoxide::Browser` starts a child Chrome process. Without explicit cleanup,
+//! the process becomes a zombie. The [`Drop`] implementation on [`NavegadorChrome`]
+//! aborts the handler task and signals `kill_on_drop` internally. For complete
+//! synchronous cleanup, prefer calling [`NavegadorChrome::desligar`] before drop.
 
 #![cfg(feature = "chrome")]
 
@@ -32,10 +32,10 @@ use tokio::task::JoinHandle;
 /// Limite de caracteres por linha descartado pelo pipeline de limpeza.
 const LIMIAR_LINHA_MINIMA: usize = 20;
 
-/// Retorna uma lista ordenada de caminhos candidatos para Chrome/Chromium por plataforma.
+/// Returns an ordered list of candidate paths for Chrome/Chromium by platform.
 ///
-/// Inclui instalações nativas, Flatpak e Snap. Windows consulta
-/// variáveis de ambiente (`%PROGRAMFILES%`, `%LOCALAPPDATA%`) quando disponíveis.
+/// Includes native installations, Flatpak, and Snap. Windows consults
+/// environment variables (`%PROGRAMFILES%`, `%LOCALAPPDATA%`) when available.
 pub fn caminhos_candidatos_chrome() -> Vec<PathBuf> {
     let mut candidatos: Vec<PathBuf> = Vec::new();
 
@@ -97,15 +97,15 @@ pub fn caminhos_candidatos_chrome() -> Vec<PathBuf> {
     candidatos
 }
 
-/// Detecta o executável Chrome/Chromium com hierarquia de 3 camadas.
+/// Detects the Chrome/Chromium executable with a 3-layer hierarchy.
 ///
-/// Ordem de resolução:
-/// 1. `caminho_manual` (normalmente `--chrome-path`). Se fornecido mas inválido,
-///    retorna erro — NÃO cai em fallback silencioso.
-/// 2. Variável de ambiente `CHROME_PATH` (se definida e aponta para arquivo existente).
-/// 3. Auto-detecção via [`caminhos_candidatos_chrome`] — primeiro que existir vence.
+/// Resolution order:
+/// 1. `caminho_manual` (typically `--chrome-path`). If provided but invalid,
+///    returns an error — does NOT fall back silently.
+/// 2. `CHROME_PATH` environment variable (if set and points to an existing file).
+/// 3. Auto-detection via [`caminhos_candidatos_chrome`] — first found wins.
 ///
-/// Retorna `Err` se nenhum candidato for encontrado.
+/// Returns `Err` if no candidate is found.
 pub fn detectar_chrome(caminho_manual: Option<&Path>) -> Result<PathBuf> {
     if let Some(p) = caminho_manual {
         if p.is_file() {
@@ -143,8 +143,8 @@ pub fn detectar_chrome(caminho_manual: Option<&Path>) -> Result<PathBuf> {
     )
 }
 
-/// Indica se estamos rodando dentro de container ou wrapper Flatpak/Snap, o que
-/// exige `--no-sandbox` para Chrome funcionar.
+/// Indicates whether we are running inside a container or Flatpak/Snap wrapper, which
+/// requires `--no-sandbox` for Chrome to work.
 pub fn precisa_no_sandbox(caminho_chrome: &Path) -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -209,11 +209,11 @@ pub fn flags_stealth(precisa_sandbox_off: bool, proxy: Option<&str>) -> Vec<Stri
     flags
 }
 
-/// Wrapper RAII sobre `chromiumoxide::Browser`. Mantém o navegador e o handler-task vivos.
+/// RAII wrapper over `chromiumoxide::Browser`. Keeps the browser and handler-task alive.
 ///
-/// **Cleanup:** prefira chamar [`NavegadorChrome::desligar`] explicitamente (async).
-/// O [`Drop`] apenas aborta a tarefa handler — o processo do Chrome pode demorar
-/// alguns ms para encerrar. Para aplicações de longa duração, SEMPRE use `desligar`.
+/// **Cleanup:** prefer calling [`NavegadorChrome::desligar`] explicitly (async).
+/// [`Drop`] only aborts the handler task — the Chrome process may take a few ms
+/// to terminate. For long-running applications, ALWAYS use `desligar`.
 pub struct NavegadorChrome {
     browser: Browser,
     handler: Option<JoinHandle<()>>,
@@ -222,11 +222,11 @@ pub struct NavegadorChrome {
 }
 
 impl NavegadorChrome {
-    /// Lança o Chrome headless com a configuração stealth.
+    /// Launches headless Chrome with the stealth configuration.
     ///
-    /// - `caminho`: executável do Chrome (use [`detectar_chrome`] para obtê-lo).
-    /// - `proxy`: URL opcional de proxy (propagada para o processo do navegador).
-    /// - `timeout_launch`: limite para a inicialização do processo.
+    /// - `caminho`: Chrome executable (use [`detectar_chrome`] to obtain it).
+    /// - `proxy`: optional proxy URL (propagated to the browser process).
+    /// - `timeout_launch`: time limit for process initialization.
     pub async fn lancar(
         caminho: &Path,
         proxy: Option<&str>,
@@ -277,12 +277,12 @@ impl NavegadorChrome {
         })
     }
 
-    /// Acessa o `Browser` interno para criar páginas.
+    /// Accesses the internal `Browser` to create pages.
     pub fn browser_mut(&mut self) -> &mut Browser {
         &mut self.browser
     }
 
-    /// Encerra o navegador e aguarda cleanup do handler. Prefira este sobre Drop.
+    /// Shuts down the browser and awaits handler cleanup. Prefer this over Drop.
     pub async fn desligar(mut self) -> Result<()> {
         tracing::debug!("desligando Chrome via close() + wait()");
         if let Err(erro) = self.browser.close().await {
@@ -310,16 +310,16 @@ impl Drop for NavegadorChrome {
     }
 }
 
-/// Extrai o texto principal de uma URL usando Chrome headless.
+/// Extracts the main text from a URL using headless Chrome.
 ///
-/// Estratégia:
-/// 1. Abre nova página (`new_page`).
-/// 2. Aguarda navegação concluída.
-/// 3. Executa JS `document.body.innerText` e coleta como `String`.
-/// 4. Limpa whitespace + linhas curtas + trunca em `tamanho_max`.
-/// 5. Fecha página imediatamente.
+/// Strategy:
+/// 1. Opens a new page (`new_page`).
+/// 2. Awaits navigation completion.
+/// 3. Executes JS `document.body.innerText` and collects as `String`.
+/// 4. Cleans whitespace + short lines + truncates at `tamanho_max`.
+/// 5. Closes the page immediately.
 ///
-/// O `timeout` aplica-se à operação completa via `tokio::time::timeout`.
+/// The `timeout` applies to the entire operation via `tokio::time::timeout`.
 pub async fn extrair_texto_com_chrome(
     navegador: &mut NavegadorChrome,
     url: &str,
@@ -354,7 +354,7 @@ pub async fn extrair_texto_com_chrome(
         .with_context(|| format!("timeout de Chrome excedido em {url:?}"))?
 }
 
-/// Limpa texto bruto: normaliza whitespace, descarta linhas curtas, trunca em `tamanho_max`.
+/// Cleans raw text: normalizes whitespace, discards short lines, truncates at `tamanho_max`.
 fn limpar_texto(bruto: &str, tamanho_max: usize) -> String {
     let linhas: Vec<String> = bruto
         .lines()
@@ -365,7 +365,7 @@ fn limpar_texto(bruto: &str, tamanho_max: usize) -> String {
     truncar_em_palavra(&juntado, tamanho_max)
 }
 
-/// Trunca respeitando fronteira de palavra. Espelha a implementação de `content.rs`.
+/// Truncates respecting word boundary. Mirrors the implementation in `content.rs`.
 fn truncar_em_palavra(texto: &str, tamanho_max: usize) -> String {
     if tamanho_max == 0 {
         return String::new();

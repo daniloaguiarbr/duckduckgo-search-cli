@@ -1,12 +1,12 @@
-//! Implementa o subcomando `init-config` — copia TOMLs embutidos no binário
-//! para o diretório de configuração do usuário, permitindo edição local sem
-//! recompilar.
+//! Implements the `init-config` subcommand — copies TOMLs embedded in the binary
+//! to the user's configuration directory, allowing local editing without
+//! recompiling.
 //!
-//! - `selectors.toml` — seletores CSS para extração da SERP.
-//! - `user-agents.toml` — pool de User-Agents cross-platform.
+//! - `selectors.toml` — CSS selectors for SERP extraction.
+//! - `user-agents.toml` — cross-platform User-Agent pool.
 //!
-//! Arquivos já existentes são preservados a menos que `--force` seja passado.
-//! Em modo `--dry-run` apenas reporta as ações planejadas sem tocar no disco.
+//! Existing files are preserved unless `--force` is passed.
+//! In `--dry-run` mode, only reports planned actions without touching disk.
 
 use crate::platform;
 use crate::selectors::SELECTORS_TOML_PADRAO;
@@ -14,55 +14,55 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-/// TOML embutido com os User-Agents padrão. O `config/user-agents.toml` é a
-/// fonte de verdade durante o build (`include_str!`).
+/// Embedded TOML with the default User-Agents. `config/user-agents.toml` is the
+/// source of truth during the build (`include_str!`).
 pub const USER_AGENTS_TOML_PADRAO: &str = include_str!("../config/user-agents.toml");
 
-/// Ação aplicada a um arquivo durante a inicialização.
+/// Action applied to a file during initialization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "action")]
 pub enum AcaoArquivoConfig {
-    /// Arquivo não existia — será/foi criado.
+    /// File did not exist — will be/was created.
     Criado,
-    /// Arquivo já existia e `--force` não foi passado — sem alteração.
+    /// File already existed and `--force` was not passed — no change.
     Ignorado,
-    /// Arquivo foi sobrescrito (apenas com `--force`).
+    /// File was overwritten (only with `--force`).
     Sobrescrito,
-    /// `--dry-run` ativo: arquivo seria criado.
+    /// `--dry-run` active: file would be created.
     CriariaSeExecutasse,
-    /// `--dry-run` ativo: arquivo seria sobrescrito.
+    /// `--dry-run` active: file would be overwritten.
     SobrescreveriaSeExecutasse,
-    /// Falha ao gravar — contém mensagem humana.
+    /// Write failure — contains a human-readable message.
     Erro { mensagem: String },
 }
 
-/// Relatório individual por arquivo processado.
+/// Individual report for a processed file.
 #[derive(Debug, Clone, Serialize)]
 pub struct RelatorioArquivo {
-    /// Caminho absoluto do arquivo.
+    /// Absolute path of the file.
     pub caminho: PathBuf,
-    /// Ação aplicada/planejada.
+    /// Applied/planned action.
     #[serde(flatten)]
     pub acao: AcaoArquivoConfig,
 }
 
-/// Relatório completo da inicialização.
+/// Complete initialization report.
 #[derive(Debug, Clone, Serialize)]
 pub struct RelatorioInitConfig {
-    /// `true` se o modo foi `--dry-run` (nenhum I/O de escrita).
+    /// `true` if `--dry-run` mode was active (no write I/O).
     pub dry_run: bool,
-    /// `true` se o modo foi `--force` (sobrescreve existentes).
+    /// `true` if `--force` mode was active (overwrites existing files).
     pub force: bool,
-    /// Diretório base usado (XDG / Apple / APPDATA).
+    /// Base directory used (XDG / Apple / APPDATA).
     pub diretorio_base: Option<PathBuf>,
-    /// Ações por arquivo — ordem estável.
+    /// Per-file actions — stable order.
     pub arquivos: Vec<RelatorioArquivo>,
 }
 
-/// Executa a inicialização com as flags fornecidas.
+/// Executes initialization with the provided flags.
 ///
-/// Retorna sempre `Ok` — falhas individuais ficam em `AcaoArquivoConfig::Erro`.
-/// Retorna `Err` apenas se nenhum diretório de configuração puder ser determinado.
+/// Always returns `Ok` — individual failures are stored in `AcaoArquivoConfig::Erro`.
+/// Returns `Err` only if no configuration directory can be determined.
 pub fn inicializar_config(forcar: bool, dry_run: bool) -> Result<RelatorioInitConfig> {
     let diretorio_base = platform::diretorio_configuracao().context(
         "não foi possível determinar o diretório de configuração (HOME/APPDATA ausentes?)",
@@ -101,7 +101,7 @@ pub fn inicializar_config(forcar: bool, dry_run: bool) -> Result<RelatorioInitCo
     })
 }
 
-/// Processa UM arquivo — decide a ação correta conforme existência + flags.
+/// Processes ONE file — decides the correct action based on existence and flags.
 fn processar_arquivo(
     caminho: &Path,
     conteudo: &str,

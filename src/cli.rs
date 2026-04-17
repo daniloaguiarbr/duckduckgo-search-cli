@@ -1,61 +1,61 @@
-//! Definições de argumentos da CLI via `clap` derive.
+//! CLI argument definitions via `clap` derive.
 //!
-//! Este módulo contém APENAS as structs declarativas do clap. ZERO lógica de negócio.
-//! A conversão de `ArgumentosCli` para `Configuracoes` usadas pelo pipeline ocorre
-//! no módulo `lib.rs` (função `run`).
+//! This module contains ONLY declarative clap structs. ZERO business logic.
+//! Conversion of `ArgumentosCli` into `Configuracoes` used by the pipeline occurs
+//! in the `lib.rs` module (`run` function).
 //!
-//! Na iteração 6 foi adicionado o subcomando `init-config` — backward-compatible,
-//! pois quando nenhum subcomando é passado, o comportamento de busca (anterior)
-//! é preservado via `#[command(subcommand)]` com `Option<Subcomando>`.
+//! In iteration 6 the `init-config` subcommand was added — backward-compatible,
+//! since when no subcommand is passed, the previous search behavior is preserved
+//! via `#[command(subcommand)]` with `Option<Subcomando>`.
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-/// Limite superior rígido para `--per-host-limit` (fetch-content).
+/// Hard upper bound for `--per-host-limit` (fetch-content).
 pub const PER_HOST_LIMIT_PADRAO: u32 = 2;
 pub const PER_HOST_LIMIT_MAXIMO: u32 = 10;
 
-/// Limite superior rígido para o grau de paralelismo, conforme seção 4.2 e 17.4.
+/// Hard upper bound for parallelism degree, per sections 4.2 and 17.4.
 pub const PARALELISMO_MAXIMO: u32 = 20;
 
-/// Grau de paralelismo padrão quando o usuário não especifica `-p`.
+/// Default parallelism degree when the user does not specify `-p`.
 pub const PARALELISMO_PADRAO: u32 = 5;
 
-/// Limite superior rígido para o número de páginas (evita loops caros).
+/// Hard upper bound for the number of pages (avoids expensive loops).
 pub const PAGINAS_MAXIMO: u32 = 5;
 
-/// Limite superior rígido para retries (evita travamentos em 429 infinito).
+/// Hard upper bound for retries (avoids infinite-429 hangs).
 pub const RETRIES_MAXIMO: u32 = 10;
 
-/// Limite superior rígido para `--max-content-length` (100_000 chars — ~100KB de texto limpo).
+/// Hard upper bound for `--max-content-length` (100_000 chars — ~100KB of clean text).
 pub const MAX_CONTENT_LENGTH_PADRAO: usize = 10_000;
 pub const MAX_CONTENT_LENGTH_MAXIMO: usize = 100_000;
 
-/// Valores mín/máx da flag `--global-timeout` em segundos.
+/// Min/max values for the `--global-timeout` flag in seconds.
 pub const GLOBAL_TIMEOUT_PADRAO: u64 = 60;
 pub const GLOBAL_TIMEOUT_MAXIMO: u64 = 3600;
 
-/// Endpoint do DuckDuckGo selecionável via `--endpoint`.
+/// Selectable DuckDuckGo endpoint via `--endpoint`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum EndpointCli {
     Html,
     Lite,
 }
 
-/// Filtro temporal aceito em `--time-filter` (parâmetro `df` do DDG).
+/// Time filter accepted by `--time-filter` (DDG `df` parameter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FiltroTemporalCli {
-    /// Último dia.
+    /// Last day.
     D,
-    /// Última semana.
+    /// Last week.
     W,
-    /// Último mês.
+    /// Last month.
     M,
-    /// Último ano.
+    /// Last year.
     Y,
 }
 
-/// Safe-search aceito em `--safe-search` (parâmetro `kp` do DDG).
+/// Safe-search accepted by `--safe-search` (DDG `kp` parameter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum SafeSearchCli {
     Off,
@@ -63,20 +63,20 @@ pub enum SafeSearchCli {
     On,
 }
 
-/// CLI para pesquisa no DuckDuckGo via HTTP puro, com saída estruturada para consumo por LLM.
+/// CLI for searching DuckDuckGo via pure HTTP, with structured output for LLM consumption.
 ///
-/// Raiz aceita subcomando opcional. Quando nenhum subcomando é passado, o
-/// comportamento default é `buscar` — mantém total compatibilidade com versões
-/// anteriores da CLI.
+/// Root accepts an optional subcommand. When no subcommand is passed, the
+/// default behavior is `buscar` — maintains full backward compatibility with
+/// previous versions of the CLI.
 #[derive(Debug, Clone, Parser)]
 #[command(
     name = "duckduckgo-search-cli",
     version,
-    about = "Pesquisa no DuckDuckGo via HTTP puro, saída JSON para LLMs.",
-    long_about = "CLI em Rust que consulta o endpoint HTML estático do DuckDuckGo \
-                  (https://html.duckduckgo.com/html/) usando requests HTTP puros, \
-                  sem Chrome, sem APIs pagas e sem cache. Retorna resultados \
-                  orgânicos estruturados em JSON prontos para consumo por LLMs.",
+    about = "DuckDuckGo search via pure HTTP, JSON output for LLMs.",
+    long_about = "Rust CLI that queries the static DuckDuckGo HTML endpoint \
+                  (https://html.duckduckgo.com/html/) using pure HTTP requests, \
+                  no Chrome, no paid APIs, and no cache. Returns structured organic \
+                  results as JSON ready for LLM consumption.",
     after_long_help = "\
 EXIT CODES:\n\
     0    Success — at least one query returned results\n\
@@ -91,61 +91,61 @@ PIPE USAGE:\n\
     Logs go to stderr (-q suppresses them). JSON goes to stdout."
 )]
 pub struct ArgumentosRaiz {
-    /// Subcomando opcional (`init-config`). Sem subcomando = buscar (default).
+    /// Optional subcommand (`init-config`). No subcommand = search (default).
     #[command(subcommand)]
     pub subcomando: Option<Subcomando>,
 
-    /// Argumentos de busca (também aceitos sem subcomando para retrocompatibilidade).
+    /// Search arguments (also accepted without a subcommand for backward compatibility).
     #[command(flatten)]
     pub buscar: ArgumentosCli,
 }
 
-/// Subcomandos suportados. Arquitetura escolhida: `Option<Subcomando>` na raiz
-/// permite invocar sem subcomando (busca direta) OU com subcomando explícito.
+/// Supported subcommands. Chosen architecture: `Option<Subcomando>` at the root
+/// allows invocation without a subcommand (direct search) OR with an explicit subcommand.
 ///
-/// `Buscar` é `Box`ado para evitar variante gigante na enum (ArgumentosCli tem
-/// muitos campos derivados do clap).
+/// `Buscar` is `Box`ed to avoid a large enum variant (ArgumentosCli has
+/// many clap-derived fields).
 #[derive(Debug, Clone, Subcommand)]
 pub enum Subcomando {
-    /// Busca no DuckDuckGo (equivalente ao modo sem subcomando).
+    /// Search on DuckDuckGo (equivalent to the no-subcommand mode).
     Buscar(Box<ArgumentosCli>),
-    /// Inicializa arquivos de configuração (`selectors.toml`, `user-agents.toml`)
-    /// no diretório padrão do sistema operacional.
+    /// Initializes configuration files (`selectors.toml`, `user-agents.toml`)
+    /// in the default OS configuration directory.
     InitConfig(ArgumentosInitConfig),
 }
 
-/// Argumentos específicos do subcomando `init-config`.
+/// Arguments specific to the `init-config` subcommand.
 #[derive(Debug, Clone, Args)]
 pub struct ArgumentosInitConfig {
-    /// Sobrescreve arquivos existentes. Sem esta flag, arquivos já presentes
-    /// são preservados intactos.
+    /// Overwrites existing files. Without this flag, files already present
+    /// are kept intact.
     #[arg(long = "force")]
     pub forcar: bool,
 
-    /// Simula a execução sem gravar nenhum arquivo no disco. Reporta as ações
-    /// que seriam tomadas.
+    /// Simulates execution without writing any file to disk. Reports the actions
+    /// that would be taken.
     #[arg(long = "dry-run")]
     pub dry_run: bool,
 }
 
-/// Argumentos de busca (compartilhados entre o modo direto e o subcomando `buscar`).
+/// Search arguments (shared between the direct mode and the `buscar` subcommand).
 #[derive(Debug, Clone, Args)]
 pub struct ArgumentosCli {
-    /// Queries de busca (texto livre). Aceita múltiplos valores separados por espaço
-    /// ou via stdin (uma por linha) se nenhum for passado aqui nem via `--queries-file`.
+    /// Search queries (free text). Accepts multiple space-separated values
+    /// or via stdin (one per line) if none are passed here or via `--queries-file`.
     #[arg(value_name = "QUERY")]
     pub queries: Vec<String>,
 
-    /// Número máximo de resultados a retornar por query (default: 15, com
-    /// auto-paginação para 2 páginas quando `--pages` não é customizado).
-    /// Se omitido, usa 15; se `--num > 10` e `--pages == 1` (default),
-    /// `--pages` é auto-elevado para `ceil(num/10)` respeitando o máximo de 5.
+    /// Maximum number of results to return per query (default: 15, with
+    /// auto-pagination to 2 pages when `--pages` is not customized).
+    /// If omitted, uses 15; if `--num > 10` and `--pages == 1` (default),
+    /// `--pages` is auto-elevated to `ceil(num/10)` up to a maximum of 5.
     #[arg(short = 'n', long = "num", value_name = "N")]
     pub num_resultados: Option<u32>,
 
-    /// Formato de saída: `json`, `text`, `markdown` (`md`) ou `auto`.
-    /// `auto` usa `text` em TTY e `json` em pipe (e força `json` quando
-    /// `--output` é fornecido).
+    /// Output format: `json`, `text`, `markdown` (`md`) or `auto`.
+    /// `auto` uses `text` in a TTY and `json` in a pipe (and forces `json` when
+    /// `--output` is provided).
     #[arg(
         short = 'f',
         long = "format",
@@ -154,12 +154,12 @@ pub struct ArgumentosCli {
     )]
     pub formato: String,
 
-    /// Grava a saída no arquivo informado em vez de imprimir em stdout.
-    /// Diretórios pai inexistentes são criados. No Unix aplica permissões 0o644.
+    /// Writes output to the specified file instead of printing to stdout.
+    /// Missing parent directories are created. On Unix, permissions 0o644 are applied.
     #[arg(short = 'o', long = "output", value_name = "PATH")]
     pub arquivo_saida: Option<PathBuf>,
 
-    /// Timeout per-query em segundos (default: 15).
+    /// Per-query timeout in seconds (default: 15).
     #[arg(
         short = 't',
         long = "timeout",
@@ -168,15 +168,15 @@ pub struct ArgumentosCli {
     )]
     pub timeout_segundos: u64,
 
-    /// Idioma do parâmetro `kl` do DuckDuckGo (default: `pt`).
+    /// Language for DuckDuckGo's `kl` parameter (default: `pt`).
     #[arg(short = 'l', long = "lang", value_name = "LANG", default_value = "pt")]
     pub idioma: String,
 
-    /// País do parâmetro `kl` do DuckDuckGo (default: `br`).
+    /// Country for DuckDuckGo's `kl` parameter (default: `br`).
     #[arg(short = 'c', long = "country", value_name = "CC", default_value = "br")]
     pub pais: String,
 
-    /// Número de requests simultâneos (default 5, máximo 20).
+    /// Number of concurrent requests (default 5, maximum 20).
     #[arg(
         short = 'p',
         long = "parallel",
@@ -185,49 +185,49 @@ pub struct ArgumentosCli {
     )]
     pub paralelismo: u32,
 
-    /// Arquivo contendo queries adicionais (uma por linha). Linhas vazias são ignoradas.
+    /// File containing additional queries (one per line). Empty lines are ignored.
     #[arg(long = "queries-file", value_name = "PATH")]
     pub arquivo_queries: Option<PathBuf>,
 
-    /// Número de páginas a buscar por query (1..=5). Default 1.
+    /// Number of pages to fetch per query (1..=5). Default 1.
     #[arg(long = "pages", value_name = "N", default_value_t = 1)]
     pub paginas: u32,
 
-    /// Número de retries adicionais em caso de 429/403/timeout (0..=10). Default 2.
+    /// Number of additional retries on 429/403/timeout (0..=10). Default 2.
     #[arg(long = "retries", value_name = "N", default_value_t = 2)]
     pub retries: u32,
 
-    /// Endpoint preferido: `html` (default) ou `lite` (força o endpoint sem JavaScript).
+    /// Preferred endpoint: `html` (default) or `lite` (forces the no-JavaScript endpoint).
     #[arg(long = "endpoint", value_enum, default_value_t = EndpointCli::Html)]
     pub endpoint: EndpointCli,
 
-    /// Filtro temporal: `d` (dia), `w` (semana), `m` (mês), `y` (ano). Default sem filtro.
+    /// Time filter: `d` (day), `w` (week), `m` (month), `y` (year). Default: no filter.
     #[arg(long = "time-filter", value_enum)]
     pub filtro_temporal: Option<FiltroTemporalCli>,
 
-    /// Safe-search: `off`, `moderate` (default) ou `on`.
+    /// Safe-search: `off`, `moderate` (default) or `on`.
     #[arg(long = "safe-search", value_enum, default_value_t = SafeSearchCli::Moderate)]
     pub safe_search: SafeSearchCli,
 
-    /// Placeholder — emite resultados conforme completam. Não implementado na iteração 2.
+    /// Placeholder — streams results as they complete. Not implemented in iteration 2.
     #[arg(long = "stream")]
     pub modo_stream: bool,
 
-    /// Habilita logs detalhados em stderr (`tracing::debug` e `tracing::info`).
+    /// Enables detailed logs on stderr (`tracing::debug` and `tracing::info`).
     #[arg(short = 'v', long = "verbose", conflicts_with = "silencioso")]
     pub verboso: bool,
 
-    /// Suprime todos os logs em stderr, mantendo apenas o output principal em stdout.
+    /// Suppresses all stderr logs, keeping only the main output on stdout.
     #[arg(short = 'q', long = "quiet", conflicts_with = "verboso")]
     pub silencioso: bool,
 
-    /// Ativa extração de conteúdo textual completo de cada URL (HTTP puro + readability).
-    /// Faz um request adicional por resultado, em paralelo (limitado por --parallel).
+    /// Enables full text content extraction from each result URL (pure HTTP + readability).
+    /// Makes one additional request per result, in parallel (limited by --parallel).
     #[arg(long = "fetch-content")]
     pub buscar_conteudo: bool,
 
-    /// Tamanho máximo (em caracteres) do conteúdo extraído por página (1..=100_000).
-    /// Efeito apenas com `--fetch-content`. Default 10_000.
+    /// Maximum size (in characters) of the extracted content per page (1..=100_000).
+    /// Only effective with `--fetch-content`. Default 10_000.
     #[arg(
         long = "max-content-length",
         value_name = "N",
@@ -235,17 +235,17 @@ pub struct ArgumentosCli {
     )]
     pub max_tamanho_conteudo: usize,
 
-    /// URL de proxy HTTP/HTTPS/SOCKS5 (ex: `http://user:pass@host:port`, `socks5://host:port`).
-    /// Tem precedência sobre as variáveis de ambiente HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.
+    /// HTTP/HTTPS/SOCKS5 proxy URL (e.g., `http://user:pass@host:port`, `socks5://host:port`).
+    /// Takes precedence over the HTTP_PROXY/HTTPS_PROXY/ALL_PROXY environment variables.
     #[arg(long = "proxy", value_name = "URL", conflicts_with = "sem_proxy")]
     pub proxy: Option<String>,
 
-    /// Desabilita qualquer proxy — ignora `--proxy` e env vars HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.
+    /// Disables any proxy — ignores `--proxy` and the HTTP_PROXY/HTTPS_PROXY/ALL_PROXY env vars.
     #[arg(long = "no-proxy", conflicts_with = "proxy")]
     pub sem_proxy: bool,
 
-    /// Timeout global da execução inteira em segundos (1..=3600). Default 60.
-    /// Diferente de `--timeout`, que é per-request.
+    /// Global timeout for the entire execution in seconds (1..=3600). Default 60.
+    /// Different from `--timeout`, which is per-request.
     #[arg(
         long = "global-timeout",
         value_name = "SECS",
@@ -253,13 +253,13 @@ pub struct ArgumentosCli {
     )]
     pub timeout_global_segundos: u64,
 
-    /// Restringe os UAs carregados de `user-agents.toml` à plataforma atual (linux/macos/windows).
-    /// Só tem efeito se o arquivo TOML externo for encontrado; senão usa defaults embutidos.
+    /// Restricts UAs loaded from `user-agents.toml` to the current platform (linux/macos/windows).
+    /// Only takes effect if the external TOML file is found; otherwise uses built-in defaults.
     #[arg(long = "match-platform-ua")]
     pub corresponde_plataforma_ua: bool,
 
-    /// Limite de fetches simultâneos POR HOST em `--fetch-content` (1..=10, default 2).
-    /// Protege hosts de burst — complementa o `--parallel` global com gate per-host.
+    /// Concurrent fetch limit PER HOST in `--fetch-content` mode (1..=10, default 2).
+    /// Protects hosts from bursts — complements the global `--parallel` with a per-host gate.
     #[arg(
         long = "per-host-limit",
         value_name = "N",
@@ -267,15 +267,15 @@ pub struct ArgumentosCli {
     )]
     pub limite_por_host: u32,
 
-    /// Caminho manual para o executável Chrome/Chromium (feature `chrome`).
-    /// Apenas útil com `--fetch-content` e feature `chrome` compilada;
-    /// senão é ignorada com warning em stderr.
+    /// Manual path to the Chrome/Chromium executable (`chrome` feature).
+    /// Only useful with `--fetch-content` and the `chrome` feature compiled in;
+    /// otherwise ignored with a stderr warning.
     #[arg(long = "chrome-path", value_name = "PATH")]
     pub caminho_chrome: Option<PathBuf>,
 }
 
 impl ArgumentosCli {
-    /// Valida o grau de paralelismo está dentro do intervalo `[1, PARALELISMO_MAXIMO]`.
+    /// Validates that the parallelism degree is within the range `[1, PARALELISMO_MAXIMO]`.
     pub fn validar_paralelismo(&self) -> Result<(), String> {
         if self.paralelismo == 0 {
             return Err(format!(
@@ -292,7 +292,7 @@ impl ArgumentosCli {
         Ok(())
     }
 
-    /// Valida número de páginas está no intervalo `[1, PAGINAS_MAXIMO]`.
+    /// Validates that the number of pages is within the range `[1, PAGINAS_MAXIMO]`.
     pub fn validar_paginas(&self) -> Result<(), String> {
         if self.paginas == 0 {
             return Err(format!(
@@ -309,7 +309,7 @@ impl ArgumentosCli {
         Ok(())
     }
 
-    /// Valida `--max-content-length` está no intervalo `[1, MAX_CONTENT_LENGTH_MAXIMO]`.
+    /// Validates that `--max-content-length` is within the range `[1, MAX_CONTENT_LENGTH_MAXIMO]`.
     pub fn validar_max_tamanho_conteudo(&self) -> Result<(), String> {
         if self.max_tamanho_conteudo == 0 {
             return Err(format!(
@@ -326,7 +326,7 @@ impl ArgumentosCli {
         Ok(())
     }
 
-    /// Valida `--global-timeout` está no intervalo `[1, GLOBAL_TIMEOUT_MAXIMO]`.
+    /// Validates that `--global-timeout` is within the range `[1, GLOBAL_TIMEOUT_MAXIMO]`.
     pub fn validar_global_timeout(&self) -> Result<(), String> {
         if self.timeout_global_segundos == 0 {
             return Err(format!(
@@ -343,7 +343,7 @@ impl ArgumentosCli {
         Ok(())
     }
 
-    /// Valida que `--proxy`, quando informado, é uma URL parseável com scheme suportado.
+    /// Validates that `--proxy`, when provided, is a parseable URL with a supported scheme.
     pub fn validar_proxy(&self) -> Result<(), String> {
         let Some(url) = self.proxy.as_deref() else {
             return Ok(());
@@ -358,7 +358,7 @@ impl ArgumentosCli {
         }
     }
 
-    /// Valida número de retries está no intervalo `[0, RETRIES_MAXIMO]`.
+    /// Validates that the number of retries is within the range `[0, RETRIES_MAXIMO]`.
     pub fn validar_retries(&self) -> Result<(), String> {
         if self.retries > RETRIES_MAXIMO {
             return Err(format!(
@@ -369,7 +369,7 @@ impl ArgumentosCli {
         Ok(())
     }
 
-    /// Valida `--per-host-limit` está no intervalo `[1, PER_HOST_LIMIT_MAXIMO]`.
+    /// Validates that `--per-host-limit` is within the range `[1, PER_HOST_LIMIT_MAXIMO]`.
     pub fn validar_limite_por_host(&self) -> Result<(), String> {
         if self.limite_por_host == 0 {
             return Err(format!(
@@ -386,7 +386,7 @@ impl ArgumentosCli {
         Ok(())
     }
 
-    /// Valida que `--timeout` é pelo menos 1 segundo.
+    /// Validates that `--timeout` is at least 1 second.
     pub fn validar_timeout_segundos(&self) -> Result<(), String> {
         if self.timeout_segundos == 0 {
             return Err(format!(
@@ -404,7 +404,7 @@ mod testes {
     use clap::CommandFactory;
 
     /// Helper: parseia argumentos via raiz e extrai `ArgumentosCli` (fluxo default = Buscar).
-    /// Replica o comportamento de conveniência dos testes anteriores à introdução do subcomando.
+    /// Replicates the convenience behavior of tests prior to the introduction of the subcommand.
     fn parse_buscar(argv: &[&str]) -> Result<ArgumentosCli, clap::Error> {
         let raiz = ArgumentosRaiz::try_parse_from(argv)?;
         match raiz.subcomando {

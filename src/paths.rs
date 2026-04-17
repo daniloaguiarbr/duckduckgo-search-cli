@@ -1,18 +1,18 @@
-//! Validação e sanitização de paths para operações de I/O.
+//! Path validation and sanitization for I/O operations.
 //!
-//! Este módulo centraliza a validação de caminhos de saída fornecidos pelo
-//! usuário via `--output`, prevenindo path traversal e escrita em diretórios
-//! de sistema. Também encapsula criação de diretórios pai e aplicação de
-//! permissões Unix.
+//! This module centralizes validation of output paths provided by the
+//! user via `--output`, preventing path traversal and writes to system
+//! directories. Also encapsulates parent directory creation and Unix
+//! permissions application.
 
 use anyhow::{bail, Context, Result};
 use std::path::{Component, Path, PathBuf};
 
-/// Valida um caminho de saída fornecido pelo usuário.
+/// Validates an output path provided by the user.
 ///
-/// Rejeita paths que contenham componentes `..` (path traversal) e paths
-/// absolutos que apontem para diretórios de sistema protegidos.
-/// Retorna o caminho validado como `PathBuf`.
+/// Rejects paths containing `..` components (path traversal) and absolute
+/// paths pointing to protected system directories.
+/// Returns the validated path as a `PathBuf`.
 pub fn validar_caminho_saida(caminho: &Path) -> Result<PathBuf> {
     // Rejeitar componentes ".." em qualquer posição
     for componente in caminho.components() {
@@ -57,7 +57,7 @@ pub fn validar_caminho_saida(caminho: &Path) -> Result<PathBuf> {
     Ok(caminho.to_path_buf())
 }
 
-/// Cria diretórios pai de um caminho, se necessário.
+/// Creates parent directories of a path, if needed.
 pub fn criar_diretorios_pai(caminho: &Path) -> Result<()> {
     if let Some(pai) = caminho.parent() {
         if !pai.as_os_str().is_empty() && !pai.exists() {
@@ -68,8 +68,8 @@ pub fn criar_diretorios_pai(caminho: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Aplica permissões 0o644 em um arquivo no Unix (dono lê+escreve, outros leem).
-/// No-op em plataformas não-Unix.
+/// Applies 0o644 permissions to a file on Unix (owner reads+writes, others read).
+/// No-op on non-Unix platforms.
 #[cfg(unix)]
 pub fn aplicar_permissoes_644(caminho: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;

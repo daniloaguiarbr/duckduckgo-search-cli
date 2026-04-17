@@ -1,41 +1,41 @@
-//! Extração de conteúdo textual completo de URLs (flag `--fetch-content`).
+//! Full text content extraction from URLs (flag `--fetch-content`).
 //!
-//! Implementação HTTP puro (iteração 5). Para cada URL:
-//! 1. Faz request HTTP com `reqwest::Client`.
-//! 2. Verifica `Content-Type` — aceita apenas `text/html` e variantes.
-//! 3. Lê body como `Vec<u8>`, detecta charset via header e converte para UTF-8
-//!    com `encoding_rs` (fallback `from_utf8_lossy` para UTF-8/ausente).
-//! 4. Parseia com `scraper` e aplica readability simplificado (5 passos):
-//!    - Remove elementos de chrome (nav, header, footer, script, style, aside, forms).
-//!    - Identifica container principal (article → main → [role=main] → body).
-//!    - Extrai texto de blocos relevantes (p, h1-6, li, blockquote, pre, td).
-//!    - Limpa (whitespace excessivo, linhas curtas).
-//!    - Trunca em `tamanho_max` respeitando limites de palavra.
-//! 5. Se texto limpo < 200 chars → retorna string vazia sinalizando que
-//!    provavelmente precisa de Chrome (iteração 6).
+//! Pure HTTP implementation (iteration 5). For each URL:
+//! 1. Makes an HTTP request with `reqwest::Client`.
+//! 2. Checks `Content-Type` — accepts only `text/html` and variants.
+//! 3. Reads body as `Vec<u8>`, detects charset from header and converts to UTF-8
+//!    with `encoding_rs` (fallback `from_utf8_lossy` for UTF-8/absent).
+//! 4. Parses with `scraper` and applies simplified readability (5 steps):
+//!    - Removes chrome elements (nav, header, footer, script, style, aside, forms).
+//!    - Identifies main container (article → main → [role=main] → body).
+//!    - Extracts text from relevant blocks (p, h1-6, li, blockquote, pre, td).
+//!    - Cleans up (excessive whitespace, short lines).
+//!    - Truncates at `tamanho_max` respecting word boundaries.
+//! 5. If clean text < 200 chars → returns empty string signalling that
+//!    Chrome is likely needed (iteration 6).
 //!
-//! Fallback via Chrome headless virá em iteração 6 sob feature `chrome`.
+//! Headless Chrome fallback will come in iteration 6 under feature `chrome`.
 
 use anyhow::Result;
 use reqwest::Client;
 use scraper::{Html, Selector};
 use tokio_util::sync::CancellationToken;
 
-/// Limiar abaixo do qual consideramos o conteúdo "insuficiente" (candidato a fallback Chrome).
+/// Threshold below which we consider content "insufficient" (Chrome fallback candidate).
 const LIMIAR_CONTEUDO_MINIMO: usize = 200;
 
-/// Limiar de caracteres por linha para descartar linhas muito curtas (ex: boilerplate de navegação).
+/// Character threshold per line to discard very short lines (e.g. navigation boilerplate).
 const LIMIAR_LINHA_MINIMA: usize = 20;
 
-/// Extrai o conteúdo textual principal de uma URL via HTTP puro.
+/// Extracts the main text content from a URL via pure HTTP.
 ///
-/// Retorna:
-/// - `Ok(Some((texto_limpo, tamanho_original_em_bytes)))` em sucesso.
-/// - `Ok(None)` se o `Content-Type` não for HTML (pdf, image, etc.).
-/// - `Err` em falha de rede/parse irrecuperável.
+/// Returns:
+/// - `Ok(Some((clean_text, original_size_in_bytes)))` on success.
+/// - `Ok(None)` if the `Content-Type` is not HTML (pdf, image, etc.).
+/// - `Err` on unrecoverable network/parse failure.
 ///
-/// O texto retornado pode ser vazio se a extração não produziu conteúdo > 200 chars —
-/// nesse caso o chamador sabe que seria necessário fallback via Chrome.
+/// The returned text may be empty if extraction produced no content > 200 chars —
+/// in that case the caller knows a Chrome fallback would be needed.
 pub async fn extrair_conteudo_http(
     cliente: &Client,
     url: &str,
@@ -112,7 +112,7 @@ pub async fn extrair_conteudo_http(
     Ok(Some((texto_limpo, tamanho_original)))
 }
 
-/// Verifica se o Content-Type corresponde a HTML (flexível para `text/html; charset=...`).
+/// Checks whether the Content-Type corresponds to HTML (flexible for `text/html; charset=...`).
 fn eh_html(content_type: &str) -> bool {
     let lower = content_type.to_ascii_lowercase();
     lower.starts_with("text/html") || lower.starts_with("application/xhtml+xml")
@@ -132,10 +132,10 @@ fn extrair_charset(content_type: &str) -> Option<String> {
     None
 }
 
-/// Decodifica bytes para `String` UTF-8 usando charset declarado (se fornecido).
+/// Decodes bytes to a UTF-8 `String` using the declared charset (if provided).
 ///
-/// - Se `charset` for UTF-8 ou ausente → `from_utf8_lossy` (rápido).
-/// - Senão → `Encoding::for_label().decode()` com fallback WINDOWS-1252 em label desconhecido.
+/// - If `charset` is UTF-8 or absent → `from_utf8_lossy` (fast path).
+/// - Otherwise → `Encoding::for_label().decode()` with WINDOWS-1252 fallback on unknown label.
 pub fn decodificar_para_utf8(bytes: &[u8], charset: Option<&str>) -> String {
     let label = charset.unwrap_or("utf-8");
     if label == "utf-8" || label == "utf8" || label.is_empty() {
@@ -157,10 +157,10 @@ pub fn decodificar_para_utf8(bytes: &[u8], charset: Option<&str>) -> String {
     }
 }
 
-/// Aplica readability simplificado em 5 passos sobre HTML UTF-8.
+/// Applies simplified readability in 5 steps over UTF-8 HTML.
 ///
-/// Retorna texto limpo truncado em `tamanho_max` caracteres (respeitando palavra).
-/// Chamada de dentro de `spawn_blocking` porque `scraper::Html` não é `Send`.
+/// Returns clean text truncated at `tamanho_max` characters (respecting word boundaries).
+/// Called from within `spawn_blocking` because `scraper::Html` is not `Send`.
 fn aplicar_readability(html: &str, tamanho_max: usize) -> String {
     let documento = Html::parse_document(html);
 
@@ -259,9 +259,9 @@ fn aplicar_readability(html: &str, tamanho_max: usize) -> String {
     truncar_em_palavra(&conteudo, tamanho_max)
 }
 
-/// Verifica se um elemento (ou algum ancestral) corresponde às categorias "chrome".
+/// Checks whether an element (or any ancestor) belongs to the "chrome" categories.
 ///
-/// Usa navegação pela árvore via `parent()` até chegar no root (Document).
+/// Uses tree traversal via `parent()` up to the root (Document).
 fn ancestral_eh_chrome(
     elemento: scraper::ElementRef<'_>,
     tags: &[&str],
@@ -298,10 +298,10 @@ fn ancestral_eh_chrome(
     false
 }
 
-/// Trunca `texto` em `tamanho_max` caracteres respeitando fronteiras de palavra.
+/// Truncates `texto` at `tamanho_max` characters respecting word boundaries.
 ///
-/// Se o corte cair no meio de uma palavra, recua até o último whitespace.
-/// Se não há whitespace, faz corte hard no byte mais próximo de caractere válido.
+/// If the cut falls in the middle of a word, backs up to the last whitespace.
+/// If there is no whitespace, performs a hard cut at the nearest valid character boundary.
 fn truncar_em_palavra(texto: &str, tamanho_max: usize) -> String {
     if tamanho_max == 0 {
         return String::new();

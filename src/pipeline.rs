@@ -1,12 +1,12 @@
-//! Orquestração do fluxo de execução da CLI.
+//! Orchestration of the CLI execution flow.
 //!
-//! Na iteração 2, decide entre fluxo single-query e multi-query conforme a
-//! quantidade de queries efetivas (após combinar posicional + arquivo + stdin,
-//! dedup e filtragem de vazias).
+//! In iteration 2, decides between single-query and multi-query flow based on
+//! the number of effective queries (after combining positional + file + stdin,
+//! dedup and empty-string filtering).
 //!
-//! - Single-query (1 query): usa o fluxo legado `executar_busca_unica` e emite `SaidaBusca`.
-//! - Multi-query (>=2 queries): delega para `parallel::executar_buscas_paralelas`
-//!   e emite `SaidaBuscaMultipla`.
+//! - Single-query (1 query): uses the legacy `executar_busca_unica` flow and emits `SaidaBusca`.
+//! - Multi-query (>=2 queries): delegates to `parallel::executar_buscas_paralelas`
+//!   and emits `SaidaBuscaMultipla`.
 
 use crate::fetch_conteudo;
 use crate::http;
@@ -24,11 +24,11 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-/// Resultado emitido pelo pipeline — pode ser saída single, multi agregada ou stream já emitido.
+/// Result emitted by the pipeline — may be a single output, aggregated multi output, or an already-emitted stream.
 ///
-/// A variante `Stream` indica que a saída já foi emitida incrementalmente pelo
-/// consumer; o `output` final NÃO deve re-emitir nada. Apenas as estatísticas
-/// agregadas ficam disponíveis para logging / exit-code.
+/// The `Stream` variant indicates that output was already emitted incrementally by
+/// the consumer; the final `output` step MUST NOT re-emit anything. Only the
+/// aggregated statistics are available for logging / exit-code decisions.
 #[derive(Debug, Clone)]
 pub enum ResultadoPipeline {
     Unica(Box<SaidaBusca>),
@@ -37,11 +37,11 @@ pub enum ResultadoPipeline {
 }
 
 impl ResultadoPipeline {
-    /// Total de resultados somados em todas as queries (usado para decisão de exit-code).
+    /// Total results summed across all queries (used for exit-code decisions).
     ///
-    /// Para `Stream` retorna `sucessos` — aproximação suficiente para exit code 0/5
-    /// (sucesso vs zero-resultados). Precisão fina de `quantidade_resultados` em
-    /// streaming exigiria agregação duplicada do consumer, que não vale o custo.
+    /// For `Stream` returns `sucessos` — a sufficient approximation for exit codes 0/5
+    /// (success vs zero-results). Fine-grained `quantidade_resultados` precision in
+    /// streaming mode would require duplicate aggregation by the consumer, which is not worth the cost.
     pub fn total_resultados(&self) -> u32 {
         match self {
             ResultadoPipeline::Unica(s) => s.quantidade_resultados,
@@ -55,11 +55,11 @@ impl ResultadoPipeline {
     }
 }
 
-/// Entrypoint da iteração 2: decide single vs multi conforme `configuracoes.queries`.
+/// Entry point for iteration 2: decides single vs multi based on `configuracoes.queries`.
 ///
-/// `cancelamento` é o token que sinaliza SIGINT (ctrl+c). Em single-query o
-/// cancelamento só afeta o request via timeout do `reqwest`; em multi-query é
-/// propagado explicitamente para cada task.
+/// `cancelamento` is the token that signals SIGINT (ctrl+c). In single-query mode
+/// cancellation only affects the request via `reqwest` timeout; in multi-query mode it
+/// is propagated explicitly to each task.
 pub async fn executar_pipeline(
     configuracoes: Configuracoes,
     cancelamento: CancellationToken,
@@ -92,10 +92,10 @@ pub async fn executar_pipeline(
     }
 }
 
-/// Pipeline em modo streaming — emite resultados conforme tasks completam.
+/// Pipeline in streaming mode — emits results as tasks complete.
 ///
-/// O consumer spawnado consome o canal mpsc e emite NDJSON/text/markdown por linha.
-/// Retorna `ResultadoPipeline::Stream` ao final, indicando que não há mais nada a emitir.
+/// The spawned consumer drains the mpsc channel and emits NDJSON/text/markdown line by line.
+/// Returns `ResultadoPipeline::Stream` at the end, indicating there is nothing left to emit.
 async fn executar_pipeline_streaming(
     configuracoes: Configuracoes,
     cancelamento: CancellationToken,
@@ -165,7 +165,7 @@ async fn executar_pipeline_streaming(
     Ok(ResultadoPipeline::Stream(stats))
 }
 
-/// Executa o fluxo completo de uma busca single-query com paginação, retry e fallback Lite.
+/// Executes the full flow for a single-query search with pagination, retry and Lite fallback.
 pub async fn executar_busca_unica(
     cfg: &Configuracoes,
     cancelamento: &CancellationToken,
@@ -249,8 +249,8 @@ pub async fn executar_busca_unica(
     Ok(saida)
 }
 
-/// Gera uma `SaidaBusca` a partir de uma falha de retry, preservando código de erro
-/// estruturado e métricas parciais.
+/// Generates a `SaidaBusca` from a retry failure, preserving the structured error code
+/// and partial metrics.
 fn saida_de_falha(
     cfg: &Configuracoes,
     motivo: &search::MotivoFalhaRetry,
@@ -288,17 +288,17 @@ fn saida_de_falha(
     }
 }
 
-/// Alias retrocompatível — mantém o nome `executar` usado em `lib.rs` original.
+/// Backwards-compatible alias — preserves the `executar` name used in the original `lib.rs`.
 pub async fn executar(cfg: &Configuracoes) -> Result<SaidaBusca> {
     executar_busca_unica(cfg, &CancellationToken::new()).await
 }
 
-/// Combina queries vindas de três fontes (posicional, arquivo, stdin), deduplica
-/// preservando a ORDEM da primeira ocorrência e filtra strings vazias após trim.
+/// Combines queries from three sources (positional, file, stdin), deduplicates
+/// preserving the ORDER of the first occurrence, and filters empty strings after trim.
 ///
-/// Não faz I/O: espera que a chamadora já tenha coletado as linhas (útil para testes).
+/// Performs no I/O: expects the caller to have already collected the lines (useful for tests).
 ///
-/// # Exemplo
+/// # Example
 ///
 /// ```
 /// use duckduckgo_search_cli::pipeline::combinar_e_deduplicar_queries;
@@ -309,7 +309,7 @@ pub async fn executar(cfg: &Configuracoes) -> Result<SaidaBusca> {
 ///     vec!["".into(), "serde".into(), "axum".into()],
 /// );
 ///
-/// // Dedup preserva ordem da primeira ocorrência; strings vazias (após trim) são removidas.
+/// // Dedup preserves order of first occurrence; empty strings (after trim) are removed.
 /// assert_eq!(resultado, vec!["rust", "tokio", "serde", "axum"]);
 /// ```
 pub fn combinar_e_deduplicar_queries(
@@ -335,9 +335,9 @@ pub fn combinar_e_deduplicar_queries(
     resultado
 }
 
-/// Lê um arquivo de queries — uma por linha, ignorando linhas vazias após trim.
+/// Reads a queries file — one query per line, ignoring empty lines after trim.
 ///
-/// Aceita `\n` e `\r\n` (Windows) corretamente via `BufRead::lines`.
+/// Correctly handles both `\n` and `\r\n` (Windows) via `BufRead::lines`.
 pub fn ler_queries_de_arquivo(caminho: &Path) -> Result<Vec<String>> {
     use std::io::BufRead;
     let arquivo = std::fs::File::open(caminho)
@@ -356,8 +356,8 @@ pub fn ler_queries_de_arquivo(caminho: &Path) -> Result<Vec<String>> {
     Ok(linhas)
 }
 
-/// Lê queries de stdin — uma por linha — APENAS se stdin não for TTY.
-/// Retorna `Vec` vazio quando stdin é TTY (i.e. usuário não passou pipe/redirect).
+/// Reads queries from stdin — one per line — ONLY if stdin is not a TTY.
+/// Returns an empty `Vec` when stdin is a TTY (i.e. the user did not pipe/redirect input).
 pub fn ler_queries_de_stdin_se_pipe() -> Result<Vec<String>> {
     use std::io::{BufRead, IsTerminal};
     if std::io::stdin().is_terminal() {
@@ -375,8 +375,8 @@ pub fn ler_queries_de_stdin_se_pipe() -> Result<Vec<String>> {
     Ok(linhas)
 }
 
-/// Calcula hash blake3 (hex, primeiros 16 chars) da configuração de seletores serializada.
-/// Útil para versionar mudanças no arquivo `selectors.toml` em iterações futuras.
+/// Computes a blake3 hash (hex, first 16 chars) of the serialised selector configuration.
+/// Useful for versioning changes to the `selectors.toml` file in future iterations.
 fn calcular_hash_seletores(cfg: &ConfiguracaoSeletores) -> String {
     match toml::to_string(cfg) {
         Ok(serializado) => {
