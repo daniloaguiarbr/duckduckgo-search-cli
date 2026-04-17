@@ -255,6 +255,12 @@ fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
     argumentos
         .validar_limite_por_host()
         .map_err(|e| anyhow::anyhow!(e))?;
+    argumentos
+        .validar_timeout_segundos()
+        .map_err(|e| anyhow::anyhow!(e))?;
+    if let Some(caminho) = &argumentos.arquivo_saida {
+        crate::paths::validar_caminho_saida(caminho)?;
+    }
 
     let queries_arquivo = match &argumentos.arquivo_queries {
         Some(caminho) => pipeline::ler_queries_de_arquivo(caminho)

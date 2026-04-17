@@ -314,6 +314,34 @@ fn per_host_limit_acima_do_maximo_retorna_exit_2() {
     assert_eq!(output.status.code(), Some(2));
 }
 
+#[test]
+fn timeout_zero_retorna_exit_2() {
+    let output = Command::cargo_bin(NOME_BIN)
+        .expect("binário compilado")
+        .args(["--timeout", "0", "query"])
+        .output()
+        .expect("executar com --timeout 0");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--timeout 0 deve retornar exit 2 (configuração inválida)"
+    );
+}
+
+#[test]
+fn output_com_path_traversal_retorna_exit_2() {
+    let output = Command::cargo_bin(NOME_BIN)
+        .expect("binário compilado")
+        .args(["--output", "/tmp/../../etc/passwd", "query"])
+        .output()
+        .expect("executar com --output path traversal");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--output com path traversal deve retornar exit 2 (configuração inválida)"
+    );
+}
+
 // =============================================================================
 // Teste do handler SIGINT instalado em src/main.rs
 // =============================================================================

@@ -385,6 +385,17 @@ impl ArgumentosCli {
         }
         Ok(())
     }
+
+    /// Valida que `--timeout` é pelo menos 1 segundo.
+    pub fn validar_timeout_segundos(&self) -> Result<(), String> {
+        if self.timeout_segundos == 0 {
+            return Err(format!(
+                "--timeout deve ser pelo menos 1 (recebido {})",
+                self.timeout_segundos
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -755,5 +766,16 @@ mod testes {
         assert!(argumentos.validar_limite_por_host().is_err());
         argumentos.limite_por_host = 2;
         assert!(argumentos.validar_limite_por_host().is_ok());
+    }
+
+    #[test]
+    fn validar_timeout_segundos_rejeita_zero() {
+        let mut argumentos = parse_buscar(&["bin", "q"]).unwrap();
+        argumentos.timeout_segundos = 0;
+        assert!(argumentos.validar_timeout_segundos().is_err());
+        argumentos.timeout_segundos = 1;
+        assert!(argumentos.validar_timeout_segundos().is_ok());
+        argumentos.timeout_segundos = 15;
+        assert!(argumentos.validar_timeout_segundos().is_ok());
     }
 }

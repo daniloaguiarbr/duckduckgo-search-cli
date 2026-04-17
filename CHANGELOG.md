@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-17
+
+### Fixed
+- `--timeout 0` now returns exit 2 (invalid config) instead of executing a search with zero timeout and returning exit 5.
+- `--output /tmp/../../etc/passwd` now returns exit 2 (invalid config) instead of exit 1 (runtime OS error) — path traversal validation moved to `montar_configuracoes()`, before the pipeline starts.
+
+### Added
+- `validar_timeout_segundos()` method on `ArgumentosCli` — rejects values of 0 with a descriptive error.
+- Early path traversal check in `montar_configuracoes()` — calls `paths::validar_caminho_saida()` at config validation time, not at write time.
+- 2 E2E regression tests: `timeout_zero_retorna_exit_2` and `output_com_path_traversal_retorna_exit_2`.
+- 1 unit test: `validar_timeout_segundos_rejeita_zero`.
+
+
 ## [0.6.0] - 2026-04-16
 
 ### Security
