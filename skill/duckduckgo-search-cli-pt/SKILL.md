@@ -164,3 +164,11 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - Anti-bloqueio (v0.6.0): `PerfilBrowser` injeta headers `Sec-Fetch-*` por família e Client Hints — NUNCA adicione headers duplicados
 - Detecção de HTTP 202 anomaly com backoff exponencial roda automaticamente — confie no exit code 3, não faça retry próprio
 - Detecção de bloqueio silencioso: respostas abaixo de 5 KB são tratadas como bloqueios, não como sucesso
+
+
+## Workflow
+- Passo 1 — invocar a busca: `duckduckgo-search-cli -f json -n 10 "consulta"`
+- Passo 2 — capturar o exit code: verificar `$?` imediatamente após o comando
+- Passo 3 — parsear resultados JSON com jaq: `jaq -r '.resultados[] | .titulo + " " + .url'`
+- Passo 4 — filtrar campos relevantes: `jaq '.resultados[] | {titulo: .titulo, url: .url, snippet: .snippet}'`
+- Passo 5 — retornar resultados estruturados ao LLM como contexto para raciocínio posterior

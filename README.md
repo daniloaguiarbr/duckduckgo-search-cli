@@ -14,10 +14,14 @@ retrieval augmented generation cli, rag cli, no api key search, ddg cli, tokio s
 rustls search cli, ndjson search stream, agent shell tool, mcp adjacent search cli
 -->
 
----
-
 ## English
+- Read this document in [Português](README.pt-BR.md).
+### Quick Install
+- Instale com um comando via cargo:
 
+```bash
+cargo install duckduckgo-search-cli
+```
 ### Why this exists
 
 Every modern LLM carries a knowledge cutoff, and every autonomous agent eventually needs something its weights never saw: the latest library version, a 2026 incident post-mortem, a vendor's current pricing page. Bolting on a hosted search API costs money, leaks queries, and breaks when the vendor rate-limits you in the middle of a multi-step plan.
@@ -232,7 +236,6 @@ See the [CHANGELOG](CHANGELOG.md) for release history.
 
 License: MIT OR Apache-2.0.
 
----
 
 ## Português
 

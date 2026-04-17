@@ -1,0 +1,227 @@
+# duckduckgo-search-cli
+
+- CLI Rust para busca DuckDuckGo — retorna resultados como JSON, Markdown ou texto
+- Instale com: `cargo install duckduckgo-search-cli`
+- Versão atual: 0.6.1
+- Repositório: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## Documentação Canônica
+- README.md — visão geral, flags, exit codes, exemplos bilíngues
+- docs/HOW_TO_USE.md — guia pedagógico de uso passo a passo
+- docs/COOKBOOK.md — 17 receitas prontas para pesquisa, ETL e monitoramento
+- docs/INTEGRATIONS.md — integrações com 16 agentes de IA (Claude, GPT, Gemini, Cursor…)
+- docs/AGENTS-GUIDE.md — contrato stdin/stdout e referência completa de schema JSON
+- docs/CROSS_PLATFORM.md — configuração em Linux, macOS, Windows e Docker
+- docs/AGENTS.md — guia rápido de integração para agentes de IA
+- docs/AGENT_RULES.md — 30+ regras MUST/NEVER para uso em produção por agentes
+
+
+## Uso Rápido
+
+### Busca básica (saída texto no TTY)
+```bash
+duckduckgo-search-cli "rust async programming"
+```
+
+### Busca JSON silenciosa (ideal para pipelines e agentes)
+```bash
+duckduckgo-search-cli -q -n 10 -f json "query"
+```
+
+### Com timeout externo obrigatório
+```bash
+timeout 30 duckduckgo-search-cli -q -n 10 -f json "query"
+```
+
+### Salvar em arquivo (atomic write)
+```bash
+duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
+```
+
+### Relatório Markdown
+```bash
+duckduckgo-search-cli -q -n 15 -f markdown -o report.md "query"
+```
+
+### Busca com conteúdo das páginas
+```bash
+duckduckgo-search-cli -q -n 5 --fetch-content --max-content-length 8000 -f json "query"
+```
+
+### Multi-query paralela
+```bash
+duckduckgo-search-cli -q \
+  --queries-file queries.txt \
+  --parallel 3 \
+  --per-host-limit 1 \
+  --retries 3 \
+  -n 10 -f json \
+  -o results.json
+```
+
+### Filtro temporal (últimas 24 horas)
+```bash
+duckduckgo-search-cli -q -n 10 --time-filter d -f json "breaking news"
+```
+
+### Via proxy SOCKS5
+```bash
+duckduckgo-search-cli -q -n 10 --proxy socks5://127.0.0.1:9050 -f json "query"
+```
+
+### Resultados em português do Brasil
+```bash
+duckduckgo-search-cli -q -n 10 --lang pt --country br -f json "query"
+```
+
+
+## Flags Principais
+
+| Flag | Padrão | Descrição |
+|------|--------|-----------|
+| `-n, --num-results` | 15 | Quantidade de resultados |
+| `-f, --format` | auto | Formato: text, json, markdown |
+| `-q, --quiet` | false | Suprime logs de tracing no stdout |
+| `-o, --output` | stdout | Arquivo de saída (escrita atômica) |
+| `--fetch-content` | false | Baixa e incorpora conteúdo das páginas |
+| `--max-content-length` | 10000 | Limite de caracteres por página |
+| `--parallel` | 1 | Concorrência para multi-query (1..=20) |
+| `--per-host-limit` | 10 | Máximo de fetches por domínio (1..=10) |
+| `--retries` | 3 | Tentativas em caso de falha |
+| `--global-timeout` | 60 | Timeout total da pipeline em segundos |
+| `--time-filter` | off | Filtro temporal: d, w, m, y |
+| `--lang` | pt | Código de idioma DuckDuckGo |
+| `--country` | br | Código de país DuckDuckGo |
+| `--proxy` | off | URL do proxy (socks5:// ou http://) |
+| `--no-proxy` | false | Desabilita todas as fontes de proxy |
+| `--endpoint` | auto | Endpoint: auto, lite |
+
+
+## Exit Codes
+
+| Código | Significado | Ação Recomendada |
+|--------|-------------|-----------------|
+| 0 | Sucesso | Processar resultados normalmente |
+| 1 | Erro de runtime (rede, parse, I/O) | Verificar stderr para detalhes |
+| 2 | Config inválida (flag fora do range, path inválido) | Corrigir o argumento |
+| 3 | Bloqueio anti-bot DuckDuckGo (HTTP 202) | Aguardar 60s ou rotacionar proxy |
+| 4 | Timeout global excedido | Aumentar `--global-timeout` |
+| 5 | Zero resultados em todas as queries | Ampliar query ou remover filtros |
+
+
+## Campos JSON
+
+### Modo busca simples
+```json
+{
+  "resultados": [
+    {
+      "posicao": 1,
+      "titulo": "Título do resultado",
+      "url": "https://exemplo.com/pagina",
+      "snippet": "Texto descritivo do resultado...",
+      "conteudo": "Texto da página (somente com --fetch-content)"
+    }
+  ],
+  "metadados": {
+    "usou_proxy": false,
+    "user_agent": "Mozilla/5.0 ...",
+    "tempo_execucao_ms": 1234
+  }
+}
+```
+
+### Modo multi-query (--queries-file)
+```json
+{
+  "buscas": [
+    {
+      "query": "texto da query",
+      "resultados": [ ... ]
+    }
+  ]
+}
+```
+
+### Extração com jaq
+```bash
+# Extrair URLs
+duckduckgo-search-cli -q -n 10 -f json "query" | jaq -r '.resultados[].url'
+
+# Extrair títulos e snippets formatados
+duckduckgo-search-cli -q -n 10 -f json "query" \
+  | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\nURL: \(.url)\n"'
+
+# Filtrar por keyword no snippet
+duckduckgo-search-cli -q -n 20 -f json "query" \
+  | jaq -r '.resultados[] | select(.snippet | test("rust")) | .titulo'
+```
+
+
+## Skill para Agentes de IA
+
+### Claude Code (inglês)
+- Caminho: `skill/duckduckgo-search-cli-en/SKILL.md`
+- Instala como skill nativa de Claude Code
+- Ativa busca web automática sem prompt engineering manual
+
+### Claude Code (português brasileiro)
+- Caminho: `skill/duckduckgo-search-cli-pt/SKILL.md`
+- Versão PT-BR da skill para Claude Code
+- Instruções e exemplos em português brasileiro
+
+### Uso em qualquer LLM via pipe
+```bash
+duckduckgo-search-cli -q -n 10 -f json "query" \
+  | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\n"'
+```
+- Output é Markdown plano — cole diretamente em qualquer janela de contexto
+- Veja `docs/INTEGRATIONS.md` para 16 guias específicos por agente
+
+
+## Compatibilidade com Agentes de IA
+
+- Claude Code, OpenAI Codex / GPT-4o, Gemini CLI, Cursor, Windsurf
+- Aider, Continue.dev, MiniMax, OpenCode, Paperclip
+- OpenClaw, Google Antigravity, GitHub Copilot CLI, Devin, Cline, Roo Code
+- Qualquer agente com acesso a Bash tool ou shell
+
+
+## Prevenção de Bloqueio Anti-Bot
+
+- Sempre passe `-q` ao usar em pipes — tracing polui stdout e quebra jaq
+- Sempre encapsule com `timeout N` em segundos inteiros
+- Use `--per-host-limit 1` para crawling polido
+- `--global-timeout` DEVE ser menor que `timeout` externo
+- Exit code 3 é temporário — aguarde 60s e tente novamente
+- Rotacione IP com `--proxy socks5://127.0.0.1:9050` se bloqueado
+
+
+## Handler de Exit Codes (shell)
+
+```bash
+run_ddg() {
+  local q="$1"
+  timeout 30 duckduckgo-search-cli -q -n 10 -f json "$q" > /tmp/out.json
+  local ec=$?
+  case $ec in
+    0) echo "OK: $q" ;;
+    3) echo "BLOQUEADO: aguarde 60s" >&2 ;;
+    4) echo "TIMEOUT_GLOBAL: aumente --global-timeout" >&2 ;;
+    5) echo "ZERO_RESULTADOS: amplie a query" >&2 ;;
+    *) echo "FALHA($ec): $q" >&2 ;;
+  esac
+  return $ec
+}
+```
+
+
+## Links Diretos
+
+- Crates.io: https://crates.io/crates/duckduckgo-search-cli
+- Docs.rs: https://docs.rs/duckduckgo-search-cli
+- GitHub: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+- Releases: https://github.com/daniloaguiarbr/duckduckgo-search-cli/releases
+- Skill EN: skill/duckduckgo-search-cli-en/SKILL.md
+- Skill PT: skill/duckduckgo-search-cli-pt/SKILL.md

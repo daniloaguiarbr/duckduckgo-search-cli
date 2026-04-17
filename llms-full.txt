@@ -1,0 +1,1274 @@
+# duckduckgo-search-cli v0.6.1 — Full Documentation for LLM Context
+
+---
+# README.md
+---
+
+[![crates.io](https://img.shields.io/crates/v/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
+[![docs.rs](https://img.shields.io/docsrs/duckduckgo-search-cli)](https://docs.rs/duckduckgo-search-cli)
+[![CI](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions)
+[![License](https://img.shields.io/crates/l/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
+
+> Web search at terminal speed — give your AI agent superhuman context.
+
+## English
+- Read this document in [Português](README.pt-BR.md).
+### Quick Install
+- Instale com um comando via cargo:
+
+```bash
+cargo install duckduckgo-search-cli
+```
+### Why this exists
+
+Every modern LLM carries a knowledge cutoff, and every autonomous agent eventually needs something its weights never saw: the latest library version, a 2026 incident post-mortem, a vendor's current pricing page. Bolting on a hosted search API costs money, leaks queries, and breaks when the vendor rate-limits you in the middle of a multi-step plan.
+
+`duckduckgo-search-cli` is a single Rust binary that turns any shell into a first-class search tool. No API key. No tracking. No Chrome in the hot path. Just a stable JSON schema, bounded concurrency, and predictable exit codes — exactly what an agent needs to ground itself in real-time web data without becoming a liability.
+
+### Superpowers for every AI agent
+
+Drop this binary into any agent that can run a shell command. That is nearly every serious agent shipping today.
+
+| Agent                  | How it benefits                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| Claude Code            | `Bash` tool invokes `duckduckgo-search-cli "query" --num 15 -q \| jaq '.resultados'` for grounded research before edits. |
+| OpenAI Codex           | Shell access feeds structured JSON into the context window for up-to-date library docs.           |
+| Gemini CLI             | Pipe results into Gemini's JSON mode for synthesis of long-tail web facts.                        |
+| Cursor                 | Declare the binary in `.cursorrules` and let the AI call it whenever it lacks context.            |
+| Windsurf               | Cascade agents call the CLI as a deterministic tool for fresh web data.                           |
+| Aider                  | Use `/run` to inject search results straight into the edit conversation.                          |
+| Continue.dev           | Register as a custom slash-command to ground in-IDE completions.                                  |
+| MiniMax                | Shell-tool integration gives MiniMax agents DuckDuckGo-backed global coverage.                    |
+| OpenCode               | Model-agnostic shell integration — works with any provider OpenCode is pointed at.                |
+| Paperclip              | Drop-in primitive for autonomous research pipelines.                                              |
+| OpenClaw               | Open-source agent runtime — use it as the default search backend.                                 |
+| Google Antigravity     | Headless CLI fallback for the surface-level browser agent when direct scraping is needed.         |
+| GitHub Copilot CLI     | `gh copilot` workflows that require verified URLs and fresh references.                           |
+| Devin                  | Autonomous engineer reads the JSON output to plan before touching code.                           |
+| Cline                  | VS Code agent calls the binary as a terminal command for grounded answers.                        |
+| Roo Code               | Roo Cline fork — same zero-config shell integration.                                              |
+
+### Why it's perfect for AI agents
+
+- **JSON-first by default.** Stable schema with `resultados[]` and `metadados`, field order frozen across releases, ready for `jaq` and direct parsing into tool calls.
+- **Zero API key, zero tracking.** Talks directly to DuckDuckGo's HTML endpoint over HTTPS. No authentication to rotate, no dashboard to babysit, no data leak surface.
+- **Parallel by design.** `--parallel 1..=20` fans out multiple queries through a `tokio::JoinSet`, and `--per-host-limit` prevents burst abuse when `--fetch-content` is on.
+- **15 results by default.** Generous context for LLMs without forcing you to spell out `--num`. Override per call when you need to.
+- **Auto-pagination that just works.** When `--num` exceeds a single DuckDuckGo page, the CLI automatically crawls up to 2 pages so you always get the count you asked for.
+- **Optional readable body extraction.** `--fetch-content` downloads each URL and embeds cleaned text straight into the JSON, capped by `--max-content-length`.
+- **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
+- **Pure `rustls-tls`.** No OpenSSL, no SChannel surprises, static musl builds work on the first try inside any Alpine container.
+- **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
+- **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
+- **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
+- **v0.6.0 anti-blocking.** Per-browser `Sec-Fetch-*` headers and Client Hints for Chrome/Edge; `Accept-Language` with RFC 7231 q-values; HTTP 202 anomaly detection; silent block detection with 5 KB threshold.
+
+### Agent Skill — bundled, bilingual, auto-activating
+
+Stop writing system prompts that remind your agent to search. This repo already ships a pre-built Claude Agent Skill, and Claude picks it up automatically the moment a user mentions research, verification, fresh docs or URL grounding — in less than a second, with zero prompt engineering.
+
+- **Two production-grade skills live in this repo.** `skill/duckduckgo-search-cli-en/SKILL.md` and `skill/duckduckgo-search-cli-pt/SKILL.md` — English and Brazilian Portuguese, each with a unique `name` field so both can coexist in the same Claude install.
+- **Auto-activation, straight out of the box.** The `description` field is front-loaded with the triggers users actually type ("search the web", "ground this", "verify this URL", "pesquise online", "traga resultados atualizados"). Claude matches on semantics — no slash command, no tool registration.
+- **14 canonical MUST/NEVER sections per skill.** Mandatory `-q -f json` contract, `jaq` parsing, deterministic exit codes, batch mode, content extraction, endpoint fallback, retries, post-validation — the agent reads this once and stops inventing flags forever.
+- **Token-efficient by design.** One ~1,000-word skill replaces a sprawling system prompt. Loaded once per session, referenced every time — trims hundreds of tokens off every future search turn.
+- **Anti-hallucination guarantee.** Every flag the agent might invoke is documented inside the skill with a frozen JSON contract. No made-up arguments, no retry loops, no wasted tool calls.
+- **Installs in one command.** Copy the folder into your Claude config and you are done — the skill lives on GitHub, not in the crates.io tarball, so always pull the freshest version from `main`.
+
+```bash
+# One-shot install (clone and copy whichever language you prefer).
+git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
+cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
+cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-pt ~/.claude/skills/
+
+# Restart Claude Code (or reload the Agent SDK). That is the whole setup.
+```
+
+### Documentation
+
+Three deep-dive guides ship with the crate. Read them once — they pay back forever.
+
+| Guide | Why it matters |
+|-------|---------------|
+| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 30+ MUST/NEVER rules for any LLM/agent invoking this CLI in production. Bilingual EN+PT. |
+| [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 copy-paste recipes for research, ETL, monitoring, content extraction. Bilingual EN+PT. |
+| [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Drop-in snippets for 16 agents: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Antigravity, Copilot CLI, Devin, Cline, Roo Code. |
+
+### Quick Start
+
+```bash
+cargo install duckduckgo-search-cli
+duckduckgo-search-cli "rust async runtime"
+# 15 fresh JSON results on your desk.
+
+# For LLMs and agents:
+duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
+```
+
+### Commands
+
+| Command                                    | Purpose                                                |
+| ------------------------------------------ | ------------------------------------------------------ |
+| `duckduckgo-search-cli <QUERY>...`         | Default search (equivalent to `buscar`).               |
+| `duckduckgo-search-cli buscar <QUERY>...`  | Explicit search subcommand.                            |
+| `duckduckgo-search-cli init-config`        | Write `selectors.toml` and `user-agents.toml` to XDG.  |
+
+### Flags
+
+| Flag                       | Default    | Description                                                        |
+| -------------------------- | ---------- | ------------------------------------------------------------------ |
+| `-n`, `--num`              | `15`       | Max results per query (auto-paginates when > 10).                  |
+| `-f`, `--format`           | `auto`     | `json`, `text`, `markdown`, or `auto` (TTY-aware).                 |
+| `-o`, `--output`           | stdout     | Write to file (v0.5.0: path validation, parent dirs, Unix 0o644). |
+| `-t`, `--timeout`          | `15`       | Per-request timeout (seconds).                                     |
+| `--global-timeout`         | `60`       | Whole-pipeline timeout (1..=3600 seconds).                         |
+| `-l`, `--lang`             | `pt`       | DuckDuckGo `kl` language code.                                     |
+| `-c`, `--country`          | `br`       | DuckDuckGo `kl` country code.                                      |
+| `-p`, `--parallel`         | `5`        | Concurrent requests (1..=20).                                      |
+| `--pages`                  | `1`        | Pages to crawl per query (1..=5, auto-raised by `--num`).          |
+| `--retries`                | `2`        | Extra retries on 429/403/timeout (0..=10).                         |
+| `--endpoint`               | `html`     | `html` or `lite`.                                                  |
+| `--time-filter`            | (none)     | `d`, `w`, `m`, or `y`.                                             |
+| `--safe-search`            | `moderate` | `off`, `moderate`, or `on`.                                        |
+| `--stream`                 | off        | Emit one NDJSON line per result as they arrive.                    |
+| `--fetch-content`          | off        | Fetch each URL and embed cleaned body text.                        |
+| `--max-content-length`     | `10000`    | Character cap per extracted body (1..=100_000).                    |
+| `--per-host-limit`         | `2`        | Concurrent fetches per host (1..=10).                              |
+| `--proxy URL`              | (none)     | HTTP/HTTPS/SOCKS5 proxy (takes precedence over env vars).          |
+| `--no-proxy`               | off        | Disable every proxy source.                                        |
+| `--queries-file PATH`      | (none)     | Read additional queries (one per line).                            |
+| `--match-platform-ua`      | off        | Filter UA pool to the current OS.                                  |
+| `-v`, `--verbose`          | off        | Debug logs on stderr.                                              |
+| `-q`, `--quiet`            | off        | Error-only logs on stderr.                                         |
+
+### Environment variables
+
+| Variable       | Description                                                 | Example                            |
+| -------------- | ----------------------------------------------------------- | ---------------------------------- |
+| `RUST_LOG`     | Overrides the `tracing-subscriber` filter.                  | `RUST_LOG=duckduckgo=debug`        |
+| `HTTP_PROXY`   | Default HTTP proxy (lower priority than `--proxy`).         | `http://user:pass@proxy:8080`      |
+| `HTTPS_PROXY`  | Default HTTPS proxy.                                        | `http://proxy:8443`                |
+| `ALL_PROXY`    | Fallback proxy for any scheme.                              | `socks5://127.0.0.1:9050`          |
+| `CHROME_PATH`  | Fallback Chrome path (feature `chrome`).                    | `/opt/google/chrome/chrome`        |
+
+### Output formats
+
+- `json` (default for pipes): canonical schema with `resultados[]` and `metadados`, stable field order.
+- `text`: human-readable block `NN. Title\n   URL\n   snippet`.
+- `markdown`: `- [Title](URL)\n  > snippet`.
+- Stream (`--stream`): NDJSON where each line is one result; metadata emitted as the final line.
+
+### Exit codes
+
+| Code | Meaning                                                        |
+| ---- | -------------------------------------------------------------- |
+| 0    | Success.                                                       |
+| 1    | Runtime error (network, parse, I/O).                           |
+| 2    | Invalid configuration (CLI flag out of range, bad proxy URL).  |
+| 3    | DuckDuckGo 202 block anomaly (soft-rate-limit).                |
+| 4    | Global timeout exceeded.                                       |
+| 5    | Zero results across all queries.                               |
+
+### Troubleshooting
+
+1. **HTTP 202 / block anomaly (exit 3)** — back off, raise `--retries`, rotate UA via `init-config` and tweak `user-agents.toml`.
+2. **Rate limited (HTTP 429)** — lower `--per-host-limit`, enable `--match-platform-ua`, or add `--proxy`.
+3. **Zero results (exit 5)** — check `--lang` and `--country`, try `--endpoint lite`, and verify `--time-filter`.
+4. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal.
+5. **Getting exit 5 (zero results) frequently** — wait 60 seconds and retry. Add `--proxy socks5://127.0.0.1:9050` to rotate outbound IP. Try `--endpoint lite`.
+
+## Português
+
+### Por que isto existe
+
+Toda LLM moderna carrega um corte de conhecimento, e todo agente autônomo eventualmente precisa de algo que seus pesos nunca viram. O `duckduckgo-search-cli` é um único binário Rust que transforma qualquer shell em ferramenta de busca de primeira classe. Sem API key. Sem tracking. Exit codes previsíveis.
+
+### Códigos de saída
+
+| Código | Significado                                                    |
+| ------ | -------------------------------------------------------------- |
+| 0      | Sucesso.                                                       |
+| 1      | Erro de runtime (rede, parse, I/O).                            |
+| 2      | Configuração inválida (flag fora de faixa, proxy malformado).  |
+| 3      | Bloqueio DuckDuckGo (anomalia HTTP 202).                       |
+| 4      | Timeout global excedido.                                       |
+| 5      | Zero resultados em todas as queries.                           |
+
+License: MIT OR Apache-2.0.
+
+
+---
+# docs/HOW_TO_USE.md
+---
+
+# How to Use duckduckgo-search-cli
+
+Real-time web search in your terminal — 15 fresh results in under 3 seconds.
+
+
+## Why This Guide
+- Follow this guide and run your first web search in under 60 seconds
+- Learn core commands, advanced patterns, and shell pipeline integrations
+- Understand every exit code and know exactly how to recover from each error
+
+
+## Prerequisites
+### Required
+- Network access to duckduckgo.com
+- Rust 1.75+ when installing via `cargo install`
+- Pre-built binaries require no Rust installation
+### Optional
+- `jaq` (Rust jq replacement) for JSON processing in pipelines
+- A SOCKS5 proxy for IP rotation when rate-limited
+
+
+## Installation
+### Cargo (Recommended)
+- Run: `cargo install duckduckgo-search-cli`
+- Binary location: `~/.cargo/bin/duckduckgo-search-cli`
+- Verify: `duckduckgo-search-cli --version`
+### Pre-built Binaries
+- Download from [GitHub Releases](https://github.com/daniloaguiarbr/duckduckgo-search-cli/releases)
+- Available for Linux (glibc + musl), macOS Universal, and Windows MSVC
+- No Rust installation required — single static binary
+
+
+## First Command
+### Basic Search
+```bash
+duckduckgo-search-cli "rust async programming"
+```
+- Default: 15 results, auto-detects TTY for format
+- Add `-f json` for machine-readable output
+- Add `-q` to suppress tracing logs when piping
+### Expected Output
+```
+ 1. Title of first result
+    https://example.com/page
+    Snippet text describing the page content...
+
+ 2. Title of second result
+    ...
+```
+- Use `-f json` to get structured output for scripts and agents
+- Use `-f markdown` to get a linkable list for reports
+
+
+## Core Commands
+### Text Search
+```bash
+# Human-readable output (default on TTY)
+duckduckgo-search-cli -n 5 "query"
+```
+- Default format on TTY is `text`
+- Default format in pipes is `json`
+- Use `-n N` to control result count (default: 15)
+### JSON Output
+```bash
+# Machine-readable output for scripts and LLMs
+duckduckgo-search-cli -q -n 10 -f json "query"
+```
+- Always pass `-q` when piping to suppress tracing logs
+- Schema: `resultados[]` array with `titulo`, `url`, `snippet`
+- Field order is frozen across releases — safe for scripted parsing
+### Markdown Report
+```bash
+# Linkable list for reports and documents
+duckduckgo-search-cli -n 15 -f markdown -o report.md "query"
+```
+- Format: `- [Title](URL)\n  > snippet`
+- Use `-o` to save directly to file
+### Save to File
+```bash
+# Atomic write — safe for concurrent scripts
+duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
+```
+- Creates parent directories automatically
+- Unix permissions set to `0o644`
+- Paths with `..` are rejected (path traversal protection)
+
+
+## Advanced Patterns
+### Fetch Page Content
+```bash
+# Download and embed cleaned page text into JSON
+duckduckgo-search-cli -q -n 5 --fetch-content --max-content-length 8000 -f json "query"
+```
+- Field `conteudo` appears in each result object when enabled
+- Use `--max-content-length` to cap characters per page (default: 10000)
+- Use `--per-host-limit 1` to avoid hammering a single domain
+### Multi-Query Parallel Search
+```bash
+# One query per line in queries.txt
+duckduckgo-search-cli -q \
+  --queries-file queries.txt \
+  --parallel 3 \
+  --per-host-limit 1 \
+  --retries 3 \
+  -n 10 -f json \
+  -o results.json
+```
+- `--parallel` controls concurrent requests (1..=20)
+- `--per-host-limit` caps fetches per domain (1..=10)
+- Results grouped per query under `.buscas[]` in multi-query mode
+### Time-Filtered Search
+```bash
+# Results from the last 24 hours only
+duckduckgo-search-cli -q -n 10 --time-filter d -f json "breaking news query"
+```
+- Values: `d` (day), `w` (week), `m` (month), `y` (year)
+- Combine with `--endpoint lite` for higher freshness on low-traffic queries
+### Proxy Routing
+```bash
+# Route through a SOCKS5 proxy
+duckduckgo-search-cli -q -n 10 --proxy socks5://127.0.0.1:9050 -f json "query"
+
+# Route through an HTTP corporate proxy
+duckduckgo-search-cli -q -n 10 --proxy http://user:pass@proxy.internal:8080 -f json "query"
+```
+- `--proxy` takes precedence over `HTTP_PROXY` and `ALL_PROXY` env vars
+- Use `--no-proxy` to disable all proxy sources explicitly
+### Language Control
+```bash
+# Portuguese results
+duckduckgo-search-cli -q -n 10 --lang pt -f json "query"
+
+# English results from the US
+duckduckgo-search-cli -q -n 10 --lang en --country us -f json "query"
+```
+- Default lang: `pt`, default country: `br`
+- Uses DuckDuckGo `kl` region codes
+
+
+## Integration with Shell Scripts
+### Extract URLs from Results
+```bash
+duckduckgo-search-cli -q -n 10 -f json "query" \
+  | jaq -r '.resultados[].url'
+```
+- Outputs one URL per line, ready for `xargs` or downstream fetchers
+### Filter by Snippet Keywords
+```bash
+duckduckgo-search-cli -q -n 20 -f json "query" \
+  | jaq -r '.resultados[] | select(.snippet | test("rust")) | .titulo'
+```
+- `test()` in `jaq` is a regex match against the snippet text
+### Count Results
+```bash
+duckduckgo-search-cli -q -n 10 -f json "query" \
+  | jaq '.resultados | length'
+```
+- Verify actual count returned versus requested `-n`
+### Handle Exit Codes in Scripts
+```bash
+duckduckgo-search-cli -q -n 10 -f json "query" > /tmp/out.json
+case $? in
+  0) echo "OK" ;;
+  3) echo "Anti-bot block — wait 60s or rotate proxy" >&2 ;;
+  4) echo "Global timeout exceeded" >&2 ;;
+  5) echo "Zero results — try broader query" >&2 ;;
+  *) echo "Error: exit $?" >&2 ;;
+esac
+```
+- Always check `$?` before consuming the output file
+- Exit code 3 is temporary — retry after a short pause
+
+
+## Integration with AI Agents
+### Claude Code
+```bash
+# In a Claude Code Bash tool call:
+RESULTS=$(duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
+  | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\nURL: \(.url)\n"')
+```
+- Install the bundled skill for auto-activation without prompt engineering
+- Skill path: `skill/duckduckgo-search-cli-en/SKILL.md`
+### OpenAI Codex / GPT
+```bash
+# Feed structured JSON as context into messages[].content
+duckduckgo-search-cli -q -n 10 -f json "$QUERY" | jaq '.resultados'
+```
+- The stable `resultados[]` schema maps cleanly to tool call response fields
+- Use `--fetch-content` to embed full page bodies for deeper grounding
+### Gemini
+```bash
+# Full page text as grounding data
+duckduckgo-search-cli -q -n 5 \
+  --fetch-content --max-content-length 5000 \
+  -f json "$QUERY" \
+  | jaq -r '.resultados[].conteudo // empty'
+```
+- Pipe content into Gemini's JSON mode for synthesis of long-tail facts
+### Any LLM via Pipe
+```bash
+duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
+  | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\n"'
+```
+- Output is plain Markdown — paste directly into any context window
+- See `docs/INTEGRATIONS.md` for 16 agent-specific drop-in snippets
+
+
+## Common Errors
+### HTTP 202 Anti-bot Block (exit 3)
+- DuckDuckGo returned a soft challenge page, not real results
+- Wait 60 seconds before retrying
+- Rotate outbound IP with `--proxy socks5://127.0.0.1:9050`
+- Increase retries: `--retries 5`
+- Run `duckduckgo-search-cli init-config` to refresh browser profiles
+### Global Timeout (exit 4)
+- Pipeline exceeded `--global-timeout` (default: 60 seconds)
+- Increase value: `--global-timeout 120`
+- Reduce result count: `-n 5`
+- Add `--endpoint lite` for faster responses on slow connections
+### Zero Results (exit 5)
+- Often temporary rate-limiting, not a permanent block
+- Wait 60 seconds and retry the same query
+- Broaden the query by removing specific terms
+- Remove `--time-filter` if set — it narrows the result pool
+- Try `--endpoint lite` as a fallback endpoint
+### Invalid Config (exit 2)
+- A flag is out of range or a path is invalid
+- `--timeout 0` is rejected — minimum is 1 second
+- `--output ../../../etc/passwd` is rejected — path traversal blocked
+- `--global-timeout 0` is rejected — minimum is 1 second
+- `--parallel 0` is rejected — minimum is 1
+
+
+## Exit Codes Reference
+
+| Code | Meaning | Recommended Action |
+|------|---------|-------------------|
+| 0 | Success | Process results normally |
+| 1 | Runtime error (network, parse, I/O) | Check stderr for details |
+| 2 | Invalid config (flag out of range, bad path) | Fix the argument |
+| 3 | DuckDuckGo anti-bot block (HTTP 202) | Wait 60s or rotate proxy |
+| 4 | Global timeout exceeded | Increase `--global-timeout` |
+| 5 | Zero results across all queries | Broaden query or remove filters |
+
+
+## Next Steps
+- See `docs/COOKBOOK.md` for 15 copy-paste recipes for research, ETL, and monitoring
+- See `docs/INTEGRATIONS.md` for 16 LLM agent integration guides
+- See `docs/AGENTS-GUIDE.md` for the full stdin/stdout contract and schema reference
+- See `docs/CROSS_PLATFORM.md` for Linux, macOS, Windows, and Docker setup guides
+- See `docs/AGENT_RULES.md` for 30+ MUST/NEVER rules for production agent use
+
+
+---
+# docs/COOKBOOK.md
+---
+
+# COOKBOOK / Livro de Receitas
+
+> duckduckgo-search-cli — executable recipes that plug into any LLM pipeline in under 60 seconds.
+> duckduckgo-search-cli — receitas executáveis que se integram a qualquer pipeline LLM em menos de 60 segundos.
+
+## Table of Contents / Índice
+
+### English Recipes
+- Recipe 01 — Top 5 results as CSV in 1 command
+- Recipe 02 — Archived Markdown report to disk
+- Recipe 03 — Parallel multi-query research with dedup scoring
+- Recipe 04 — Domain whitelist builder for RAG source filters
+- Recipe 05 — Last-24h news monitor with timestamped snapshots
+- Recipe 06 — Deep research payload ready for LLM context window
+- Recipe 07 — Rate-limited safe crawling below anti-abuse thresholds
+- Recipe 08 — Proxy-routed search with leak verification
+- Recipe 09 — Zero-noise pipeline for cron and systemd
+- Recipe 10 — Anti-bot block detector with exit code routing
+- Recipe 11 — Breadth audit: top 5 vs top 15 coverage gap
+- Recipe 12 — Side-by-side Markdown comparison of two queries
+- Recipe 13 — NDJSON export for ClickHouse, BigQuery, and DuckDB
+- Recipe 14 — Search-to-summarize pipeline with a local LLM
+- Recipe 15 — Bash function wrapper with opinionated safe defaults
+- Recipe 16 — Pipe diagnostic with PIPESTATUS
+- Recipe 17 — Anti-blocking with v0.6.0 browser fingerprint profiles
+
+## ENGLISH RECIPES
+
+### Recipe 01 — Top 5 results as CSV in 1 command
+
+```bash
+timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
+  | jaq -r '.resultados[] | [.posicao, .titulo, .url] | @csv'
+```
+
+### Recipe 02 — Archived Markdown report to disk
+
+```bash
+timeout 45 duckduckgo-search-cli -q \
+  -n 15 \
+  -f markdown \
+  -o reports/rust-webassembly.md \
+  "rust webassembly edge computing"
+```
+
+### Recipe 03 — Parallel multi-query research with dedup scoring
+
+```bash
+printf '%s\n' \
+  "rust async runtimes" \
+  "tokio vs async-std" \
+  "rust runtime benchmark" \
+  "rust executor design" \
+  "glommio runtime" > /tmp/queries.txt
+
+timeout 90 duckduckgo-search-cli -q \
+  --queries-file /tmp/queries.txt \
+  --parallel 5 \
+  -n 10 \
+  -f json \
+  -o /tmp/multi.json
+
+jaq -r '.buscas[].resultados[].url' /tmp/multi.json \
+  | sort \
+  | uniq -c \
+  | sort -rn \
+  | head -10
+```
+
+### Recipe 04 — Domain whitelist builder for RAG source filters
+
+```bash
+timeout 120 duckduckgo-search-cli -q \
+  --queries-file /tmp/pg.txt \
+  -n 20 \
+  -f json \
+  | jaq -r '.buscas[].resultados[].url' \
+  | rg -oP '^https?://[^/]+' \
+  | sort -u \
+  > /tmp/pg-whitelist.txt
+```
+
+### Recipe 05 — Last-24h news monitor with timestamped snapshots
+
+```bash
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+timeout 60 duckduckgo-search-cli -q \
+  --time-filter d \
+  -n 20 \
+  -f json \
+  -o /var/log/ddg-monitor/ai-safety-${STAMP}.json \
+  "ai safety regulation"
+```
+
+### Recipe 06 — Deep research payload ready for LLM context window
+
+```bash
+timeout 180 duckduckgo-search-cli -q \
+  -n 10 \
+  --fetch-content \
+  --max-content-length 5000 \
+  -f json \
+  -o /tmp/deep.json \
+  "differential privacy federated learning"
+
+jaq -r '
+  .resultados[]
+  | "## \(.titulo)\nURL: \(.url)\n\n\(.conteudo // "(no content)")\n\n---"
+' /tmp/deep.json > /tmp/llm-context.md
+```
+
+### Recipe 07 — Rate-limited safe crawling below anti-abuse thresholds
+
+```bash
+timeout 300 duckduckgo-search-cli -q \
+  --queries-file /tmp/sensitive.txt \
+  --parallel 2 \
+  --per-host-limit 1 \
+  --retries 3 \
+  --timeout 30 \
+  --global-timeout 280 \
+  -n 15 \
+  -f json \
+  -o /tmp/safe-research.json
+```
+
+### Recipe 08 — Proxy-routed search with leak verification
+
+```bash
+timeout 60 duckduckgo-search-cli -q \
+  --proxy socks5://127.0.0.1:1080 \
+  -n 10 \
+  -f json \
+  "geoip restricted content test" \
+  | jaq '.metadados | {usou_proxy, user_agent, tempo_execucao_ms}'
+```
+
+### Recipe 09 — Zero-noise pipeline for cron and systemd
+
+```bash
+# /etc/cron.d/ddg-snapshot
+# 15 * * * * user timeout 120 duckduckgo-search-cli -q \
+#   --queries-file /etc/ddg/watchlist.txt \
+#   --global-timeout 110 \
+#   --retries 2 \
+#   -n 15 \
+#   -f json \
+#   -o /var/log/ddg/$(date -u +\%Y\%m\%dT\%H).json \
+#   2>> /var/log/ddg/errors.log
+```
+
+### Recipe 10 — Anti-bot block detector with exit code routing
+
+```bash
+run_ddg() {
+  local q="$1"
+  timeout 30 duckduckgo-search-cli -q -n 10 -f json "$q" > /tmp/out.json
+  local ec=$?
+  case $ec in
+    0) echo "OK: $q" ;;
+    3) echo "BLOCKED: $q" >&2 ;;
+    4) echo "GLOBAL_TIMEOUT: $q" >&2 ;;
+    5) echo "ZERO_RESULTS: $q" >&2 ;;
+    *) echo "FAIL($ec): $q" >&2 ;;
+  esac
+  return $ec
+}
+```
+
+### Recipe 11 — Breadth audit: top 5 vs top 15 coverage gap
+
+```bash
+Q="llm inference benchmarking"
+timeout 30 duckduckgo-search-cli -q -n 5  -f json "$Q" > /tmp/top5.json
+timeout 30 duckduckgo-search-cli -q -n 15 -f json "$Q" > /tmp/top15.json
+jaq -r '.resultados[].url' /tmp/top5.json  | sort -u > /tmp/urls5.txt
+jaq -r '.resultados[].url' /tmp/top15.json | sort -u > /tmp/urls15.txt
+comm -13 /tmp/urls5.txt /tmp/urls15.txt
+```
+
+### Recipe 12 — Side-by-side Markdown comparison of two queries
+
+```bash
+Q1="rust web framework axum"
+Q2="rust web framework actix"
+timeout 30 duckduckgo-search-cli -q -n 5 -f json "$Q1" > /tmp/a.json
+timeout 30 duckduckgo-search-cli -q -n 5 -f json "$Q2" > /tmp/b.json
+{
+  echo "| # | $Q1 | $Q2 |"
+  echo "|---|-----|-----|"
+  for i in $(seq 1 5); do
+    T1=$(jaq -r ".resultados[$((i-1))].titulo" /tmp/a.json)
+    T2=$(jaq -r ".resultados[$((i-1))].titulo" /tmp/b.json)
+    echo "| $i | $T1 | $T2 |"
+  done
+} > /tmp/compare.md
+```
+
+### Recipe 13 — NDJSON export for ClickHouse, BigQuery, and DuckDB
+
+```bash
+timeout 120 duckduckgo-search-cli -q \
+  --queries-file /tmp/etl-queries.txt \
+  -n 15 \
+  -f json \
+  | jaq -c '
+    .buscas[] as $b
+    | $b.resultados[]
+    | {
+        query: $b.query,
+        ts: $b.timestamp,
+        posicao: .posicao,
+        titulo: .titulo,
+        url: .url,
+        snippet: .snippet
+      }
+  ' > /tmp/results.ndjson
+```
+
+### Recipe 14 — Search-to-summarize pipeline with a local LLM
+
+```bash
+timeout 60 duckduckgo-search-cli -q \
+  -n 10 --fetch-content --max-content-length 3000 \
+  -f json \
+  "what is retrieval augmented generation" \
+  > /tmp/rag.json
+
+CONTEXT=$(jaq -r '[.resultados[] | "- \(.titulo): \(.conteudo // .snippet)"] | join("\n")' /tmp/rag.json)
+
+timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
+  model=llama3.1 \
+  messages:='[
+    {"role":"system","content":"Summarize the sources into 5 bullets. Cite URLs."},
+    {"role":"user","content":"'"$CONTEXT"'"}
+  ]' \
+  | jaq -r '.choices[0].message.content'
+```
+
+### Recipe 15 — Bash function wrapper with opinionated safe defaults
+
+```bash
+ddg-deep() {
+  local query="$*"
+  if [ -z "$query" ]; then
+    echo "usage: ddg-deep <query...>" >&2
+    return 2
+  fi
+  local slug
+  slug=$(echo "$query" | tr -cs '[:alnum:]' '-' | sed 's/-$//')
+  local out="./ddg-${slug}-$(date -u +%Y%m%dT%H%M%SZ).json"
+  timeout 120 duckduckgo-search-cli -q \
+    -n 15 \
+    --retries 3 \
+    --timeout 20 \
+    --global-timeout 110 \
+    --fetch-content \
+    --max-content-length 8000 \
+    -f json \
+    -o "$out" \
+    "$query"
+  local ec=$?
+  if [ $ec -eq 0 ]; then
+    echo "Saved: $out"
+    jaq -r '.resultados[] | "\(.posicao). \(.titulo)"' "$out" | head -5
+  else
+    echo "ddg-deep failed with exit code $ec" >&2
+  fi
+  return $ec
+}
+```
+
+### Recipe 16 — Pipe diagnostic with PIPESTATUS
+
+```bash
+timeout 60 duckduckgo-search-cli "rust async" -q -n 5 -f json \
+  | jaq -r '.resultados[].url'
+echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
+# CLI=0 JQ=0  → success
+# CLI=5 JQ=0  → zero results
+# CLI=3 JQ=0  → anti-bot block
+# CLI=4 JQ=0  → global timeout
+```
+
+### Recipe 17 — Anti-blocking with v0.6.0 browser fingerprint profiles
+
+```bash
+# v0.6.0 fingerprint profiles activate automatically — no flags needed
+timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 \
+  | jaq '.resultados[:5]'
+
+# If exit 3 still fires, rotate IP and retry with lite endpoint
+timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 \
+  --proxy socks5://127.0.0.1:9050 --endpoint lite \
+  | jaq '.resultados'
+
+# Handler respecting v0.6.0 exit codes
+timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 > /tmp/r.json
+case $? in
+  0) jaq '.resultados' /tmp/r.json ;;
+  3) echo "anti-bot block — wait 300s, rotate proxy or use --endpoint lite" >&2 ;;
+  5) echo "zero results — refine query or change --lang" >&2 ;;
+  *) echo "error $?" >&2; exit $? ;;
+esac
+```
+
+## RECEITAS EM PORTUGUÊS
+
+### Receita 01 — Top 5 resultados como CSV em 1 comando
+
+```bash
+timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
+  | jaq -r '.resultados[] | [.posicao, .titulo, .url] | @csv'
+```
+
+### Receita 02 — Relatório Markdown arquivado em disco
+
+```bash
+timeout 45 duckduckgo-search-cli -q \
+  -n 15 \
+  -f markdown \
+  -o reports/rust-webassembly.md \
+  "rust webassembly edge computing"
+```
+
+### Receita 03 — Pesquisa paralela multi-query com pontuação de deduplicação
+
+```bash
+printf '%s\n' \
+  "rust async runtimes" \
+  "tokio vs async-std" \
+  "rust runtime benchmark" \
+  "rust executor design" \
+  "glommio runtime" > /tmp/queries.txt
+
+timeout 90 duckduckgo-search-cli -q \
+  --queries-file /tmp/queries.txt \
+  --parallel 5 \
+  -n 10 \
+  -f json \
+  -o /tmp/multi.json
+
+jaq -r '.buscas[].resultados[].url' /tmp/multi.json \
+  | sort | uniq -c | sort -rn | head -10
+```
+
+### Receita 04 — Construtor de whitelist de domínios para filtros RAG
+
+```bash
+timeout 120 duckduckgo-search-cli -q \
+  --queries-file /tmp/pg.txt \
+  -n 20 \
+  -f json \
+  | jaq -r '.buscas[].resultados[].url' \
+  | rg -oP '^https?://[^/]+' \
+  | sort -u \
+  > /tmp/pg-whitelist.txt
+```
+
+### Receita 05 — Monitor de notícias das últimas 24h com snapshots com timestamp
+
+```bash
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+timeout 60 duckduckgo-search-cli -q \
+  --time-filter d -n 20 -f json \
+  -o /var/log/ddg-monitor/ai-safety-${STAMP}.json \
+  "ai safety regulation"
+```
+
+### Receita 06 — Payload de pesquisa profunda pronto para a janela de contexto do LLM
+
+```bash
+timeout 180 duckduckgo-search-cli -q \
+  -n 10 --fetch-content --max-content-length 5000 \
+  -f json -o /tmp/deep.json \
+  "differential privacy federated learning"
+
+jaq -r '.resultados[] | "## \(.titulo)\nURL: \(.url)\n\n\(.conteudo // "(sem conteúdo)")\n\n---"' \
+  /tmp/deep.json > /tmp/llm-context.md
+```
+
+### Receita 07 — Crawling seguro com rate-limit abaixo de thresholds anti-abuso
+
+```bash
+timeout 300 duckduckgo-search-cli -q \
+  --queries-file /tmp/sensitive.txt \
+  --parallel 2 --per-host-limit 1 --retries 3 \
+  --timeout 30 --global-timeout 280 \
+  -n 15 -f json -o /tmp/safe-research.json
+```
+
+### Receita 08 — Busca via proxy com verificação de vazamento de IP
+
+```bash
+timeout 60 duckduckgo-search-cli -q \
+  --proxy socks5://127.0.0.1:1080 \
+  -n 10 -f json \
+  "teste de conteudo restrito por geoip" \
+  | jaq '.metadados | {usou_proxy, user_agent, tempo_execucao_ms}'
+```
+
+### Receita 10 — Detector de bloqueio anti-bot com roteamento por exit code
+
+```bash
+run_ddg() {
+  local q="$1"
+  timeout 30 duckduckgo-search-cli -q -n 10 -f json "$q" > /tmp/out.json
+  local ec=$?
+  case $ec in
+    0) echo "OK: $q" ;;
+    3) echo "BLOQUEADO: $q" >&2 ;;
+    4) echo "TIMEOUT_GLOBAL: $q" >&2 ;;
+    5) echo "ZERO_RESULTADOS: $q" >&2 ;;
+    *) echo "FALHA($ec): $q" >&2 ;;
+  esac
+  return $ec
+}
+```
+
+### Receita 14 — Pipeline busca-para-sumarização com LLM local
+
+```bash
+timeout 60 duckduckgo-search-cli -q \
+  -n 10 --fetch-content --max-content-length 3000 \
+  -f json \
+  "o que é retrieval augmented generation" \
+  > /tmp/rag.json
+
+CONTEXT=$(jaq -r '[.resultados[] | "- \(.titulo): \(.conteudo // .snippet)"] | join("\n")' /tmp/rag.json)
+
+timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
+  model=llama3.1 \
+  messages:='[
+    {"role":"system","content":"Resuma as fontes em 5 bullets. Cite URLs."},
+    {"role":"user","content":"'"$CONTEXT"'"}
+  ]' \
+  | jaq -r '.choices[0].message.content'
+```
+
+## Recipe-to-Use-Case Table / Tabela Receita para Caso de Uso
+
+| Recipe / Receita | Use case / Caso de uso | Tools used / Ferramentas |
+|---|---|---|
+| 01 | Triagem rápida top-N em uma linha | `duckduckgo-search-cli`, `jaq`, `timeout` |
+| 02 | Relatório Markdown arquivado | `duckduckgo-search-cli`, `bat`, `timeout` |
+| 03 | Pesquisa multi-query consolidada | `duckduckgo-search-cli`, `jaq`, `sort`, `uniq`, `timeout` |
+| 04 | Construção de whitelist de domínios | `duckduckgo-search-cli`, `jaq`, `rg`, `sort`, `timeout` |
+| 05 | Monitoramento 24h agendado | `duckduckgo-search-cli`, `jaq`, `date`, `timeout` |
+| 06 | Contexto longo para RAG/LLM | `duckduckgo-search-cli --fetch-content`, `jaq`, `timeout` |
+| 07 | Crawling polido rate-limited | `duckduckgo-search-cli`, `jaq`, `timeout` |
+| 08 | Verificação de roteamento por proxy | `duckduckgo-search-cli --proxy`, `jaq`, `timeout` |
+| 09 | Snapshot horário não-supervisionado | `duckduckgo-search-cli`, `cron`/`systemd`, `timeout` |
+| 10 | Observabilidade de bloqueios anti-bot | `duckduckgo-search-cli` (exit code 3), `bash case`, `timeout` |
+| 11 | Auditoria de amplitude de resultados | `duckduckgo-search-cli`, `jaq`, `comm`, `sort`, `timeout` |
+| 12 | Comparação A/B em Markdown | `duckduckgo-search-cli`, `jaq`, `bat`, `timeout` |
+| 13 | Exportação NDJSON para ETL | `duckduckgo-search-cli`, `jaq -c`, `timeout` |
+| 14 | Pipeline busca para sumarização com LLM | `duckduckgo-search-cli --fetch-content`, `jaq`, `xh`, `timeout` |
+| 15 | Defaults opinativos reutilizáveis | `duckduckgo-search-cli`, função bash, `jaq`, `timeout` |
+| 16 | Diagnóstico de pipe com PIPESTATUS | `duckduckgo-search-cli`, `jaq`, `PIPESTATUS`, `timeout` |
+| 17 | Anti-bloqueio com perfis de browser v0.6.0 | `duckduckgo-search-cli`, `jaq`, `bash case`, `timeout` |
+
+
+---
+# docs/INTEGRATIONS.md
+---
+
+# `duckduckgo-search-cli` — Integration Guide for 16 AI Agents / LLMs
+- The definitive copy-paste playbook for plugging `duckduckgo-search-cli` into every major AI coding agent.
+- Find your agent, copy the snippet, gain structured web search in under 30 seconds.
+
+## Agent Index / Índice de Agentes
+| # | Agent | Shell mechanism |
+|---|---|---|
+| 1 | Claude Code (Anthropic) | Bash tool |
+| 2 | OpenAI Codex | Shell / exec tool |
+| 3 | Gemini CLI (Google) | Shell tool |
+| 4 | Cursor | Terminal + chat |
+| 5 | Windsurf (Codeium) | Cascade terminal |
+| 6 | Aider | `/run` command |
+| 7 | Continue.dev | Custom slash command |
+| 8 | MiniMax Agent | Agent tool / API |
+| 9 | OpenCode | Shell tool |
+| 10 | Paperclip | Agent capability |
+| 11 | OpenClaw | CLI tool binding |
+| 12 | Google Antigravity | Agent shell |
+| 13 | GitHub Copilot CLI | `gh copilot` |
+| 14 | Devin | Cloud sandbox |
+| 15 | Cline | VS Code terminal |
+| 16 | Roo Code | VS Code terminal |
+
+## Baseline Contract / Contrato Base
+- Binary: `duckduckgo-search-cli`
+- Install: `cargo install duckduckgo-search-cli`
+- Defaults: `--num 15` (auto-paginates 2 pages), `-f auto` (JSON in pipes, text in TTY)
+- Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
+- Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results
+- JSON schema (single query):
+  ```json
+  {
+    "query": "...", "motor": "duckduckgo", "endpoint": "html",
+    "timestamp": "2026-04-14T10:00:00Z", "regiao": "br-pt",
+    "quantidade_resultados": 15, "paginas_buscadas": 2,
+    "resultados": [
+      {"posicao": 1, "titulo": "...", "url": "...", "snippet": "...", "url_exibicao": "...", "titulo_original": "..."}
+    ],
+    "metadados": {"tempo_execucao_ms": 1234, "user_agent": "..."}
+  }
+  ```
+- Pipe safety: SIGPIPE restored to SIG_DFL on Unix — pipes terminate cleanly. BrokenPipe returns exit 0.
+- Path safety (v0.5.0): `--output` validates paths BEFORE writing — rejects `..` components and system directories.
+- Credential safety (v0.5.0): proxy credentials NEVER appear in error messages — automatic masking.
+- Anti-blocking (v0.6.0): `PerfilBrowser` injects per-family `Sec-Fetch-*`, Client Hints, and RFC 7231 `Accept-Language`.
+- Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
+
+# ENGLISH SECTION
+
+## 1. Claude Code
+- Shell mechanism: native `Bash` tool; optional hooks via `~/.claude/settings.json`.
+
+### Setup
+```bash
+cargo install duckduckgo-search-cli --force
+duckduckgo-search-cli --version
+```
+
+### Snippet — Basic search
+> "Run `timeout 30 duckduckgo-search-cli "rust async tokio" -q --num 15 | jaq '.resultados[] | {titulo, url, snippet}'` and summarize the top 5 results."
+
+### Snippet — Multi-query research
+> "Create `/tmp/queries.txt` with 5 queries, then run:
+> `timeout 120 duckduckgo-search-cli --queries-file /tmp/queries.txt -q -f json --parallel 5 -o /tmp/research.json` and read the JSON file."
+
+### System prompt rule (add to `CLAUDE.md`)
+> When you need fresh web context, ALWAYS use `duckduckgo-search-cli QUERY -q --num 15` instead of fabricating links. Parse JSON output with `jaq`.
+
+## 2. OpenAI Codex
+### Setup
+```bash
+cargo install duckduckgo-search-cli
+codex config set approval on-failure
+```
+### Snippet — Basic search
+> "Use the shell tool to execute: `duckduckgo-search-cli "postgres jsonb index performance" -q --num 15 -f json` then extract titles + urls with jaq."
+### System prompt rule
+> Always prefer `duckduckgo-search-cli` (installed globally) over inventing URLs. Default to `-q --num 15 -f json` and pipe through `jaq`.
+
+## 3. Gemini CLI
+### Setup
+```bash
+cargo install duckduckgo-search-cli
+```
+### Snippet — Basic search
+> "Run `duckduckgo-search-cli "wasm component model 2025" -q --num 15 | jaq '.resultados[:5]'` and give me a bullet list."
+### System prompt rule (`.gemini/GEMINI.md`)
+> For web facts, use the shell tool to call `duckduckgo-search-cli QUERY -q --num 15 -f json`. Never fabricate URLs.
+
+## 4. Cursor
+### Setup
+```bash
+cargo install duckduckgo-search-cli
+duckduckgo-search-cli --version
+```
+### Snippet — Basic search (Composer agent mode)
+> "Run in terminal: `duckduckgo-search-cli "tauri v2 plugin api" -q --num 15 -f json | jaq '.resultados[] | {titulo, url}'` and paste the top 5 into a `RESEARCH.md` file."
+### System prompt rule (`.cursorrules`)
+> Prefer running `duckduckgo-search-cli QUERY -q --num 15` before searching the web mentally. Always pipe to `jaq` and cite URLs verbatim.
+
+## 5. Windsurf
+### Snippet — Basic search
+> "Use the terminal to run: `duckduckgo-search-cli "axum tower middleware" -q --num 15 -f json`. Parse with `jaq '.resultados[:5] | map({titulo, url})'` and save to `ctx/search.json`."
+### System prompt rule (Cascade system instructions)
+> When the user asks for current / web-based information, run `duckduckgo-search-cli QUERY -q --num 15 -f json` via the terminal. Never hallucinate URLs.
+
+## 6. Aider
+### Setup
+```bash
+pipx install aider-chat
+cargo install duckduckgo-search-cli
+```
+### Snippet — Basic search (inside aider REPL)
+```
+/run duckduckgo-search-cli "sqlx postgres migrations" -q --num 15 -f json | jaq '.resultados[:5] | map({titulo, url, snippet})'
+```
+
+## 7. Continue.dev
+### Snippet — `~/.continue/config.json` slash command
+```json
+{
+  "slashCommands": [
+    {
+      "name": "ddg",
+      "description": "Search the web via DuckDuckGo",
+      "run": "duckduckgo-search-cli \"{{{ input }}}\" -q --num 15 -f json | jaq '.resultados[:5] | map({titulo, url, snippet})'"
+    }
+  ]
+}
+```
+
+## 8. MiniMax Agent
+### Snippet — Tool definition
+```json
+{
+  "name": "web_search",
+  "description": "Search the web via duckduckgo-search-cli and return JSON",
+  "parameters": {
+    "type": "object",
+    "properties": { "query": { "type": "string" } },
+    "required": ["query"]
+  }
+}
+```
+```python
+def web_search(query):
+    return subprocess.check_output(
+        ["duckduckgo-search-cli", query, "-q", "--num", "15", "-f", "json"],
+        timeout=60
+    )
+```
+
+## 9. OpenCode
+### Snippet — Basic search
+> "Run `duckduckgo-search-cli "tokio select cancel-safety" -q --num 15 -f json | jaq '.resultados[:5]'` and synthesize a one-paragraph answer."
+
+## 10. Paperclip
+### Snippet — Basic search (agent task YAML)
+```yaml
+- name: web_search
+  cli: duckduckgo-search-cli
+  args: ["{{query}}", "-q", "--num", "15", "-f", "json"]
+  parse: json
+  timeout: 60
+```
+
+## 11. OpenClaw
+### Snippet — `tools.toml` binding
+```toml
+[[tool]]
+name = "web"
+bin  = "duckduckgo-search-cli"
+args = ["{query}", "-q", "--num", "15", "-f", "json"]
+timeout_secs = 60
+```
+
+## 12. Google Antigravity
+### Snippet — Basic search
+> "Execute: `duckduckgo-search-cli "go generics 1.22 best practices" -q --num 15 -f json | jaq '.resultados[:5]'` and paste findings into `NOTES.md`."
+
+## 13. GitHub Copilot CLI
+### Setup
+```bash
+gh extension install github/gh-copilot
+cargo install duckduckgo-search-cli
+```
+### Snippet — Basic search
+```bash
+gh copilot suggest "search the web for 'rust axum middleware tower'" --target shell
+# Copilot will propose:
+duckduckgo-search-cli "rust axum middleware tower" -q --num 15 -f json | jaq '.resultados[:5]'
+```
+
+## 14. Devin
+### Setup (in Devin session)
+```bash
+cargo install duckduckgo-search-cli
+devin snapshot save "cargo-tools"
+```
+### Snippet — Basic search
+> "In the shell, run: `duckduckgo-search-cli "terraform aws eks 2026 best practices" -q --num 15 -f json | jaq '.resultados[:5]'` and append results to `research.md`."
+
+## 15. Cline
+### Setup
+```bash
+cargo install duckduckgo-search-cli
+```
+### Snippet — Basic search
+> "Use execute_command to run: `duckduckgo-search-cli "rust cargo workspace inheritance" -q --num 15 -f json | jaq '.resultados[:5] | map({titulo, url})'` and save the JSON to `./research/ws.json`."
+### System prompt rule (`.clinerules`)
+> For any web fact, use `duckduckgo-search-cli QUERY -q --num 15 -f json`. Never hallucinate URLs. Parse JSON with `jaq`.
+
+## 16. Roo Code
+### Snippet — Multi-query research (with custom Roo mode)
+```yaml
+- slug: researcher
+  name: Web Researcher
+  whenToUse: "Invoke for any fact-heavy question"
+  customInstructions: |
+    Always run:
+      duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 5 --global-timeout 120 -o /tmp/r.json
+    before answering. Cite .resultados[].url verbatim.
+  autoApprove: ["execute_command"]
+```
+### System prompt rule (`.roorules`)
+> When in `researcher` mode (or whenever factual grounding is needed), use `duckduckgo-search-cli`. Always JSON + jaq.
+
+# SECAO EM PORTUGUES
+
+## 1. Claude Code
+- Mecanismo de shell: `Bash` tool nativa; hooks opcionais em `~/.claude/settings.json`.
+### Snippet — Busca básica
+> "Execute `timeout 30 duckduckgo-search-cli "rust async tokio" -q --num 15 | jaq '.resultados[] | {titulo, url, snippet}'` e resuma os 5 melhores resultados."
+### Regra de system prompt (adicione ao `CLAUDE.md`)
+> Quando precisar de contexto web atual, SEMPRE use `duckduckgo-search-cli QUERY -q --num 15` em vez de inventar links. Parse o JSON com `jaq`.
+
+## 2. OpenAI Codex
+### Snippet — Busca básica
+> "Use a shell tool para executar: `duckduckgo-search-cli "postgres jsonb index performance" -q --num 15 -f json` e extraia titulos e urls com jaq."
+
+## 3. Gemini CLI
+### Regra de system prompt (`.gemini/GEMINI.md`)
+> Para fatos da web, use a shell tool com `duckduckgo-search-cli QUERY -q --num 15 -f json`. Nunca invente URLs.
+
+## 4. Cursor
+### Regra de system prompt (`.cursorrules`)
+> Prefira rodar `duckduckgo-search-cli QUERY -q --num 15` antes de pesquisar mentalmente. Sempre pipe para `jaq` e cite URLs literalmente.
+
+## 5. Windsurf
+### Regra de system prompt (instruções do Cascade)
+> Quando o usuário pedir informação atual / web, rode `duckduckgo-search-cli QUERY -q --num 15 -f json` via terminal. Nunca alucine URLs.
+
+## 6. Aider
+### Snippet — Busca básica (dentro do REPL aider)
+```
+/run duckduckgo-search-cli "sqlx postgres migrations" -q --num 15 -f json | jaq '.resultados[:5] | map({titulo, url, snippet})'
+```
+
+## 7. Continue.dev
+### Snippet — slash command em `~/.continue/config.json`
+```json
+{
+  "slashCommands": [
+    {
+      "name": "ddg",
+      "description": "Pesquisa web via DuckDuckGo",
+      "run": "duckduckgo-search-cli \"{{{ input }}}\" -q --num 15 -f json | jaq '.resultados[:5] | map({titulo, url, snippet})'"
+    }
+  ]
+}
+```
+
+## 8. MiniMax Agent
+### Snippet — Definição de tool
+```json
+{
+  "name": "web_search",
+  "description": "Pesquisa web via duckduckgo-search-cli retornando JSON",
+  "parameters": {
+    "type": "object",
+    "properties": { "query": { "type": "string" } },
+    "required": ["query"]
+  }
+}
+```
+
+## 10. Paperclip
+### Snippet — Busca básica (YAML de tarefa)
+```yaml
+- name: web_search
+  cli: duckduckgo-search-cli
+  args: ["{{query}}", "-q", "--num", "15", "-f", "json"]
+  parse: json
+  timeout: 60
+```
+
+## 11. OpenClaw
+### Snippet — Binding em `tools.toml`
+```toml
+[[tool]]
+name = "web"
+bin  = "duckduckgo-search-cli"
+args = ["{query}", "-q", "--num", "15", "-f", "json"]
+timeout_secs = 60
+```
+
+## 15. Cline
+### Regra de system prompt (`.clinerules`)
+> Para qualquer fato web, use `duckduckgo-search-cli QUERY -q --num 15 -f json`. Nunca alucine URLs. Parse JSON com `jaq`.
+
+## 16. Roo Code
+### Snippet — Pesquisa multi-query (modo Roo customizado)
+```yaml
+- slug: researcher
+  name: Pesquisador Web
+  whenToUse: "Invocar para perguntas que exigem fatos"
+  customInstructions: |
+    Sempre rode:
+      duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 5 --global-timeout 120 -o /tmp/r.json
+    antes de responder. Cite .resultados[].url verbatim.
+  autoApprove: ["execute_command"]
+```
+
+## Comparative Table / Tabela Comparativa
+| # | Agent | Shell tool | Best for |
+|---|---|---|---|
+| 1 | Claude Code | Bash tool nativo | Terminal-first, hooks, CI/CD |
+| 2 | OpenAI Codex | shell/exec | Codebase refactors, tests |
+| 3 | Gemini CLI | run_shell_command | Google Cloud, Gemini power users |
+| 4 | Cursor | Terminal + Composer | IDE devs, fast edit/run loops |
+| 5 | Windsurf | Cascade run_command | Autonomous refactors |
+| 6 | Aider | `/run` | Git-native pair programming |
+| 7 | Continue.dev | Custom slash | Multi-editor teams |
+| 8 | MiniMax | Function calling | API-first apps |
+| 9 | OpenCode | Shell | OSS terminal agents |
+| 10 | Paperclip | Agent capability | Paperclip workflows |
+| 11 | OpenClaw | tools.toml binding | Minimalist zero-config |
+| 12 | Google Antigravity | Agent shell | Experimental / preview users |
+| 13 | GitHub Copilot CLI | `gh copilot suggest` | Gh/Git-centric workflows |
+| 14 | Devin | Cloud sandbox | Long-running autonomous tasks |
+| 15 | Cline | execute_command | VS Code autonomous agents |
+| 16 | Roo Code | execute_command + modes | Power users, multi-mode orchestration |
+
+## See also / Veja também
+- Main README: `../README.md`
+- Changelog: `../CHANGELOG.md`
+- Issue tracker: https://github.com/daniloaguiarbr/duckduckgo-search-cli/issues
+- Maintainer: Danilo Aguiar (@daniloaguiarbr) · License: MIT OR Apache-2.0

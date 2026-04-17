@@ -1,0 +1,142 @@
+[
+  {
+    "id": "q01",
+    "query": "tutorial Rust async tokio 2026 português",
+    "expected_use": "resumir os 5 melhores resultados para extrair conceitos-chave e links sobre desenvolvimento async em Rust",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "technical"
+  },
+  {
+    "id": "q02",
+    "query": "reqwest vs ureq cliente HTTP Rust desempenho comparação",
+    "expected_use": "comparar abordagens mencionadas nos resultados e produzir tabela de decisão com trade-offs",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "comparison"
+  },
+  {
+    "id": "q03",
+    "query": "novidades Rust linguagem programação semana",
+    "expected_use": "extrair as principais manchetes e links com as notícias mais recentes do ecossistema Rust",
+    "flags": ["-n", "10", "-f", "json", "--time-filter", "d"],
+    "category": "news"
+  },
+  {
+    "id": "q04",
+    "query": "DuckDuckGo busca privacidade alternativas API 2026",
+    "expected_use": "listar APIs de busca que respeitam privacidade com informações de preço e limites de requisição",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "research"
+  },
+  {
+    "id": "q05",
+    "query": "melhores ferramentas CLI Rust desenvolvedor 2026",
+    "expected_use": "extrair nomes das ferramentas, nomes dos crates e descrições resumidas dos principais resultados",
+    "flags": ["-n", "15", "-f", "json"],
+    "category": "tools"
+  },
+  {
+    "id": "q06",
+    "query": "cargo nextest vs cargo test velocidade comparação benchmark",
+    "expected_use": "extrair números de benchmark e diferenças principais para produzir uma recomendação fundamentada",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "technical"
+  },
+  {
+    "id": "q07",
+    "query": "integração agentes LLM busca web padrões arquitetura 2026",
+    "expected_use": "resumir padrões arquiteturais para integrar busca web em pipelines de agentes LLM",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "research"
+  },
+  {
+    "id": "q08",
+    "query": "tratamento erros Rust anyhow vs thiserror quando usar",
+    "expected_use": "comparar os dois crates e extrair critérios de decisão para bibliotecas versus aplicações",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "comparison"
+  },
+  {
+    "id": "q09",
+    "query": "compilação cruzada Rust Linux macOS Windows targets tutorial",
+    "expected_use": "extrair instruções passo a passo e target triples dos principais resultados",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "technical"
+  },
+  {
+    "id": "q10",
+    "query": "segurança supply chain Rust cargo audit cargo deny boas práticas",
+    "expected_use": "extrair ferramentas recomendadas, passos de configuração e integração com pipeline de CI",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "security"
+  },
+  {
+    "id": "q11",
+    "query": "novos crates crates.io semana ecossistema Rust",
+    "expected_use": "listar crates novos ou atualizados com números de versão e descrições resumidas",
+    "flags": ["-n", "10", "-f", "json", "--time-filter", "d"],
+    "category": "news"
+  },
+  {
+    "id": "q12",
+    "query": "scraping DuckDuckGo HTML detecção bot técnicas evasão",
+    "expected_use": "extrair estratégias anti-detecção e resumir quais são éticas e utilizáveis em ferramentas CLI",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "research"
+  },
+  {
+    "id": "q13",
+    "query": "análise estática Rust clippy alternativas linter ferramentas 2026",
+    "expected_use": "listar ferramentas de análise estática disponíveis com capacidades e instruções de integração",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "tools"
+  },
+  {
+    "id": "q14",
+    "query": "configuração timeout reqwest client builder Rust exemplos",
+    "expected_use": "extrair exemplos de código e opções de configuração para timeouts e conexões no reqwest",
+    "flags": ["-n", "10", "-f", "json", "--fetch-content", "--max-content-length", "5000"],
+    "category": "technical"
+  },
+  {
+    "id": "q15",
+    "query": "serde_json vs simd-json desempenho JSON Rust benchmark comparação",
+    "expected_use": "extrair dados de benchmark e produzir tabela comparativa com recomendações por caso de uso",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "comparison"
+  },
+  {
+    "id": "q16",
+    "query": "framework CLI Rust clap argh structopt comparação 2026",
+    "expected_use": "comparar conjuntos de funcionalidades, ergonomia e status de manutenção a partir dos resultados",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "research"
+  },
+  {
+    "id": "q17",
+    "query": "tokio spawn blocking tarefas CPU intensivas boas práticas Rust async",
+    "expected_use": "extrair diretrizes e padrões de código para delegar trabalho CPU fora do runtime assíncrono",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "technical"
+  },
+  {
+    "id": "q18",
+    "query": "Rust edição 2024 novidades funcionalidades guia migração",
+    "expected_use": "resumir as novas funcionalidades da linguagem e os passos de migração para crates existentes",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "news"
+  },
+  {
+    "id": "q19",
+    "query": "fd ripgrep bat eza ferramentas CLI modernas Rust substituição",
+    "expected_use": "extrair lista de ferramentas com comandos de instalação e descrição de caso de uso para cada uma",
+    "flags": ["-n", "15", "-f", "json"],
+    "category": "tools"
+  },
+  {
+    "id": "q20",
+    "query": "boas práticas web scraping agente IA ético 2026",
+    "expected_use": "extrair diretrizes éticas, padrões de rate limiting e ferramentas recomendadas para agentes de IA que fazem pesquisa web",
+    "flags": ["-n", "10", "-f", "json"],
+    "category": "research"
+  }
+]
