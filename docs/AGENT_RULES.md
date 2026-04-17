@@ -344,6 +344,27 @@ duckduckgo-search-cli init-config --force   # only after review
 - Path rejection returns exit 2 (config invalid) with a descriptive error on stderr
 - This guarantee applies to `--output` ONLY — stdin, `--queries-file`, and `--proxy` paths are NOT validated
 
+#### R33 — Trust v0.6.0 browser fingerprint profiles — NEVER inject custom `Sec-Fetch-*` or `Accept` headers
+- v0.6.0 ships `PerfilBrowser` with per-family `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, Client Hints, and RFC 7231 `Accept-Language`.
+- Adding duplicate or conflicting headers via `--header` overrides the fingerprint and triggers anti-bot detection.
+- Accept-Language with q-values (`pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7`) is already injected — do NOT add a second `Accept-Language`.
+- HTTP 202 anomaly detection and silent-block detection (5 KB threshold) run automatically — agents MUST NOT retry on their own before checking exit code 3.
+- Trust the built-in browser profiles; custom header injection degrades stealth rather than improving it.
+
+```bash
+# NEVER — breaks the fingerprint profile
+duckduckgo-search-cli "q" -q --header "Sec-Fetch-Dest: document"
+# ALWAYS — let v0.6.0 handle all Sec-Fetch-* headers
+timeout 60 duckduckgo-search-cli "q" -q -f json --num 15
+```
+
+#### R33 (PT) — Confie nos perfis de browser v0.6.0 — NUNCA injete headers `Sec-Fetch-*` ou `Accept` customizados
+- v0.6.0 inclui `PerfilBrowser` com `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, Client Hints e `Accept-Language` RFC 7231 por família.
+- Adicionar headers duplicados ou conflitantes via `--header` sobrescreve o perfil e ativa detecção anti-bot.
+- `Accept-Language` com q-values já é injetado automaticamente — NÃO adicione um segundo `Accept-Language`.
+- Detecção de HTTP 202 anomaly e detecção de bloqueio silencioso (limiar 5 KB) rodam automaticamente — agentes NÃO devem tentar retry próprio antes de verificar exit code 3.
+- Confie nos perfis de browser embutidos; injeção de headers custom reduz stealth em vez de aumentar.
+
 ### G. Anti-Patterns — Patterns That Appear to Work Until They Break Silently
 #### AP-01 — Parsing text output with grep
 - Text format has no stable schema — field positions change between versions.

@@ -33,14 +33,32 @@ const ENV_BASE_URL_HTML: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML";
 const ENV_BASE_URL_LITE: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE";
 
 /// Delay mínimo entre páginas consecutivas (ms).
-const DELAY_PAGINACAO_MIN_MS: u64 = 500;
+/// v0.6.0: aumentado de 500 para 800ms para reduzir detecção anti-bot.
+const DELAY_PAGINACAO_MIN_MS: u64 = 800;
 /// Delay máximo entre páginas consecutivas (ms).
-const DELAY_PAGINACAO_MAX_MS: u64 = 1000;
+/// v0.6.0: aumentado de 1000 para 1500ms para reduzir detecção anti-bot.
+const DELAY_PAGINACAO_MAX_MS: u64 = 1500;
+
+/// Limiar em bytes para detecção de bloqueio silencioso.
+/// Respostas reais do DuckDuckGo com resultados têm 50-200KB.
+/// Páginas de bloqueio silencioso têm tipicamente ~3KB.
+const LIMIAR_BLOQUEIO_SILENCIOSO: usize = 5_000;
 
 /// Backoff base para retry em 429 (ms). Total = base * 2^tentativa + jitter.
 const BACKOFF_BASE_MS: u64 = 1000;
 /// Jitter máximo adicional no backoff (ms).
 const BACKOFF_JITTER_MAX_MS: u64 = 500;
+
+/// Calcula o delay de backoff exponencial com jitter para a tentativa dada.
+///
+/// `tentativa` é 0-based. O expoente é limitado a 10 (`2^10 = 1024`) para
+/// evitar overflow sem necessidade de `checked_shl`.
+fn calcular_backoff_ms(tentativa: u32) -> u64 {
+    let fator = 1u64 << tentativa.min(10);
+    let backoff = BACKOFF_BASE_MS.saturating_mul(fator);
+    let jitter = rand::thread_rng().gen_range(0..=BACKOFF_JITTER_MAX_MS);
+    backoff.saturating_add(jitter)
+}
 
 /// Retorna a URL base efetiva do endpoint HTML (respeita env var em testes).
 pub fn url_base_html() -> String {
@@ -210,6 +228,23 @@ pub async fn executar_com_retry(
         match envio {
             Ok(resposta) => {
                 let status = resposta.status();
+                // HTTP 202 = anomalia DDG (bloqueio suave anti-bot).
+                // Browsers reais NUNCA recebem 202 do DuckDuckGo.
+                if status == StatusCode::ACCEPTED {
+                    flag_rate_limit.store(true, Ordering::Relaxed);
+                    ultimo_motivo = MotivoFalhaRetry::Blocked;
+                    if tentativa + 1 < total_tentativas {
+                        let total = calcular_backoff_ms(tentativa);
+                        tracing::warn!(
+                            tentativa = tentativa + 1,
+                            backoff_ms = total,
+                            "HTTP 202 anomaly — bloqueio suave DDG, aplicando backoff"
+                        );
+                        tokio::time::sleep(Duration::from_millis(total)).await;
+                        continue;
+                    }
+                    return Err(MotivoFalhaRetry::Blocked);
+                }
                 if status.is_success() {
                     return Ok(ResultadoRetry {
                         resposta,
@@ -220,12 +255,7 @@ pub async fn executar_com_retry(
                     flag_rate_limit.store(true, Ordering::Relaxed);
                     ultimo_motivo = MotivoFalhaRetry::RateLimited;
                     if tentativa + 1 < total_tentativas {
-                        // Backoff exponencial com teto (clamp a 2^10 para evitar overflow).
-                        let expoente = tentativa.min(10);
-                        let fator = 1u64.checked_shl(expoente).unwrap_or(u64::MAX);
-                        let backoff_ms = BACKOFF_BASE_MS.saturating_mul(fator);
-                        let jitter = rand::thread_rng().gen_range(0..=BACKOFF_JITTER_MAX_MS);
-                        let total = backoff_ms.saturating_add(jitter);
+                        let total = calcular_backoff_ms(tentativa);
                         tracing::warn!(
                             tentativa = tentativa + 1,
                             backoff_ms = total,
@@ -309,10 +339,16 @@ pub async fn executar_busca(
         .await
         .context("falha ao ler corpo UTF-8 da resposta")?;
 
-    if html.len() < 100 {
+    if html.len() < LIMIAR_BLOQUEIO_SILENCIOSO {
+        tracing::warn!(
+            bytes = html.len(),
+            limiar = LIMIAR_BLOQUEIO_SILENCIOSO,
+            "resposta suspeitamente pequena — possível bloqueio silencioso"
+        );
         bail!(
-            "Corpo da resposta suspeitamente pequeno ({} bytes) — possível bloqueio",
-            html.len()
+            "resposta suspeitamente pequena ({} bytes < {} limiar) — possível bloqueio silencioso",
+            html.len(),
+            LIMIAR_BLOQUEIO_SILENCIOSO
         );
     }
 
@@ -399,7 +435,12 @@ pub async fn buscar_com_paginacao(
         .await
         .map_err(|e| MotivoFalhaRetry::Rede(e.to_string()))?;
 
-    if html_primeira.len() < 100 {
+    if html_primeira.len() < LIMIAR_BLOQUEIO_SILENCIOSO {
+        tracing::warn!(
+            bytes = html_primeira.len(),
+            limiar = LIMIAR_BLOQUEIO_SILENCIOSO,
+            "resposta da primeira página suspeitamente pequena — possível bloqueio silencioso"
+        );
         return Err(MotivoFalhaRetry::Blocked);
     }
 
@@ -501,6 +542,7 @@ pub async fn buscar_com_paginacao(
                     r = cliente
                         .post(&base)
                         .header(reqwest::header::REFERER, "https://html.duckduckgo.com/")
+                        .headers(cfg.perfil_browser.headers_paginacao())
                         .form(&formulario)
                         .send() => r,
                 } {
@@ -531,6 +573,17 @@ pub async fn buscar_com_paginacao(
                         break;
                     }
                 };
+
+                // Verifica bloqueio silencioso na página de paginação.
+                if html_pagina.len() < LIMIAR_BLOQUEIO_SILENCIOSO {
+                    tracing::warn!(
+                        bytes = html_pagina.len(),
+                        limiar = LIMIAR_BLOQUEIO_SILENCIOSO,
+                        pagina = pagina_idx,
+                        "página de paginação suspeitamente pequena — possível bloqueio silencioso"
+                    );
+                    break;
+                }
 
                 let novos = extraction::extrair_resultados_com_estrategias_cfg(
                     &html_pagina,

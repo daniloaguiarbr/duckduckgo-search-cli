@@ -6,6 +6,7 @@
 //! de campo em português brasileiro". Os nomes Rust dos campos e os nomes JSON
 //! externos coincidem — não há `serde(rename)` ativo.
 
+use crate::http::PerfilBrowser;
 use serde::{Deserialize, Serialize};
 
 /// Representa um resultado individual de busca do DuckDuckGo.
@@ -353,6 +354,9 @@ pub struct Configuracoes {
     pub modo_verboso: bool,
     pub modo_silencioso: bool,
     pub user_agent: String,
+    /// Perfil completo do browser — família, versão e plataforma derivados do `user_agent`.
+    /// Mantido em paralelo ao campo `user_agent` (usado em MetadadosBusca e output JSON).
+    pub perfil_browser: PerfilBrowser,
     /// Grau de paralelismo efetivo (1..=20). Em single-query é apenas informativo.
     pub paralelismo: u32,
     /// Número de páginas a buscar por query (1..=5).

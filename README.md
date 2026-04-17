@@ -60,6 +60,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
+- **v0.6.0 anti-blocking.** Per-browser `Sec-Fetch-*` headers and Client Hints for Chrome/Edge; `Accept-Language` with RFC 7231 q-values; HTTP 202 anomaly detection; silent block detection with 5 KB threshold.
 
 ### Agent Skill — bundled, bilingual, auto-activating
 
@@ -219,6 +220,7 @@ duckduckgo-search-cli init-config --force
 6. **How do I integrate with Claude Code, Cursor, Aider, or another agent?** — expose the binary as a shell tool. Most agents accept a command template such as `duckduckgo-search-cli "{query}" --num 15 -q -f json`. The stable schema keeps the tool contract stable across releases.
 7. **Pipe to jaq/jq returns empty** — check `echo ${PIPESTATUS[*]}` after the pipe. If the first number is non-zero, the CLI errored before producing output. Common causes: DuckDuckGo rate-limiting (exit 5), global timeout (exit 4), or missing query. Always pass `-q -f json` when piping.
 8. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal. Paths targeting system directories (`/etc`, `/usr`, `/bin`, `C:\Windows`) are blocked. Use paths under your home directory, `/tmp`, or the current working directory.
+9. **Getting exit 5 (zero results) frequently** — this is usually temporary rate-limiting from DuckDuckGo, not a permanent block. Wait 60 seconds and retry. If the problem persists, add `--proxy socks5://127.0.0.1:9050` to rotate your outbound IP, or try `--endpoint lite` as a fallback. v0.6.0 browser fingerprint profiles reduce this significantly by mimicking real browser sessions.
 
 ### Migration notes (v0.3.x → v0.4.0)
 
@@ -275,6 +277,7 @@ Basta que o agente possa executar um comando de shell. Quase todo agente sério 
 - **`rustls-tls` puro.** Sem OpenSSL, sem surpresas no SChannel, builds musl estáticas funcionam de primeira em qualquer container Alpine.
 - **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
 - **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
+- **Anti-bloqueio v0.6.0.** Headers `Sec-Fetch-*` por família de browser, Client Hints para Chrome/Edge, detecção de HTTP 202 anomaly e detecção de bloqueio silencioso com limiar de 5 KB.
 
 ### Skill de agente — empacotada, bilíngue, auto-ativada
 
@@ -434,6 +437,7 @@ duckduckgo-search-cli init-config --force
 6. **Como integro com Claude Code, Cursor, Aider ou outro agente?** — exponha o binário como shell tool. A maioria dos agentes aceita um template de comando como `duckduckgo-search-cli "{query}" --num 15 -q -f json`. O schema estável mantém o contrato da tool estável entre releases.
 7. **Pipe para jaq/jq retorna vazio** — verifique `echo ${PIPESTATUS[*]}` após o pipe. Se o primeiro número for diferente de zero, o CLI errou antes de produzir output. Causas comuns: rate-limiting do DuckDuckGo (exit 5), timeout global (exit 4) ou query ausente. Sempre passe `-q -f json` ao usar pipe.
 8. **`--output` rejeita meu path (exit 2)** — v0.5.0 valida paths de saída antes de escrever. Paths contendo `..` são rejeitados para prevenir travessia de diretório. Paths apontando para diretórios de sistema (`/etc`, `/usr`, `/bin`, `C:\Windows`) são bloqueados. Use paths no seu diretório home, `/tmp` ou no diretório de trabalho atual.
+9. **Exit 5 (zero resultados) com frequência** — normalmente é rate-limiting temporário do DuckDuckGo, não um bloqueio permanente. Aguarde 60 segundos e repita. Se persistir, adicione `--proxy socks5://127.0.0.1:9050` para rotacionar o IP, ou tente `--endpoint lite` como fallback. Os perfis de browser da v0.6.0 reduzem significativamente esse problema ao imitar sessões reais de navegador.
 
 ### Notas de migração (v0.3.x → v0.4.0)
 

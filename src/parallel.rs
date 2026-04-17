@@ -76,7 +76,7 @@ pub async fn executar_buscas_paralelas(
     // Conforme seção 4.3: paginas == 1 → compartilhado; paginas > 1 → isolado.
     let cliente_compartilhado: Option<Client> = if configuracoes.paginas <= 1 {
         let cliente = http::construir_cliente_com_proxy(
-            &configuracoes.user_agent,
+            &configuracoes.perfil_browser,
             configuracoes.timeout_segundos,
             &configuracoes.idioma,
             &configuracoes.pais,
@@ -136,7 +136,7 @@ pub async fn executar_buscas_paralelas(
             let resultado_cliente = match cliente_para_task {
                 Some(compartilhado) => Ok(compartilhado),
                 None => http::construir_cliente_com_proxy(
-                    &configuracoes_task.user_agent,
+                    &configuracoes_task.perfil_browser,
                     configuracoes_task.timeout_segundos,
                     &configuracoes_task.idioma,
                     &configuracoes_task.pais,
@@ -268,7 +268,7 @@ pub async fn executar_buscas_paralelas_streaming(
 
     let cliente_compartilhado: Option<Client> = if configuracoes.paginas <= 1 {
         let cliente = http::construir_cliente_com_proxy(
-            &configuracoes.user_agent,
+            &configuracoes.perfil_browser,
             configuracoes.timeout_segundos,
             &configuracoes.idioma,
             &configuracoes.pais,
@@ -340,7 +340,7 @@ pub async fn executar_buscas_paralelas_streaming(
             let resultado_cliente = match cliente_para_task {
                 Some(c) => Ok(c),
                 None => http::construir_cliente_com_proxy(
-                    &configuracoes_task.user_agent,
+                    &configuracoes_task.perfil_browser,
                     configuracoes_task.timeout_segundos,
                     &configuracoes_task.idioma,
                     &configuracoes_task.pais,
@@ -594,7 +594,8 @@ mod testes {
             pais: "br".to_string(),
             modo_verboso: false,
             modo_silencioso: true,
-            user_agent: "Mozilla/5.0 teste".to_string(),
+            user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36".to_string(),
+            perfil_browser: crate::http::criar_perfil_browser("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
             paralelismo,
             paginas: 1,
             retries: 0,

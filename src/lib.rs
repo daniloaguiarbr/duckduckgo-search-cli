@@ -255,6 +255,12 @@ fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
     argumentos
         .validar_limite_por_host()
         .map_err(|e| anyhow::anyhow!(e))?;
+    argumentos
+        .validar_timeout_segundos()
+        .map_err(|e| anyhow::anyhow!(e))?;
+    if let Some(caminho) = &argumentos.arquivo_saida {
+        crate::paths::validar_caminho_saida(caminho)?;
+    }
 
     let queries_arquivo = match &argumentos.arquivo_queries {
         Some(caminho) => pipeline::ler_queries_de_arquivo(caminho)
@@ -286,7 +292,8 @@ fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
 
     // Carrega lista de UAs — tenta arquivo externo, cai em defaults embutidos.
     let lista_uas = http::carregar_user_agents(argumentos.corresponde_plataforma_ua);
-    let user_agent = http::escolher_user_agent_da_lista(&lista_uas);
+    let perfil_browser = http::escolher_perfil_da_lista(&lista_uas);
+    let user_agent = perfil_browser.user_agent.clone();
 
     // Carrega seletores CSS — tenta arquivo TOML externo, cai em defaults embutidos.
     let seletores = selectors::carregar_seletores();
@@ -322,6 +329,7 @@ fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
         modo_verboso: argumentos.verboso,
         modo_silencioso: argumentos.silencioso,
         user_agent,
+        perfil_browser,
         paralelismo: argumentos.paralelismo,
         paginas: paginas_efetivas,
         retries: argumentos.retries,

@@ -5,6 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-17
+
+### Fixed
+- `--timeout 0` now returns exit 2 (invalid config) instead of executing a search with zero timeout and returning exit 5.
+- `--output /tmp/../../etc/passwd` now returns exit 2 (invalid config) instead of exit 1 (runtime OS error) — path traversal validation moved to `montar_configuracoes()`, before the pipeline starts.
+
+### Added
+- `validar_timeout_segundos()` method on `ArgumentosCli` — rejects values of 0 with a descriptive error.
+- Early path traversal check in `montar_configuracoes()` — calls `paths::validar_caminho_saida()` at config validation time, not at write time.
+- 2 E2E regression tests: `timeout_zero_retorna_exit_2` and `output_com_path_traversal_retorna_exit_2`.
+- 1 unit test: `validar_timeout_segundos_rejeita_zero`.
+
+
+## [0.6.0] - 2026-04-16
+
+### Security
+- Browser fingerprint profiles per-family previnem detecção anti-bot do DuckDuckGo.
+- Headers `Sec-Fetch-*` e Client Hints por família imitam sessão de navegador real.
+- `Accept-Language` com q-values RFC 7231 elimina fingerprint de UA genérico.
+- Detecção de bloqueio silencioso com limiar de 5 KB previne resultados truncados.
+
+### Added
+- `FamiliaBrowser` enum — variantes `Chrome`, `Firefox`, `Edge`, `Safari`.
+- `PerfilBrowser` struct — encapsula família, versão e conjunto de headers por família.
+- Headers `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site` por família em `http.rs`.
+- Client Hints (`Sec-Ch-Ua`, `Sec-Ch-Ua-Mobile`, `Sec-Ch-Ua-Platform`) para Chrome e Edge.
+- Detecção de HTTP 202 anomaly em `search.rs` com backoff exponencial automático.
+- Detecção de bloqueio silencioso — resposta com menos de 5 000 bytes é tratada como bloqueio.
+- `PerfilBrowser` propagado via `Configuracoes` para todos os módulos da pipeline.
+- Headers de paginação com `Sec-Fetch-Site: same-origin` para imitar navegação real.
+
+### Changed
+- `Accept-Language` atualizado para `pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7` conforme RFC 7231.
+- `Accept` header agora reflete o perfil completo do browser por família.
+- Delays de paginação aumentados de 500–1 000 ms para 800–1 500 ms.
+- Limiar de bloqueio silencioso aumentado de 100 para 5 000 bytes.
+
 ## [0.5.0] - 2026-04-16
 
 ### Security

@@ -1093,6 +1093,41 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # CLI=4 JQ=0  → timeout global
 ```
 
+### Recipe 17 / Receita 17 — Anti-blocking with v0.6.0 browser fingerprint profiles
+- Gain: use the built-in `PerfilBrowser` fingerprint to reduce HTTP 202 blocks and silent truncation.
+- Problem: generic User-Agent strings trigger anti-bot challenges on DuckDuckGo systematically.
+- Benefit: per-family `Sec-Fetch-*` headers and Client Hints mimic a real browser session.
+- Benefit: HTTP 202 anomaly detection retries automatically with exponential backoff.
+- Benefit: silent-block detection (5 KB threshold) treats truncated responses as blocks, not successes.
+- Result: fewer exit-3 events and fewer zero-result false positives in automated pipelines.
+
+```bash
+# v0.6.0 fingerprint profiles activate automatically — no flags needed
+timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 \
+  | jaq '.resultados[:5]'
+
+# If exit 3 still fires, rotate IP and retry with lite endpoint
+timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 \
+  --proxy socks5://127.0.0.1:9050 --endpoint lite \
+  | jaq '.resultados'
+
+# Handler respecting v0.6.0 exit codes (3 = block, 5 = zero results)
+timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 > /tmp/r.json
+case $? in
+  0) jaq '.resultados' /tmp/r.json ;;
+  3) echo "anti-bot block — wait 300s, rotate proxy or use --endpoint lite" >&2 ;;
+  5) echo "zero results — refine query or change --lang" >&2 ;;
+  *) echo "error $?" >&2; exit $? ;;
+esac
+```
+
+- Ganho: use o perfil `PerfilBrowser` embutido para reduzir bloqueios HTTP 202 e truncamentos silenciosos.
+- Problema: User-Agent genérico dispara desafios anti-bot do DuckDuckGo sistematicamente.
+- Benefício: headers `Sec-Fetch-*` por família e Client Hints imitam sessão real de browser.
+- Benefício: detecção de HTTP 202 anomaly reenvia com backoff exponencial automaticamente.
+- Benefício: detecção de bloqueio silencioso (limiar 5 KB) trata respostas truncadas como bloqueios.
+- Resultado: menos eventos exit-3 e menos falsos positivos de zero resultados em pipelines automatizados.
+
 ## Recipe-to-Use-Case Table / Tabela Receita para Caso de Uso
 
 | Recipe / Receita | Use case / Caso de uso | Tools used / Ferramentas |
@@ -1113,5 +1148,6 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 | 14 | Pipeline busca para sumarização com LLM / Search-to-summarize LLM pipeline | `duckduckgo-search-cli --fetch-content`, `jaq`, `xh`, `timeout` |
 | 15 | Defaults opinativos reutilizáveis / Reusable opinionated defaults | `duckduckgo-search-cli`, função bash, `jaq`, `date`, `timeout` |
 | 16 | Diagnóstico de pipe com PIPESTATUS / Pipe diagnostic with PIPESTATUS | `duckduckgo-search-cli`, `jaq`, `PIPESTATUS`, `timeout` |
+| 17 | Anti-bloqueio com perfis de browser v0.6.0 / Anti-blocking with v0.6.0 fingerprint profiles | `duckduckgo-search-cli`, `jaq`, `bash case`, `timeout` |
 
 _End of COOKBOOK / Fim do Livro de Receitas._
