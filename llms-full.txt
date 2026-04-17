@@ -1,4 +1,4 @@
-# duckduckgo-search-cli v0.6.1 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.6.2 — Full Documentation for LLM Context
 
 ---
 # README.md

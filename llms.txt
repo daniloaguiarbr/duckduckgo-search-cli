@@ -2,7 +2,7 @@
 
 - CLI Rust para busca DuckDuckGo — retorna resultados como JSON, Markdown ou texto
 - Instale com: `cargo install duckduckgo-search-cli`
-- Versão atual: 0.6.1
+- Versão atual: 0.6.2
 - Repositório: https://github.com/daniloaguiarbr/duckduckgo-search-cli
 
 

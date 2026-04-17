@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-04-17
+
+### Added
+- 19 novos arquivos de documentação — conformidade completa com rules_rust_documentacao.md (28 gaps G01-G28)
+- Documentação bilíngue EN+PT: HOW_TO_USE, CROSS_PLATFORM, AGENTS-GUIDE, COOKBOOK.pt-BR, INTEGRATIONS.pt-BR
+- CODE_OF_CONDUCT.md + CODE_OF_CONDUCT.pt-BR.md — Contributor Covenant 2.1
+- README.pt-BR.md, CHANGELOG.pt-BR.md, CONTRIBUTING.pt-BR.md, SECURITY.pt-BR.md
+- docs/AGENTS.pt-BR.md — guia imperativo para LLMs em português
+- docs/AGENTS-GUIDE.md + docs/AGENTS-GUIDE.pt-BR.md — guia persuasivo bilíngue
+- llms.txt — arquivo compacto de orientação para LLMs (< 50 KB)
+- llms-full.txt — concatenação completa de docs para contexto longo de LLMs
+- eval-queries.json × 2 — 20 queries de avaliação EN + 20 PT-BR para skill testing
+
+### Changed
+- README.md — link para README.pt-BR.md + quick install antes da linha 30
+- CONTRIBUTING.md — MSRV Rust 1.75 explícito + PR checklist 8 itens + branching strategy + nextest
+- SECURITY.md — tabela de versão específica v0.6.2 + política de embargo 90 dias + zero bold + zero emojis
+- skill/SKILL.md (EN+PT) — seção Workflow com 5 passos numerados verificáveis
+
+
 ## [0.6.1] - 2026-04-17
 
 ### Fixed

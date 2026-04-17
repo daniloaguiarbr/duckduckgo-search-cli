@@ -3,11 +3,12 @@
 
 ## Supported Versions
 - Only the latest release receives security updates
-- Version 0.6.1 is the current supported version
+- Version 0.6.2 is the current supported version
 
 | Version | Supported |
 |---|---|
-| 0.6.1 | yes |
+| 0.6.2 | yes |
+| 0.6.1 | no |
 | < 0.6.1 | no |
 
 

@@ -5,10 +5,12 @@
 
 - Somente a versão minor mais recente de `duckduckgo-search-cli` recebe atualizações de segurança.
 - Versões antigas não recebem backport.
+- Versão 0.6.2 é a versão atual com suporte
 
 | Versão | Suportada |
 | ------- | --------- |
-| latest  | Sim       |
+| 0.6.2   | Sim       |
+| 0.6.1   | Não       |
 | antigas | Não       |
 
 
