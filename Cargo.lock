@@ -862,7 +862,7 @@ dependencies = [
  "encoding_rs",
  "futures",
  "predicates",
- "rand 0.8.5",
+ "rand 0.9.4",
  "reqwest",
  "scraper",
  "serde",
