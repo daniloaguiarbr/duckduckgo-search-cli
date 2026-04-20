@@ -132,7 +132,7 @@ jobs:
           Compress-Archive -Path dist/* -DestinationPath "dist/${{ env.BIN_NAME }}-${{ matrix.target }}.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BIN_NAME }}-${{ matrix.target }}
           path: dist/${{ env.BIN_NAME }}-${{ matrix.target }}.*
@@ -178,7 +178,7 @@ jobs:
             "${{ env.BIN_NAME }}" README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md
 
       - name: Upload universal artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BIN_NAME }}-macos-universal
           path: universal/${{ env.BIN_NAME }}-macos-universal.tar.gz
