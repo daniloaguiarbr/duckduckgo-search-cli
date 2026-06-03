@@ -5,6 +5,63 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-06-03
+
+### Added
+- **WS-26 — Adaptive anti-bot identity rotation** (new `src/identity.rs` module)
+  - 12-identity pool (4 browser families × 3 platforms) for adaptive rotation
+  - `IdentityProfile::shuffled_headers()` produces seed-deterministic header order
+  - `IdentityPool::rotate_on_block()` implements a 5-level cascade: same identity → same family/different platform → different family/same platform → different family+platform → random
+  - `BrowserFamily` and `Platform` enums with canonical English names
+  - 5 unit tests covering pool size, cascade level, determinism, header shape, tag stability
+- **New CLI flags** (additive, no breaking changes)
+  - `--probe` — pre-flight health check (sends 1 minimal request, reports status/latency/Set-Cookie as JSON)
+  - `--identity-profile` — pin the session to a specific identity (`auto`, `chrome-win`, `chrome-mac`, `chrome-linux`, `edge-win`, `firefox-linux`, `safari-mac`). `auto` is default.
+- **New JSON metadata fields** (additive, `Option` + `skip_serializing_if = "Option::is_none"`)
+  - `metadados.identidade_usada` — string tag of the identity that produced the response
+  - `metadados.nivel_cascata` — cascade level reached during the request
+
+### Changed
+- **Version rollback**: `0.7.0` (unpublished) → `0.6.4` to preserve the in-development feature set under a stable patch number
+- All existing CLI flags, JSON output schemas, and exit codes remain unchanged — strictly additive changes
+
+### Tests
+- 5 new identity unit tests (313 total tests passing, up from 308)
+- All 224 lib tests + 83 integration tests + 6 doc tests pass
+- `cargo clippy --lib --bins -- -D warnings` clean
+- `cargo fmt --check` clean
+
+
+## [0.7.0] - 2026-06-01
+
+### Changed
+- Complete internationalization: ~600 identifiers renamed PT→EN across 15 source files (struct fields, local variables, parameters, production functions, test functions)
+- Module `fetch_conteudo` renamed to `content_fetch`
+- Test files `integracao_*.rs` renamed to `integration_*.rs`
+- Replaced `anyhow` with typed `CliError` across all 11 modules — zero external error crate dependency
+- `output.rs`: all formatting functions renamed (`formatar_*` → `format_*`, `escrever_*` → `write_*`)
+- `config_init.rs`: struct fields renamed with `#[serde(rename)]` to preserve JSON backwards compatibility
+- `search.rs`: `RetryResult` and `AggregatedSearchResult` fields renamed PT→EN
+- `types.rs`: `Config` fields `perfil_browser`/`corresponde_plataforma_ua`/`caminho_chrome` → `browser_profile`/`match_platform_ua`/`chrome_path`
+
+### Added
+- Loom concurrency tests (`tests/loom_atomics.rs`) — validates `AtomicBool` visibility across threads
+- Criterion benchmarks (`benches/extraction_bench.rs`) — HTML extraction performance baselines
+- Doc comments for all 70 previously undocumented public items — zero `missing_docs` warnings
+- `.ingest-queue.sqlite` added to `.gitignore` and `Cargo.toml` exclude
+
+### Fixed
+- RUSTSEC-2026-0097: updated `rand` 0.8.5 → 0.8.6
+- RUSTSEC-2026-0104: updated `rustls-webpki` 0.103.12 → 0.103.13
+
+### Security
+- `deny.toml`: added `skip-tree` for 30 transitive duplicate crates (chromiumoxide, scraper, console-subscriber ecosystems)
+
+### Known Limitations
+- Loom tests require `RUSTFLAGS="--cfg loom"` which conflicts with `hyper-util` — tests compile but cannot run until upstream resolves the cfg conflict
+- JSON output field names remain in Portuguese Brazilian (`posicao`, `titulo`, `resultados`, etc.) — BY DESIGN since v0.2.0
+
+
 ## [0.6.3] - 2026-04-17
 
 ### Changed
@@ -39,8 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--output /tmp/../../etc/passwd` now returns exit 2 (invalid config) instead of exit 1 (runtime OS error) — path traversal validation moved to `montar_configuracoes()`, before the pipeline starts.
 
 ### Added
-- `validar_timeout_segundos()` method on `ArgumentosCli` — rejects values of 0 with a descriptive error.
-- Early path traversal check in `montar_configuracoes()` — calls `paths::validar_caminho_saida()` at config validation time, not at write time.
+- `validar_timeout_segundos()` method on `CliArgs` — rejects values of 0 with a descriptive error.
+- Early path traversal check in `montar_configuracoes()` — calls `paths::validate_output_path()` at config validation time, not at write time.
 - 2 E2E regression tests: `timeout_zero_retorna_exit_2` and `output_com_path_traversal_retorna_exit_2`.
 - 1 unit test: `validar_timeout_segundos_rejeita_zero`.
 
@@ -54,13 +111,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Detecção de bloqueio silencioso com limiar de 5 KB previne resultados truncados.
 
 ### Added
-- `FamiliaBrowser` enum — variantes `Chrome`, `Firefox`, `Edge`, `Safari`.
-- `PerfilBrowser` struct — encapsula família, versão e conjunto de headers por família.
+- `BrowserFamily` enum — variantes `Chrome`, `Firefox`, `Edge`, `Safari`.
+- `BrowserProfile` struct — encapsula família, versão e conjunto de headers por família.
 - Headers `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site` por família em `http.rs`.
 - Client Hints (`Sec-Ch-Ua`, `Sec-Ch-Ua-Mobile`, `Sec-Ch-Ua-Platform`) para Chrome e Edge.
 - Detecção de HTTP 202 anomaly em `search.rs` com backoff exponencial automático.
 - Detecção de bloqueio silencioso — resposta com menos de 5 000 bytes é tratada como bloqueio.
-- `PerfilBrowser` propagado via `Configuracoes` para todos os módulos da pipeline.
+- `BrowserProfile` propagado via `Config` para todos os módulos da pipeline.
 - Headers de paginação com `Sec-Fetch-Site: same-origin` para imitar navegação real.
 
 ### Changed
@@ -85,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `thiserror = "2"` added to dependencies for structured domain errors.
 - `src/main.rs` reduced from 63 to 23 lines — signal handling extracted to `signals.rs`.
-- `src/output.rs` file writes now validate paths via `paths::validar_caminho_saida()` before I/O.
+- `src/output.rs` file writes now validate paths via `paths::validate_output_path()` before I/O.
 - `deny.toml` updated with RUSTSEC-2026-0097 exception (rand 0.8 unsound with custom logger — not applicable).
 
 ## [0.4.4] - 2026-04-16
@@ -226,8 +283,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (BREAKING)
 
-- **Schema JSON**: campo `buscas_relacionadas` REMOVIDO de `SaidaBusca` e
-  `SaidaBuscaMultipla.buscas[i]`. O endpoint `html.duckduckgo.com/html/` não
+- **Schema JSON**: campo `buscas_relacionadas` REMOVIDO de `SearchOutput` e
+  `MultiSearchOutput.buscas[i]`. O endpoint `html.duckduckgo.com/html/` não
   expõe related searches no DOM atual; manter o campo sempre vazio era ruído.
   Pipelines que parseavam `.buscas_relacionadas` precisam ajuste.
 - **Pool de User-Agents**: removidos UAs de browsers de texto (`Lynx 2.9.0`,
@@ -252,7 +309,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Campo `titulo_original: Option<String>` em `ResultadoBusca`. Presente
+- Campo `titulo_original: Option<String>` em `SearchResult`. Presente
   apenas quando o título foi substituído por heurística (atualmente: caso
   "Official site"). Serializado com `#[serde(skip_serializing_if = "Option::is_none")]`
   — não aparece no JSON quando ausente.
@@ -346,7 +403,7 @@ Campos inalterados: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_ag
 - `Cross.toml` enabling `cross build --target <t>` for ARM64/ARMv7 Linux targets (musl + glibc + hard-float) from any x86_64 host with Docker/Podman — complements the native CI pipeline for developers without a GitHub Actions runner.
 - `CONTRIBUTING.md` with the 10-gate validation matrix, coding standards (Brazilian Portuguese identifiers, rustls-only TLS, `output.rs` as the sole `println!` site), three-layer testing strategy, supply-chain guardrails, and the tag-driven release process.
 - `.cargo/config.toml` exposing 8 developer aliases (`cargo check-all`, `cargo lint`, `cargo docs`, `cargo test-all`, `cargo cov`, `cargo cov-html`, `cargo publish-check`, `cargo pkg-list`) — each mirrors a CI job for local reproduction.
-- Doctests in public API: `pipeline::combinar_e_deduplicar_queries`, `fetch_conteudo::extrair_host`, and `search::formatar_kl` — compilable examples on docs.rs that double as regression tests.
+- Doctests in public API: `pipeline::combine_and_dedup_queries`, `content_fetch::extract_host`, and `search::format_kl` — compilable examples on docs.rs that double as regression tests.
 - `SECURITY.md` documenting the private-disclosure workflow via GitHub Security Advisories, response SLA (72 h), scope (HTTP/HTML parsing, credential leaks, path traversal, TLS) and security design assumptions (stateless, rustls-only, no JS for search).
 - `.github/dependabot.yml` enabling weekly automatic dependency updates for both `cargo` and `github-actions` ecosystems, with semantic grouping (dev-deps, tokio-ecosystem, tracing-ecosystem) and PR count limits.
 - `rust-toolchain.toml` pinning `stable` with `rustfmt` + `clippy` components for reproducible dev/CI builds.
@@ -360,11 +417,11 @@ Campos inalterados: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_ag
   - Static musl binary smoke test (`x86_64-unknown-linux-musl`) covering Alpine Linux and minimal containers.
   - `commit_check` job blocking `Co-authored-by:` trailers from AI agents in PRs.
 - `deny.toml` with full four-axis supply-chain policy (advisories/licenses/bans/sources) and documented ignores for three transitive unmaintained advisories (`RUSTSEC-2025-0057 fxhash`, `RUSTSEC-2025-0052 async-std`, `RUSTSEC-2026-0097 rand`) with justification and revisit notes.
-- 22 new tests raising coverage from 77.4% to 86.4% (lines): `tests/integracao_pipeline.rs` (10), `tests/integracao_fetch_conteudo.rs` (3), and 9 inline tests for `output.rs` covering `emitir_ndjson`, `emitir_stream_text`, `emitir_stream_markdown`, and the `ResultadoPipeline` variants via `tempfile`.
+- 22 new tests raising coverage from 77.4% to 86.4% (lines): `tests/integration_pipeline.rs` (10), `tests/integracao_fetch_conteudo.rs` (3), and 9 inline tests for `output.rs` covering `emit_ndjson`, `emit_stream_text`, `emit_stream_markdown`, and the `PipelineResult` variants via `tempfile`.
 
 ### Changed
 
-- `parallel.rs` coverage 50% → 81%; `pipeline.rs` 55% → 82%; `fetch_conteudo.rs` 68% → 85%; `output.rs` 70% → 87%.
+- `parallel.rs` coverage 50% → 81%; `pipeline.rs` 55% → 82%; `content_fetch.rs` 68% → 85%; `output.rs` 70% → 87%.
 
 ## [0.1.0] - 2026-04-14
 

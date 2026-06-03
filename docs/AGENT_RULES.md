@@ -108,8 +108,8 @@ duckduckgo-search-cli "q" -q --endpoint lite --num 15   # only after exit code 3
 
 ### B. JSON Output Contract — Fields You Can Trust and Fields You Cannot
 #### R11 — Distinguish single-query vs multi-query JSON root to avoid silent null access
-- Single query: root is a `SaidaBusca` object with `.query`, `.resultados`, `.metadados`.
-- Multi-query or `--queries-file`: root is `{ "quantidade_queries", "buscas": [SaidaBusca, ...] }`.
+- Single query: root is a `SearchOutput` object with `.query`, `.resultados`, `.metadados`.
+- Multi-query or `--queries-file`: root is `{ "quantidade_queries", "buscas": [SearchOutput, ...] }`.
 - Accessing `.resultados` on a multi-query response returns null — your pipeline silently produces empty output.
 
 ```bash
@@ -345,7 +345,7 @@ duckduckgo-search-cli init-config --force   # only after review
 - This guarantee applies to `--output` ONLY — stdin, `--queries-file`, and `--proxy` paths are NOT validated
 
 #### R33 — Trust v0.6.0 browser fingerprint profiles — NEVER inject custom `Sec-Fetch-*` or `Accept` headers
-- v0.6.0 ships `PerfilBrowser` with per-family `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, Client Hints, and RFC 7231 `Accept-Language`.
+- v0.6.0 ships `BrowserProfile` with per-family `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, Client Hints, and RFC 7231 `Accept-Language`.
 - Adding duplicate or conflicting headers via `--header` overrides the fingerprint and triggers anti-bot detection.
 - Accept-Language with q-values (`pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7`) is already injected — do NOT add a second `Accept-Language`.
 - HTTP 202 anomaly detection and silent-block detection (5 KB threshold) run automatically — agents MUST NOT retry on their own before checking exit code 3.
@@ -359,7 +359,7 @@ timeout 60 duckduckgo-search-cli "q" -q -f json --num 15
 ```
 
 #### R33 (PT) — Confie nos perfis de browser v0.6.0 — NUNCA injete headers `Sec-Fetch-*` ou `Accept` customizados
-- v0.6.0 inclui `PerfilBrowser` com `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, Client Hints e `Accept-Language` RFC 7231 por família.
+- v0.6.0 inclui `BrowserProfile` com `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, Client Hints e `Accept-Language` RFC 7231 por família.
 - Adicionar headers duplicados ou conflitantes via `--header` sobrescreve o perfil e ativa detecção anti-bot.
 - `Accept-Language` com q-values já é injetado automaticamente — NÃO adicione um segundo `Accept-Language`.
 - Detecção de HTTP 202 anomaly e detecção de bloqueio silencioso (limiar 5 KB) rodam automaticamente — agentes NÃO devem tentar retry próprio antes de verificar exit code 3.
@@ -547,8 +547,8 @@ duckduckgo-search-cli "consulta" -q --endpoint lite --num 15   # só após exit 
 
 ### B. Contrato da Saída JSON — Campos Confiáveis e Campos Opcionais
 #### R11 — Distinga raiz JSON de query única vs múltiplas para evitar acesso nulo silencioso
-- Query única: raiz é objeto `SaidaBusca` com `.query`, `.resultados`, `.metadados`.
-- Múltiplas queries ou `--queries-file`: raiz é `{ "quantidade_queries", "buscas": [SaidaBusca, ...] }`.
+- Query única: raiz é objeto `SearchOutput` com `.query`, `.resultados`, `.metadados`.
+- Múltiplas queries ou `--queries-file`: raiz é `{ "quantidade_queries", "buscas": [SearchOutput, ...] }`.
 - Acessar `.resultados` em resposta de múltiplas queries retorna null — seu pipeline produz saída vazia silenciosamente.
 
 ```bash
@@ -820,7 +820,7 @@ jaq '.resultados' out.json
 ```
 
 #### AP-04 — Assumir que `snippet` é string não-nula
-- `snippet` é `Option<String>` — acesso nulo faz `jaq` emitir null downstream.
+- `snippet` é `Option<String>` — acesso nulo faz `jaq` emit null downstream.
 - Use `// ""` para garantir tipo string em todo estágio do pipeline.
 
 ```bash
@@ -900,5 +900,22 @@ timeout 60 duckduckgo-search-cli "consulta" -q
 | R28 | MUST understand proxy precedence                                   | DEVE entender precedência de proxy                                   |
 | R29 | NEVER execute result URLs without sandbox                          | JAMAIS executar URLs de resultados sem sandbox                       |
 | R30 | MUST dry-run `init-config` before `--force`                        | DEVE dry-run `init-config` antes de `--force`                        |
+| R31 | MUST use `--probe` in CI before real queries (v0.6.4)               | DEVE usar `--probe` em CI antes de queries reais (v0.6.4)            |
+| R32 | NEVER hardcode `--identity-profile`; let pool adapt (v0.6.4)        | JAMAIS hardcodar `--identity-profile`; deixe o pool adaptar (v0.6.4) |
+| R33 | MUST treat `.identidade_usada` as `Option<String>` (v0.6.4)         | DEVE tratar `.identidade_usada` como `Option<String>` (v0.6.4)      |
+| R34 | MUST inspect `.nivel_cascata` after repeated blocks (v0.6.4)        | DEVE inspecionar `.nivel_cascata` após bloqueios repetidos (v0.6.4) |
 
-End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.4.x.
+## v0.6.4 Quick Reference (WS-26 Anti-Bot Identity Pool)
+
+When HTTP 202/403/429 persists, the v0.6.4 cascade has already rotated through up to 5 identities. Inspect `.metadados.nivel_cascata` to know how exhausted the pool is. If level 4 still fails, the IP itself is likely blocked — switch proxy or wait 300+ seconds.
+
+New CLI flags:
+- `--probe` — pre-flight health check (1 minimal request, JSON report)
+- `--identity-profile` — pin a specific identity from the 12-identity pool (default `auto`)
+- `--seed` — deterministic seed for UA + identity selection
+
+New JSON metadata fields (both `Option`, use `//` fallback in `jaq`):
+- `identidade_usada` — identity tag that produced the response
+- `nivel_cascata` — cascade level (0..=4) reached during the request
+
+End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.6.x.

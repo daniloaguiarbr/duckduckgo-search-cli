@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Entry point for the `duckduckgo-search-cli` binary.
 //!
 //! This function does ONLY the minimum:
@@ -11,13 +12,22 @@
 use std::process::ExitCode;
 use tokio_util::sync::CancellationToken;
 
+// System allocator used intentionally: CLI is short-lived with moderate
+// allocations. jemalloc/mimalloc not justified for single-shot workload.
+//
+// worker_threads and max_blocking_threads use Tokio defaults.
+// spawn_blocking concurrency is bounded indirectly by the global semaphore
+// in content_fetch.rs, so the default blocking pool (512 threads) is safe.
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
-    duckduckgo_search_cli::signals::restaurar_sigpipe();
+    duckduckgo_search_cli::signals::restore_sigpipe();
 
-    let cancelamento = CancellationToken::new();
-    duckduckgo_search_cli::signals::instalar_handler_cancelamento(cancelamento.clone());
+    #[cfg(all(feature = "console", tokio_unstable))]
+    console_subscriber::init();
 
-    let codigo = duckduckgo_search_cli::run(cancelamento).await;
-    ExitCode::from(codigo as u8)
+    let cancellation = CancellationToken::new();
+    duckduckgo_search_cli::signals::install_cancellation_handler(cancellation.clone());
+
+    let exit_code = duckduckgo_search_cli::run(cancellation).await;
+    ExitCode::from(exit_code as u8)
 }

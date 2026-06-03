@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: declarative (platform detection and XDG path resolution)
 //! Platform detection and cross-platform initialization.
 //!
 //! Responsibilities:
@@ -6,7 +8,7 @@
 //! 2. TTY detection for format auto-detect (used by the `output` module).
 //! 3. Configuration directory resolution via `dirs::config_dir()`.
 //!
-//! The `iniciar()` function MUST be called exactly once at the start of `main`.
+//! The `init()` function MUST be called exactly once at the start of `main`.
 
 use std::path::PathBuf;
 
@@ -17,34 +19,53 @@ use std::path::PathBuf;
 ///
 /// This function is best-effort — if codepage configuration fails on Windows,
 /// it only emits a warning via `tracing` and continues.
-pub fn iniciar() {
+pub fn init() {
     #[cfg(windows)]
     iniciar_windows();
 }
 
 #[cfg(windows)]
 fn iniciar_windows() {
-    // SetConsoleOutputCP(65001) configura UTF-8 como codepage de saída do console.
-    // windows-sys 0.59 expõe a função em Win32::System::Console.
-    // A função retorna BOOL (i32): 0 = falha, !=0 = sucesso.
-    // Para stdout redirecionado (pipe/arquivo) a chamada é no-op e inofensiva.
-    use windows_sys::Win32::System::Console::SetConsoleOutputCP;
-    // SAFETY: SetConsoleOutputCP é uma FFI segura — aceita uma UINT (codepage id)
-    // e retorna BOOL. Não desreferencia ponteiros. 65001 é a constante UTF-8.
-    let resultado = unsafe { SetConsoleOutputCP(65001) };
-    if resultado == 0 {
-        tracing::warn!(
-            "Falha ao configurar codepage UTF-8 (65001) no console Windows. \
-             Caracteres acentuados podem aparecer incorretamente em cmd.exe antigo."
-        );
-    } else {
-        tracing::debug!("Codepage UTF-8 (65001) configurado com sucesso no console Windows.");
+    use windows_sys::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, SetConsoleCP, SetConsoleMode, SetConsoleOutputCP,
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
+    };
+
+    // SAFETY: SetConsoleOutputCP/SetConsoleCP accept a UINT codepage id
+    // and return BOOL. No pointer dereference. 65001 = UTF-8.
+    let resultado_output = unsafe { SetConsoleOutputCP(65001) };
+    if resultado_output == 0 {
+        tracing::warn!("Failed to configure UTF-8 output codepage (65001) on Windows console.");
+    }
+
+    // MP-01: SetConsoleCP for stdin UTF-8 (queries with accents via pipe).
+    let resultado_input = unsafe { SetConsoleCP(65001) };
+    if resultado_input == 0 {
+        tracing::warn!("Failed to configure UTF-8 input codepage (65001) on Windows console.");
+    }
+
+    if resultado_output != 0 || resultado_input != 0 {
+        tracing::debug!("UTF-8 codepage (65001) configured on Windows console.");
+    }
+
+    // MP-02: Enable ANSI escape sequences (Virtual Terminal Processing).
+    // SAFETY: GetStdHandle returns a HANDLE; GetConsoleMode/SetConsoleMode
+    // read/write a u32 mode bitmask. No user-controlled pointers.
+    let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+    if handle != 0 && handle != usize::MAX {
+        let mut mode: u32 = 0;
+        if unsafe { GetConsoleMode(handle as isize, &mut mode) } != 0 {
+            let novo = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            if unsafe { SetConsoleMode(handle as isize, novo) } == 0 {
+                tracing::debug!("ANSI VTP not available on this Windows console.");
+            }
+        }
     }
 }
 
 /// Checks whether `stdout` is connected to an interactive terminal (TTY).
 /// Used by the `output` module for format auto-detect (text in TTY, json in pipe).
-pub fn stdout_eh_tty() -> bool {
+pub fn stdout_is_tty() -> bool {
     use std::io::IsTerminal;
     std::io::stdout().is_terminal()
 }
@@ -56,26 +77,47 @@ pub fn stdout_eh_tty() -> bool {
 /// - macOS: `~/Library/Application Support/duckduckgo-search-cli/`.
 /// - Windows: `%APPDATA%\duckduckgo-search-cli\`.
 ///
+/// The environment variable `DUCKDUCKGO_SEARCH_CLI_HOME` overrides the default
+/// path when set (rejected if it contains `..` for path traversal safety).
+///
 /// Returns `None` if no configuration directory can be determined.
-pub fn diretorio_configuracao() -> Option<PathBuf> {
+pub fn config_directory() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("DUCKDUCKGO_SEARCH_CLI_HOME") {
+        let p = PathBuf::from(home);
+        if p.to_string_lossy().contains("..") {
+            tracing::warn!("DUCKDUCKGO_SEARCH_CLI_HOME contains '..', ignoring");
+        } else {
+            return Some(p);
+        }
+    }
     dirs::config_dir().map(|base| base.join("duckduckgo-search-cli"))
+}
+
+/// Returns `true` if color output should be suppressed.
+///
+/// Checks (in order): `--no-color` flag, `NO_COLOR` env var (any value per
+/// no-color.org), `CLICOLOR_FORCE=0`.
+pub fn should_disable_color(flag_no_color: bool) -> bool {
+    flag_no_color
+        || std::env::var_os("NO_COLOR").is_some()
+        || std::env::var("CLICOLOR_FORCE").ok().as_deref() == Some("0")
 }
 
 /// Path to the external `selectors.toml` file (if the config directory exists).
 ///
-/// Used by the lazy loader of `ConfiguracaoSeletores` — when the file exists,
+/// Used by the lazy loader of `SelectorConfig` — when the file exists,
 /// it overrides the hardcoded defaults.
-pub fn caminho_selectors_toml() -> Option<PathBuf> {
-    diretorio_configuracao().map(|base| base.join("selectors.toml"))
+pub fn selectors_toml_path() -> Option<PathBuf> {
+    config_directory().map(|base| base.join("selectors.toml"))
 }
 
 /// Path to the external `user-agents.toml` file (if the config directory exists).
-pub fn caminho_user_agents_toml() -> Option<PathBuf> {
-    diretorio_configuracao().map(|base| base.join("user-agents.toml"))
+pub fn user_agents_toml_path() -> Option<PathBuf> {
+    config_directory().map(|base| base.join("user-agents.toml"))
 }
 
 /// Identifier name of the current platform (for logs and User-Agent matching).
-pub fn nome_plataforma() -> &'static str {
+pub fn platform_name() -> &'static str {
     if cfg!(target_os = "linux") {
         "linux"
     } else if cfg!(target_os = "macos") {
@@ -88,34 +130,34 @@ pub fn nome_plataforma() -> &'static str {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn nome_plataforma_retorna_valor_conhecido() {
-        let nome = nome_plataforma();
+    fn platform_name_returns_known_value() {
+        let nome = platform_name();
         assert!(matches!(nome, "linux" | "macos" | "windows" | "outro"));
     }
 
     #[test]
-    fn iniciar_nao_deve_panicar() {
-        // Smoke test — em plataformas não-Windows, é no-op.
-        // Em Windows, a chamada é best-effort e não deve panicar.
-        iniciar();
+    fn init_should_not_panic() {
+        // Smoke test — on non-Windows platforms, this is a no-op.
+        // On Windows, the call is best-effort and must not panic.
+        init();
     }
 
     #[test]
-    fn diretorio_configuracao_nao_vazio_em_sistemas_com_home() {
+    fn config_directory_not_empty_on_systems_with_home() {
         // Em sistemas CI sem HOME, pode retornar None. Apenas verificamos tipagem.
-        let _ = diretorio_configuracao();
+        let _ = config_directory();
     }
 
     #[test]
-    fn caminhos_toml_terminam_com_nomes_esperados() {
-        if let Some(selectors) = caminho_selectors_toml() {
+    fn toml_paths_end_with_expected_names() {
+        if let Some(selectors) = selectors_toml_path() {
             assert!(selectors.ends_with("selectors.toml"));
         }
-        if let Some(uas) = caminho_user_agents_toml() {
+        if let Some(uas) = user_agents_toml_path() {
             assert!(uas.ends_with("user-agents.toml"));
         }
     }

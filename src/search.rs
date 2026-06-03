@@ -1,4 +1,6 @@
-//! URL construction and search request execution for DuckDuckGo.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: I/O-bound (HTTP requests to DuckDuckGo endpoints)
+//! URL construction and search request execution for `DuckDuckGo`.
 //!
 //! Iteration 3 adds:
 //! - Pagination with `vqd` token via POST form-urlencoded.
@@ -10,11 +12,11 @@
 //! Base URLs are read from env `DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML` and
 //! `DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE` when present; otherwise uses
 //! the production defaults. The defaults END with a slash (`/html/` and `/lite/`)
-//! because DuckDuckGo treats `/html` (without slash) as a redirect.
+//! because `DuckDuckGo` treats `/html` (without slash) as a redirect.
 
+use crate::error::CliError;
 use crate::extraction;
-use crate::types::{Configuracoes, Endpoint, FiltroTemporal, ResultadoBusca, SafeSearch};
-use anyhow::{bail, Context, Result};
+use crate::types::{Config, Endpoint, SafeSearch, SearchResult, TimeFilter};
 use rand::Rng;
 use reqwest::{Client, Response, StatusCode};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,9 +24,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-/// Default base URL for the DuckDuckGo HTML endpoint.
+/// Default base URL for the `DuckDuckGo` HTML endpoint.
 const URL_ENDPOINT_HTML_DEFAULT: &str = "https://html.duckduckgo.com/html/";
-/// Default base URL for the DuckDuckGo Lite endpoint.
+/// Default base URL for the `DuckDuckGo` Lite endpoint.
 const URL_ENDPOINT_LITE_DEFAULT: &str = "https://lite.duckduckgo.com/lite/";
 
 /// Name of the environment variable that overrides the HTML endpoint URL (for tests).
@@ -34,15 +36,15 @@ const ENV_BASE_URL_LITE: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE";
 
 /// Minimum delay between consecutive pages (ms).
 /// v0.6.0: increased from 500 to 800ms to reduce anti-bot detection.
-const DELAY_PAGINACAO_MIN_MS: u64 = 800;
+const PAGINATION_DELAY_MIN_MS: u64 = 800;
 /// Maximum delay between consecutive pages (ms).
 /// v0.6.0: increased from 1000 to 1500ms to reduce anti-bot detection.
-const DELAY_PAGINACAO_MAX_MS: u64 = 1500;
+const PAGINATION_DELAY_MAX_MS: u64 = 1500;
 
 /// Byte threshold for silent block detection.
-/// Real DuckDuckGo responses with results are 50-200KB.
+/// Real `DuckDuckGo` responses with results are 50-200KB.
 /// Silent block pages are typically ~3KB.
-const LIMIAR_BLOQUEIO_SILENCIOSO: usize = 5_000;
+const SILENT_BLOCK_THRESHOLD: usize = 5_000;
 
 /// Base backoff for retry on 429 (ms). Total = base * 2^attempt + jitter.
 const BACKOFF_BASE_MS: u64 = 1000;
@@ -51,22 +53,34 @@ const BACKOFF_JITTER_MAX_MS: u64 = 500;
 
 /// Calculates the exponential backoff delay with jitter for the given attempt.
 ///
-/// `tentativa` is 0-based. The exponent is capped at 10 (`2^10 = 1024`) to
+/// `attempt` is 0-based. The exponent is capped at 10 (`2^10 = 1024`) to
 /// avoid overflow without needing `checked_shl`.
-fn calcular_backoff_ms(tentativa: u32) -> u64 {
-    let fator = 1u64 << tentativa.min(10);
-    let backoff = BACKOFF_BASE_MS.saturating_mul(fator);
+fn calculate_backoff_ms(attempt: u32) -> u64 {
+    let factor = 1u64 << attempt.min(10);
+    let backoff = BACKOFF_BASE_MS.saturating_mul(factor);
     let jitter = rand::thread_rng().gen_range(0..=BACKOFF_JITTER_MAX_MS);
     backoff.saturating_add(jitter)
 }
 
+/// Parses the `Retry-After` header from an HTTP response.
+///
+/// Supports both numeric seconds and HTTP-date formats.
+/// Returns `None` if the header is absent or unparseable.
+fn parse_retry_after(response: &Response) -> Option<u64> {
+    let value = response.headers().get("retry-after")?.to_str().ok()?;
+    if let Ok(secs) = value.parse::<u64>() {
+        return Some(secs.min(120) * 1000);
+    }
+    None
+}
+
 /// Returns the effective base URL for the HTML endpoint (respects env var in tests).
-pub fn url_base_html() -> String {
+pub fn html_base_url() -> String {
     std::env::var(ENV_BASE_URL_HTML).unwrap_or_else(|_| URL_ENDPOINT_HTML_DEFAULT.to_string())
 }
 
 /// Returns the effective base URL for the Lite endpoint (respects env var in tests).
-pub fn url_base_lite() -> String {
+pub fn lite_base_url() -> String {
     std::env::var(ENV_BASE_URL_LITE).unwrap_or_else(|_| URL_ENDPOINT_LITE_DEFAULT.to_string())
 }
 
@@ -77,322 +91,395 @@ pub fn url_base_lite() -> String {
 /// - `kl` — region, format `{country}-{language}`.
 /// - `kp` — safe-search (when present).
 /// - `df` — time filter (when present).
-pub fn construir_url_busca(
+pub fn build_search_url(
     query: &str,
-    idioma: &str,
-    pais: &str,
+    language: &str,
+    country: &str,
     endpoint: Endpoint,
-    filtro_temporal: Option<FiltroTemporal>,
+    time_filter: Option<TimeFilter>,
     safe_search: SafeSearch,
 ) -> String {
     let base = match endpoint {
-        Endpoint::Html => url_base_html(),
-        Endpoint::Lite => url_base_lite(),
+        Endpoint::Html => html_base_url(),
+        Endpoint::Lite => lite_base_url(),
     };
     let query_encoded = urlencoding::encode(query);
-    let kl = formatar_kl(idioma, pais);
-    let mut url = format!("{base}?q={query_encoded}&kl={kl}");
-    if let Some(kp) = safe_search.como_parametro() {
+    let kl = format_kl(language, country);
+    let mut url = String::with_capacity(base.len() + query_encoded.len() + kl.len() + 32);
+    url.push_str(&base);
+    url.push_str("?q=");
+    url.push_str(&query_encoded);
+    url.push_str("&kl=");
+    url.push_str(&kl);
+    if let Some(kp) = safe_search.as_param() {
         url.push_str("&kp=");
         url.push_str(kp);
     }
-    if let Some(df) = filtro_temporal {
+    if let Some(df) = time_filter {
         url.push_str("&df=");
-        url.push_str(df.como_parametro());
+        url.push_str(df.as_param());
     }
     url
 }
 
 /// Simplified version from iteration 1 — kept for backward compatibility with older tests.
-pub fn construir_url(query: &str, idioma: &str, pais: &str) -> String {
-    construir_url_busca(
+pub fn build_url(query: &str, language: &str, country: &str) -> String {
+    build_search_url(
         query,
-        idioma,
-        pais,
+        language,
+        country,
         Endpoint::Html,
         None,
         SafeSearch::Moderate,
     )
 }
 
-/// Formats the DuckDuckGo `kl` parameter as `{country}-{language}` in lowercase.
+/// Formats the `DuckDuckGo` `kl` parameter as `{country}-{language}` in lowercase.
 ///
-/// DuckDuckGo expects `kl` with the country in lowercase, followed by a hyphen and language
+/// `DuckDuckGo` expects `kl` with the country in lowercase, followed by a hyphen and language
 /// in lowercase. Uppercase inputs are normalized.
 ///
 /// # Exemplo
 ///
 /// ```
-/// use duckduckgo_search_cli::search::formatar_kl;
+/// use duckduckgo_search_cli::search::format_kl;
 ///
-/// assert_eq!(formatar_kl("pt", "br"), "br-pt");
-/// assert_eq!(formatar_kl("EN", "US"), "us-en"); // normalizes uppercase input
+/// assert_eq!(format_kl("pt", "br"), "br-pt");
+/// assert_eq!(format_kl("EN", "US"), "us-en"); // normalizes uppercase input
 /// ```
-pub fn formatar_kl(idioma: &str, pais: &str) -> String {
-    format!(
-        "{}-{}",
-        pais.to_ascii_lowercase(),
-        idioma.to_ascii_lowercase()
-    )
+#[inline]
+pub fn format_kl(language: &str, country: &str) -> String {
+    let mut kl = String::with_capacity(country.len() + language.len() + 1);
+    for ch in country.chars() {
+        kl.push(ch.to_ascii_lowercase());
+    }
+    kl.push('-');
+    for ch in language.chars() {
+        kl.push(ch.to_ascii_lowercase());
+    }
+    kl
 }
 
-/// Specific errors returned by `executar_com_retry`.
+/// Specific errors returned by `execute_with_retry`.
 ///
 /// Used so the pipeline can tag queries with structured error codes
 /// instead of a generic message.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MotivoFalhaRetry {
+pub enum RetryFailReason {
     /// Persistent rate limit after exhausting retries (HTTP 429).
     RateLimited,
     /// Persistent block after exhausting retries (HTTP 403).
     Blocked,
     /// Non-recoverable HTTP error (4xx/5xx status other than 403/429).
-    HttpErro(u16),
+    HttpError(u16),
     /// Timeout after 1 retry attempt.
     Timeout,
     /// Generic network error.
-    Rede(String),
+    Network(String),
 }
 
-impl MotivoFalhaRetry {
+impl RetryFailReason {
     /// Maps to the structured error code in `error::codigos`.
-    pub fn como_codigo_erro(&self) -> &'static str {
+    pub fn as_error_code(&self) -> &'static str {
         match self {
-            MotivoFalhaRetry::RateLimited => crate::error::codigos::RATE_LIMITED,
-            MotivoFalhaRetry::Blocked => crate::error::codigos::BLOCKED,
-            MotivoFalhaRetry::HttpErro(_) => crate::error::codigos::HTTP_ERROR,
-            MotivoFalhaRetry::Timeout => crate::error::codigos::TIMEOUT,
-            MotivoFalhaRetry::Rede(_) => crate::error::codigos::NETWORK_ERROR,
+            RetryFailReason::RateLimited => crate::error::codes::RATE_LIMITED,
+            RetryFailReason::Blocked => crate::error::codes::BLOCKED,
+            RetryFailReason::HttpError(_) => crate::error::codes::HTTP_ERROR,
+            RetryFailReason::Timeout => crate::error::codes::TIMEOUT,
+            RetryFailReason::Network(_) => crate::error::codes::NETWORK_ERROR,
         }
     }
 
-    pub fn mensagem(&self) -> String {
+    /// Returns a human-readable failure description for logs and JSON output.
+    pub fn message(&self) -> String {
         match self {
-            MotivoFalhaRetry::RateLimited => "rate limit persistente (HTTP 429)".to_string(),
-            MotivoFalhaRetry::Blocked => "bloqueado pelo DuckDuckGo (HTTP 403)".to_string(),
-            MotivoFalhaRetry::HttpErro(status) => format!("HTTP {status} não recuperável"),
-            MotivoFalhaRetry::Timeout => "timeout persistente".to_string(),
-            MotivoFalhaRetry::Rede(msg) => format!("erro de rede: {msg}"),
+            RetryFailReason::RateLimited => "persistent rate limit (HTTP 429)".to_string(),
+            RetryFailReason::Blocked => "blocked by DuckDuckGo (HTTP 403)".to_string(),
+            RetryFailReason::HttpError(status) => format!("HTTP {status} unrecoverable"),
+            RetryFailReason::Timeout => "persistent timeout".to_string(),
+            RetryFailReason::Network(msg) => format!("network error: {msg}"),
         }
     }
 }
 
-/// Result of `executar_com_retry`: either the HTTP response + total attempts, or the failure reason.
+/// Result of `execute_with_retry`: either the HTTP response + total attempts, or the failure reason.
 #[derive(Debug)]
-pub struct ResultadoRetry {
-    pub resposta: Response,
-    pub tentativas: u32,
+pub struct RetryResult {
+    /// The successful HTTP response body.
+    pub response: Response,
+    /// Total number of attempts made (1 = no retry needed).
+    pub attempts: u32,
 }
 
 /// Executes a GET request with retry and backoff. Parameters:
-/// * `cliente` — reqwest client (shared).
+/// * `client` — reqwest client (shared).
 /// * `url` — full target URL.
 /// * `retries` — number of additional retries (0..=10). 0 = single attempt only.
 /// * `flag_rate_limit` — signals to other tasks that rate limiting was detected.
-pub async fn executar_com_retry(
-    cliente: &Client,
+///
+/// # Errors
+///
+/// Returns an error if all retry attempts are exhausted due to rate limiting,
+/// blocking (HTTP 403 / HTTP 202), timeout, a non-recoverable HTTP status, or
+/// a network failure.
+///
+/// # Cancel safety
+///
+/// This function is cancel-safe. Dropping the future between retries prevents
+/// any in-progress `tokio::time::sleep` or pending `send()` from completing,
+/// leaving the HTTP connection in an unknown state that `reqwest` will close.
+#[tracing::instrument(skip_all, fields(%url, max_attempts = retries + 1))]
+pub async fn execute_with_retry(
+    client: &Client,
     url: &str,
     retries: u32,
     flag_rate_limit: &Arc<AtomicBool>,
-    cancelamento: &CancellationToken,
-) -> std::result::Result<ResultadoRetry, MotivoFalhaRetry> {
-    let total_tentativas = retries.saturating_add(1);
-    let mut ultimo_motivo = MotivoFalhaRetry::Rede("nenhuma tentativa executada".to_string());
-    let mut timeout_ja_retentado = false;
+    cancellation: &CancellationToken,
+) -> std::result::Result<RetryResult, RetryFailReason> {
+    let total_attempts = retries.saturating_add(1);
+    let mut last_reason = RetryFailReason::Network("no attempts executed".to_string());
+    let mut timeout_already_retried = false;
 
-    for tentativa in 0..total_tentativas {
-        if cancelamento.is_cancelled() {
-            return Err(MotivoFalhaRetry::Rede("cancelado".to_string()));
+    for attempt in 0..total_attempts {
+        if cancellation.is_cancelled() {
+            return Err(RetryFailReason::Network("cancelled".to_string()));
         }
 
         // Se o rate-limit global foi acionado por outra task, aplica delay extra.
-        if flag_rate_limit.load(Ordering::Relaxed) && tentativa == 0 {
+        if flag_rate_limit.load(Ordering::Relaxed) && attempt == 0 {
             let extra_ms = rand::thread_rng().gen_range(500..1200);
             tracing::debug!(
                 extra_ms,
-                "flag rate-limit global ativa — aguardando antes da tentativa"
+                "global rate-limit flag active — waiting before retry attempt"
             );
             tokio::time::sleep(Duration::from_millis(extra_ms)).await;
         }
 
-        tracing::debug!(tentativa = tentativa + 1, total = total_tentativas, url = %url, "executando GET");
+        tracing::debug!(attempt = attempt + 1, total = total_attempts, url = %url, "executing GET request");
 
         let envio = tokio::select! {
             biased;
-            _ = cancelamento.cancelled() => {
-                return Err(MotivoFalhaRetry::Rede("cancelado durante request".to_string()));
+            _ = cancellation.cancelled() => {
+                return Err(RetryFailReason::Network("cancelled during request".to_string()));
             }
-            res = cliente.get(url).send() => res,
+            res = client.get(url).send() => res,
         };
 
         match envio {
-            Ok(resposta) => {
-                let status = resposta.status();
+            Ok(response) => {
+                let status = response.status();
                 // HTTP 202 = anomalia DDG (bloqueio suave anti-bot).
                 // Browsers reais NUNCA recebem 202 do DuckDuckGo.
+                // Ordering::Relaxed is sufficient for this AtomicBool flag because:
+                // 1. It is a best-effort signal — a task that misses the flag simply
+                //    retries and discovers the rate-limit itself.
+                // 2. No correctness invariant depends on immediate cross-thread visibility.
+                // 3. After the flag is set, each task independently adds random delay;
+                //    eventual consistency is acceptable for this coordination pattern.
                 if status == StatusCode::ACCEPTED {
                     flag_rate_limit.store(true, Ordering::Relaxed);
-                    ultimo_motivo = MotivoFalhaRetry::Blocked;
-                    if tentativa + 1 < total_tentativas {
-                        let total = calcular_backoff_ms(tentativa);
+                    last_reason = RetryFailReason::Blocked;
+                    if attempt + 1 < total_attempts {
+                        let total = calculate_backoff_ms(attempt);
                         tracing::warn!(
-                            tentativa = tentativa + 1,
+                            attempt = attempt + 1,
                             backoff_ms = total,
-                            "HTTP 202 anomaly — bloqueio suave DDG, aplicando backoff"
+                            "HTTP 202 anomaly — DDG soft block, applying backoff"
                         );
                         tokio::time::sleep(Duration::from_millis(total)).await;
                         continue;
                     }
-                    return Err(MotivoFalhaRetry::Blocked);
+                    return Err(RetryFailReason::Blocked);
                 }
                 if status.is_success() {
-                    return Ok(ResultadoRetry {
-                        resposta,
-                        tentativas: tentativa + 1,
+                    return Ok(RetryResult {
+                        response,
+                        attempts: attempt + 1,
                     });
                 }
                 if status == StatusCode::TOO_MANY_REQUESTS {
+                    // Same Relaxed justification as HTTP 202 store above (lines 247-252).
                     flag_rate_limit.store(true, Ordering::Relaxed);
-                    ultimo_motivo = MotivoFalhaRetry::RateLimited;
-                    if tentativa + 1 < total_tentativas {
-                        let total = calcular_backoff_ms(tentativa);
+                    last_reason = RetryFailReason::RateLimited;
+                    if attempt + 1 < total_attempts {
+                        let delay_ms = parse_retry_after(&response)
+                            .unwrap_or_else(|| calculate_backoff_ms(attempt));
                         tracing::warn!(
-                            tentativa = tentativa + 1,
-                            backoff_ms = total,
-                            "HTTP 429 — aplicando backoff exponencial"
+                            attempt = attempt + 1,
+                            backoff_ms = delay_ms,
+                            "HTTP 429 — applying backoff"
                         );
-                        tokio::time::sleep(Duration::from_millis(total)).await;
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                         continue;
                     }
-                    return Err(MotivoFalhaRetry::RateLimited);
+                    return Err(RetryFailReason::RateLimited);
                 }
                 if status == StatusCode::FORBIDDEN {
-                    ultimo_motivo = MotivoFalhaRetry::Blocked;
-                    if tentativa + 1 < total_tentativas {
+                    last_reason = RetryFailReason::Blocked;
+                    if attempt + 1 < total_attempts {
                         tracing::warn!(
-                            tentativa = tentativa + 1,
-                            "HTTP 403 — retry imediato (rotação de UA aplicada no próximo cliente)"
+                            attempt = attempt + 1,
+                            "HTTP 403 — immediate retry (UA rotation applied on next client)"
                         );
-                        // A rotação de UA é responsabilidade do chamador; aqui apenas sinalizamos.
+                        // UA rotation is the caller's responsibility; here we only signal.
                         continue;
                     }
-                    return Err(MotivoFalhaRetry::Blocked);
+                    return Err(RetryFailReason::Blocked);
                 }
-                // Outros 4xx/5xx — não retentamos.
-                return Err(MotivoFalhaRetry::HttpErro(status.as_u16()));
+                // Other 4xx/5xx — do not retry.
+                return Err(RetryFailReason::HttpError(status.as_u16()));
             }
-            Err(erro) => {
-                if erro.is_timeout() {
-                    ultimo_motivo = MotivoFalhaRetry::Timeout;
-                    if !timeout_ja_retentado && tentativa + 1 < total_tentativas {
-                        timeout_ja_retentado = true;
-                        tracing::warn!("timeout — 1 retry permitido");
+            Err(err) => {
+                if err.is_timeout() {
+                    last_reason = RetryFailReason::Timeout;
+                    if !timeout_already_retried && attempt + 1 < total_attempts {
+                        timeout_already_retried = true;
+                        tracing::warn!("timeout — 1 retry allowed");
                         continue;
                     }
-                    return Err(MotivoFalhaRetry::Timeout);
+                    return Err(RetryFailReason::Timeout);
                 }
-                ultimo_motivo = MotivoFalhaRetry::Rede(erro.to_string());
-                // Erros de rede genéricos: 1 retry opcional se ainda houver tentativas.
-                if tentativa + 1 < total_tentativas {
+                last_reason = RetryFailReason::Network(err.to_string());
+                // Generic network errors: 1 optional retry if attempts remain.
+                if attempt + 1 < total_attempts {
                     let backoff = Duration::from_millis(400);
                     tokio::time::sleep(backoff).await;
                     continue;
                 }
-                return Err(ultimo_motivo);
+                return Err(last_reason);
             }
         }
     }
 
-    Err(ultimo_motivo)
+    Err(last_reason)
 }
 
 /// Executes the initial search on the configured endpoint and returns the raw HTML.
 /// Compatibility version (iteration 1) — used by the simple single-query flow.
-pub async fn executar_busca(
-    cliente: &Client,
+///
+/// # Errors
+///
+/// Returns an error if the HTTP request fails, if `DuckDuckGo` returns a non-2xx
+/// status, or if the response body is suspiciously small (silent block detected).
+///
+/// # Cancel safety
+///
+/// This function is cancel-safe. Dropping the future before `.send().await`
+/// completes discards the in-flight request; dropping it before `.text().await`
+/// discards the partially-received body.
+pub async fn execute_search(
+    client: &Client,
     query: &str,
     idioma: &str,
     pais: &str,
-) -> Result<String> {
-    let url = construir_url(query, idioma, pais);
-    tracing::debug!(url = %url, "Enviando GET para o endpoint HTML do DuckDuckGo");
+) -> Result<String, CliError> {
+    let url = build_url(query, idioma, pais);
+    tracing::debug!(url = %url, "Sending GET to the DuckDuckGo HTML endpoint");
 
-    let resposta = cliente
+    let response = client
         .get(&url)
         .send()
         .await
-        .with_context(|| format!("falha ao enviar GET para {url}"))?;
+        .map_err(|e| CliError::HttpError {
+            message: format!("failed to send GET to {url}: {e}"),
+            cause: Some(e.into()),
+        })?;
 
-    let status = resposta.status();
-    tracing::debug!(status = %status, "Resposta HTTP recebida");
+    let status = response.status();
+    tracing::debug!(status = %status, "HTTP response received");
 
     if !status.is_success() {
-        bail!(
-            "DuckDuckGo retornou status HTTP {} ao buscar {:?}",
-            status.as_u16(),
-            query
-        );
+        return Err(CliError::HttpError {
+            message: format!(
+                "DuckDuckGo returned HTTP {} for {:?}",
+                status.as_u16(),
+                query
+            ),
+            cause: None,
+        });
     }
 
-    let html = resposta
-        .text()
-        .await
-        .context("falha ao ler corpo UTF-8 da resposta")?;
+    let html = response.text().await.map_err(|e| CliError::HttpError {
+        message: format!("failed to read UTF-8 response body: {e}"),
+        cause: Some(e.into()),
+    })?;
 
-    if html.len() < LIMIAR_BLOQUEIO_SILENCIOSO {
+    if html.len() < SILENT_BLOCK_THRESHOLD {
         tracing::warn!(
             bytes = html.len(),
-            limiar = LIMIAR_BLOQUEIO_SILENCIOSO,
-            "resposta suspeitamente pequena — possível bloqueio silencioso"
+            limiar = SILENT_BLOCK_THRESHOLD,
+            "suspiciously small response — possible silent block"
         );
-        bail!(
-            "resposta suspeitamente pequena ({} bytes < {} limiar) — possível bloqueio silencioso",
-            html.len(),
-            LIMIAR_BLOQUEIO_SILENCIOSO
-        );
+        return Err(CliError::HttpError {
+            message: format!(
+                "suspiciously small response ({} bytes < {} threshold) — possible silent block",
+                html.len(),
+                SILENT_BLOCK_THRESHOLD
+            ),
+            cause: None,
+        });
     }
 
-    tracing::debug!(bytes = html.len(), "HTML recebido com sucesso");
+    tracing::debug!(bytes = html.len(), "HTML received successfully");
     Ok(html)
 }
 
 /// Aggregated result of a search with pagination and potential endpoint fallback.
-pub struct ResultadoBuscaAgregado {
-    pub resultados: Vec<ResultadoBusca>,
-    pub paginas_buscadas: u32,
-    pub usou_fallback_lite: bool,
-    pub tentativas: u32,
-    pub endpoint_efetivo: Endpoint,
+#[derive(Debug)]
+pub struct AggregatedSearchResult {
+    /// Organic results collected across all pages.
+    pub results: Vec<SearchResult>,
+    /// Number of pages actually fetched.
+    pub pages_fetched: u32,
+    /// Whether the lite endpoint was used as fallback.
+    pub used_fallback_lite: bool,
+    /// Total HTTP attempts (including retries).
+    pub attempts: u32,
+    /// Endpoint that produced the final results.
+    pub effective_endpoint: Endpoint,
 }
 
 /// Extracts `vqd`, `s` and `dc` from the first page HTML (for pagination).
 /// Returns `None` if any of the three fields is missing.
-pub fn extrair_tokens_paginacao(html: &str) -> Option<(String, String, String)> {
-    use scraper::{Html, Selector};
+pub fn extract_pagination_tokens(html: &str) -> Option<(String, String, String)> {
+    use scraper::Html;
     let doc = Html::parse_document(html);
 
-    // Os seletores são constantes bem-formadas; use ok() para robustez.
-    let sel_vqd = Selector::parse("input[name='vqd']").ok()?;
-    let sel_s = Selector::parse("input[name='s']").ok()?;
-    let sel_dc = Selector::parse("input[name='dc']").ok()?;
-
     let vqd = doc
-        .select(&sel_vqd)
+        .select(sel_vqd())
         .next()
         .and_then(|el| el.value().attr("value"))
         .map(|v| v.to_string())?;
     let s = doc
-        .select(&sel_s)
+        .select(sel_s_input())
         .next()
         .and_then(|el| el.value().attr("value"))
         .map(|v| v.to_string())?;
     let dc = doc
-        .select(&sel_dc)
+        .select(sel_dc())
         .next()
         .and_then(|el| el.value().attr("value"))
         .map(|v| v.to_string())?;
 
     Some((vqd, s, dc))
+}
+
+fn sel_vqd() -> &'static scraper::Selector {
+    use std::sync::OnceLock;
+    static C: OnceLock<scraper::Selector> = OnceLock::new();
+    C.get_or_init(|| scraper::Selector::parse("input[name='vqd']").unwrap())
+}
+
+fn sel_s_input() -> &'static scraper::Selector {
+    use std::sync::OnceLock;
+    static C: OnceLock<scraper::Selector> = OnceLock::new();
+    C.get_or_init(|| scraper::Selector::parse("input[name='s']").unwrap())
+}
+
+fn sel_dc() -> &'static scraper::Selector {
+    use std::sync::OnceLock;
+    static C: OnceLock<scraper::Selector> = OnceLock::new();
+    C.get_or_init(|| scraper::Selector::parse("input[name='dc']").unwrap())
 }
 
 /// Runs a complete search with vqd pagination and optional fallback to Lite.
@@ -402,289 +489,297 @@ pub fn extrair_tokens_paginacao(html: &str) -> Option<(String, String, String)> 
 ///
 /// Returns an aggregated structure with results, related searches, pages actually
 /// fetched, fallback indicator, and total attempt count.
-pub async fn buscar_com_paginacao(
-    cliente: &Client,
-    cfg: &Configuracoes,
+///
+/// # Errors
+///
+/// Returns an error (as a [`RetryFailReason`]) if the first-page request fails after
+/// all retries, or if the first response is suspiciously small (silent block detected).
+/// Pagination and Lite-fallback failures are logged and handled gracefully without
+/// propagating an error.
+///
+/// # Cancel safety
+///
+/// This function is cancel-safe. Dropping the future between pagination steps leaves
+/// the accumulated results collected so far in an unreachable state; no partial output
+/// is emitted to the caller.
+pub async fn search_with_pagination(
+    client: &Client,
+    cfg: &Config,
     query: &str,
     flag_rate_limit: &Arc<AtomicBool>,
-    cancelamento: &CancellationToken,
-) -> std::result::Result<ResultadoBuscaAgregado, MotivoFalhaRetry> {
-    let endpoint_inicial = cfg.endpoint;
-    let url_inicial = construir_url_busca(
+    cancellation: &CancellationToken,
+) -> std::result::Result<AggregatedSearchResult, RetryFailReason> {
+    let initial_endpoint = cfg.endpoint;
+    let initial_url = build_search_url(
         query,
-        &cfg.idioma,
-        &cfg.pais,
-        endpoint_inicial,
-        cfg.filtro_temporal,
+        &cfg.language,
+        &cfg.country,
+        initial_endpoint,
+        cfg.time_filter,
         cfg.safe_search,
     );
 
-    let resultado_primeiro = executar_com_retry(
-        cliente,
-        &url_inicial,
+    let first_result = execute_with_retry(
+        client,
+        &initial_url,
         cfg.retries,
         flag_rate_limit,
-        cancelamento,
+        cancellation,
     )
     .await?;
-    let mut tentativas_acumuladas = resultado_primeiro.tentativas;
+    let mut accumulated_attempts = first_result.attempts;
 
-    let html_primeira = resultado_primeiro
-        .resposta
+    let first_html = first_result
+        .response
         .text()
         .await
-        .map_err(|e| MotivoFalhaRetry::Rede(e.to_string()))?;
+        .map_err(|e| RetryFailReason::Network(e.to_string()))?;
 
-    if html_primeira.len() < LIMIAR_BLOQUEIO_SILENCIOSO {
+    if first_html.len() < SILENT_BLOCK_THRESHOLD {
         tracing::warn!(
-            bytes = html_primeira.len(),
-            limiar = LIMIAR_BLOQUEIO_SILENCIOSO,
-            "resposta da primeira página suspeitamente pequena — possível bloqueio silencioso"
+            bytes = first_html.len(),
+            limiar = SILENT_BLOCK_THRESHOLD,
+            "first page response suspiciously small — possible silent block"
         );
-        return Err(MotivoFalhaRetry::Blocked);
+        return Err(RetryFailReason::Blocked);
     }
 
-    // Extrai resultados da primeira página conforme endpoint.
-    let mut resultados_acumulados = match endpoint_inicial {
+    // Extract results from the first page according to the endpoint.
+    let mut accumulated_results = match initial_endpoint {
         Endpoint::Html => {
-            extraction::extrair_resultados_com_estrategias_cfg(&html_primeira, &cfg.seletores)
+            extraction::extract_results_with_strategies_cfg(&first_html, &cfg.selectors)
         }
-        Endpoint::Lite => {
-            extraction::extrair_resultados_lite_com_cfg(&html_primeira, &cfg.seletores)
-        }
+        Endpoint::Lite => extraction::extract_results_lite_with_cfg(&first_html, &cfg.selectors),
     };
-    let mut usou_fallback_lite = false;
-    let mut endpoint_efetivo = endpoint_inicial;
-    let mut paginas_buscadas: u32 = 1;
+    let mut used_fallback_lite = false;
+    let mut effective_endpoint = initial_endpoint;
+    let mut pages_fetched: u32 = 1;
 
     // Se HTML retornou zero E estamos no endpoint HTML → tentar Lite como fallback.
-    if resultados_acumulados.is_empty() && endpoint_inicial == Endpoint::Html {
-        tracing::warn!("HTML retornou zero resultados — tentando fallback Lite");
-        let url_lite = construir_url_busca(
+    if accumulated_results.is_empty() && initial_endpoint == Endpoint::Html {
+        tracing::warn!("HTML returned zero results — trying Lite fallback");
+        let url_lite = build_search_url(
             query,
-            &cfg.idioma,
-            &cfg.pais,
+            &cfg.language,
+            &cfg.country,
             Endpoint::Lite,
-            cfg.filtro_temporal,
+            cfg.time_filter,
             cfg.safe_search,
         );
-        match executar_com_retry(
-            cliente,
+        match execute_with_retry(
+            client,
             &url_lite,
             cfg.retries,
             flag_rate_limit,
-            cancelamento,
+            cancellation,
         )
         .await
         {
             Ok(r_lite) => {
-                tentativas_acumuladas = tentativas_acumuladas.saturating_add(r_lite.tentativas);
+                accumulated_attempts = accumulated_attempts.saturating_add(r_lite.attempts);
                 let html_lite = r_lite
-                    .resposta
+                    .response
                     .text()
                     .await
-                    .map_err(|e| MotivoFalhaRetry::Rede(e.to_string()))?;
-                let resultados_lite =
-                    extraction::extrair_resultados_lite_com_cfg(&html_lite, &cfg.seletores);
-                if !resultados_lite.is_empty() {
-                    resultados_acumulados = resultados_lite;
-                    usou_fallback_lite = true;
-                    endpoint_efetivo = Endpoint::Lite;
+                    .map_err(|e| RetryFailReason::Network(e.to_string()))?;
+                let lite_results =
+                    extraction::extract_results_lite_with_cfg(&html_lite, &cfg.selectors);
+                if !lite_results.is_empty() {
+                    accumulated_results = lite_results;
+                    used_fallback_lite = true;
+                    effective_endpoint = Endpoint::Lite;
                 }
             }
-            Err(erro) => {
-                tracing::warn!(?erro, "fallback Lite também falhou — mantendo vazio");
+            Err(err) => {
+                tracing::warn!(?err, "Lite fallback also failed — keeping empty");
             }
         }
     }
 
-    // Paginação vqd APENAS para endpoint HTML (o Lite não tem esse mecanismo).
-    // E APENAS se configurado para múltiplas páginas.
-    if endpoint_efetivo == Endpoint::Html && cfg.paginas > 1 && !resultados_acumulados.is_empty() {
-        if let Some((mut vqd, mut s, mut dc)) = extrair_tokens_paginacao(&html_primeira) {
-            for pagina_idx in 2..=cfg.paginas {
-                if cancelamento.is_cancelled() {
-                    tracing::debug!("cancelamento detectado durante paginação");
+    // vqd pagination ONLY for the HTML endpoint (Lite does not have this mechanism).
+    // AND ONLY if configured for multiple pages.
+    if effective_endpoint == Endpoint::Html && cfg.pages > 1 && !accumulated_results.is_empty() {
+        if let Some((mut vqd, mut s, mut dc)) = extract_pagination_tokens(&first_html) {
+            // Form identical to the hidden form returned by the DOM (discovered
+            // empirically on 2026-04-14 / iteration 4): besides `q`/`s`/`dc`/`vqd`/`kl`,
+            // DDG expects `nextParams` (empty), `v="l"`, `o="json"`, `api="d.js"`.
+            // Built once before the loop; only variable fields (s/dc/vqd) are
+            // updated per iteration via clone_from to reuse String capacity.
+            let mut form_data: Vec<(&str, String)> = vec![
+                ("q", query.to_string()),                       // [0] fixed
+                ("s", s.clone()),                               // [1] variable
+                ("nextParams", String::new()),                  // [2] fixed
+                ("v", "l".to_string()),                         // [3] fixed
+                ("o", "json".to_string()),                      // [4] fixed
+                ("dc", dc.clone()),                             // [5] variable
+                ("api", "d.js".to_string()),                    // [6] fixed
+                ("vqd", vqd.clone()),                           // [7] variable
+                ("kl", format_kl(&cfg.language, &cfg.country)), // [8] fixed
+            ];
+
+            for page_idx in 2..=cfg.pages {
+                if cancellation.is_cancelled() {
+                    tracing::debug!("cancellation detected during pagination");
                     break;
                 }
 
-                // Delay entre páginas.
+                // Delay between pages.
                 let delay_ms =
-                    rand::thread_rng().gen_range(DELAY_PAGINACAO_MIN_MS..=DELAY_PAGINACAO_MAX_MS);
+                    rand::thread_rng().gen_range(PAGINATION_DELAY_MIN_MS..=PAGINATION_DELAY_MAX_MS);
                 tokio::select! {
                     biased;
-                    _ = cancelamento.cancelled() => { break; }
+                    _ = cancellation.cancelled() => { break; }
                     _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => {}
                 }
 
-                let kl = formatar_kl(&cfg.idioma, &cfg.pais);
-                // Forma idêntica ao formulário hidden retornado pelo DOM (descoberto
-                // empiricamente em 2026-04-14 / iteração 4): além de `q`/`s`/`dc`/`vqd`/`kl`,
-                // o DDG espera `nextParams` (vazio), `v="l"`, `o="json"`, `api="d.js"`.
-                let formulario: Vec<(&str, String)> = vec![
-                    ("q", query.to_string()),
-                    ("s", s.clone()),
-                    ("nextParams", String::new()),
-                    ("v", "l".to_string()),
-                    ("o", "json".to_string()),
-                    ("dc", dc.clone()),
-                    ("api", "d.js".to_string()),
-                    ("vqd", vqd.clone()),
-                    ("kl", kl),
-                ];
+                form_data[1].1.clone_from(&s);
+                form_data[5].1.clone_from(&dc);
+                form_data[7].1.clone_from(&vqd);
 
-                let base = url_base_html();
-                let resposta = match tokio::select! {
+                let base = html_base_url();
+                let response = match tokio::select! {
                     biased;
-                    _ = cancelamento.cancelled() => {
+                    _ = cancellation.cancelled() => {
                         break;
                     }
-                    r = cliente
+                    r = client
                         .post(&base)
                         .header(reqwest::header::REFERER, "https://html.duckduckgo.com/")
-                        .headers(cfg.perfil_browser.headers_paginacao())
-                        .form(&formulario)
+                        .headers(cfg.browser_profile.pagination_headers())
+                        .form(&form_data)
                         .send() => r,
                 } {
                     Ok(r) => r,
-                    Err(erro) => {
+                    Err(err) => {
                         tracing::warn!(
-                            ?erro,
-                            pagina = pagina_idx,
-                            "erro de rede na paginação — parando"
+                            ?err,
+                            pagina = page_idx,
+                            "network error during pagination — stopping"
                         );
                         break;
                     }
                 };
 
-                if !resposta.status().is_success() {
+                if !response.status().is_success() {
                     tracing::warn!(
-                        status = resposta.status().as_u16(),
-                        pagina = pagina_idx,
-                        "paginação retornou status não-sucesso — parando"
+                        status = response.status().as_u16(),
+                        pagina = page_idx,
+                        "pagination returned non-success status — stopping"
                     );
                     break;
                 }
 
-                let html_pagina = match resposta.text().await {
+                let page_html = match response.text().await {
                     Ok(t) => t,
                     Err(e) => {
-                        tracing::warn!(?e, "erro ao ler corpo da página — parando");
+                        tracing::warn!(?e, "error reading page body — stopping");
                         break;
                     }
                 };
 
-                // Verifica bloqueio silencioso na página de paginação.
-                if html_pagina.len() < LIMIAR_BLOQUEIO_SILENCIOSO {
+                // Check for silent block on the pagination page.
+                if page_html.len() < SILENT_BLOCK_THRESHOLD {
                     tracing::warn!(
-                        bytes = html_pagina.len(),
-                        limiar = LIMIAR_BLOQUEIO_SILENCIOSO,
-                        pagina = pagina_idx,
-                        "página de paginação suspeitamente pequena — possível bloqueio silencioso"
+                        bytes = page_html.len(),
+                        limiar = SILENT_BLOCK_THRESHOLD,
+                        pagina = page_idx,
+                        "pagination page suspiciously small — possible silent block"
                     );
                     break;
                 }
 
-                let novos = extraction::extrair_resultados_com_estrategias_cfg(
-                    &html_pagina,
-                    &cfg.seletores,
-                );
-                if novos.is_empty() {
-                    tracing::debug!(
-                        pagina = pagina_idx,
-                        "página retornou zero resultados — parando"
-                    );
+                let new_results =
+                    extraction::extract_results_with_strategies_cfg(&page_html, &cfg.selectors);
+                if new_results.is_empty() {
+                    tracing::debug!(pagina = page_idx, "page returned zero results — stopping");
                     break;
                 }
 
-                // Renumera posições seguindo o Vec acumulado.
-                let offset = u32::try_from(resultados_acumulados.len()).unwrap_or(u32::MAX);
-                for mut r in novos {
-                    r.posicao = offset.saturating_add(r.posicao);
-                    resultados_acumulados.push(r);
+                // Renumber positions following the accumulated Vec.
+                let offset = u32::try_from(accumulated_results.len()).unwrap_or(u32::MAX);
+                for mut r in new_results {
+                    r.position = offset.saturating_add(r.position);
+                    accumulated_results.push(r);
                 }
 
-                paginas_buscadas = pagina_idx;
+                pages_fetched = page_idx;
 
-                // Atualiza tokens para a próxima página; se ausentes, interrompe.
-                match extrair_tokens_paginacao(&html_pagina) {
-                    Some((novo_vqd, novo_s, novo_dc)) => {
-                        vqd = novo_vqd;
-                        s = novo_s;
-                        dc = novo_dc;
+                // Update tokens for the next page; if absent, stop.
+                match extract_pagination_tokens(&page_html) {
+                    Some((next_vqd, next_s, next_dc)) => {
+                        vqd = next_vqd;
+                        s = next_s;
+                        dc = next_dc;
                     }
                     None => {
-                        tracing::warn!(
-                            pagina = pagina_idx,
-                            "tokens de paginação ausentes — parando"
-                        );
+                        tracing::warn!(pagina = page_idx, "pagination tokens missing — stopping");
                         break;
                     }
                 }
             }
         } else {
-            tracing::warn!("tokens vqd/s/dc ausentes na primeira página — sem paginação possível");
+            tracing::warn!("vqd/s/dc tokens missing on first page — pagination not possible");
         }
     }
 
     // Trunca ao --num se especificado.
-    if let Some(n) = cfg.num_resultados {
+    if let Some(n) = cfg.num_results {
         let n_usize = n as usize;
-        if resultados_acumulados.len() > n_usize {
-            resultados_acumulados.truncate(n_usize);
+        if accumulated_results.len() > n_usize {
+            accumulated_results.truncate(n_usize);
         }
     }
 
-    Ok(ResultadoBuscaAgregado {
-        resultados: resultados_acumulados,
-        paginas_buscadas,
-        usou_fallback_lite,
-        tentativas: tentativas_acumuladas,
-        endpoint_efetivo,
+    Ok(AggregatedSearchResult {
+        results: accumulated_results,
+        pages_fetched,
+        used_fallback_lite,
+        attempts: accumulated_attempts,
+        effective_endpoint,
     })
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn formatar_kl_concatena_corretamente() {
-        assert_eq!(formatar_kl("pt", "br"), "br-pt");
-        assert_eq!(formatar_kl("PT", "BR"), "br-pt");
-        assert_eq!(formatar_kl("en", "us"), "us-en");
+    fn format_kl_concatenates_correctly() {
+        assert_eq!(format_kl("pt", "br"), "br-pt");
+        assert_eq!(format_kl("PT", "BR"), "br-pt");
+        assert_eq!(format_kl("en", "us"), "us-en");
     }
 
     #[test]
-    fn construir_url_escapa_espacos_e_acentos() {
-        let url = construir_url("endividamento brasileiro", "pt", "br");
+    fn build_url_escapes_spaces_and_accents() {
+        let url = build_url("endividamento brasileiro", "pt", "br");
         assert!(url.starts_with("https://html.duckduckgo.com/html/?q="));
         assert!(url.contains("endividamento%20brasileiro"));
         assert!(url.contains("&kl=br-pt"));
     }
 
     #[test]
-    fn construir_url_escapa_caracteres_especiais() {
-        let url = construir_url("C++ tutorial", "en", "us");
+    fn build_url_escapes_special_characters() {
+        let url = build_url("C++ tutorial", "en", "us");
         assert!(url.contains("C%2B%2B"));
         assert!(url.contains("&kl=us-en"));
     }
 
     #[test]
-    fn construir_url_com_acentos_portugueses() {
-        let url = construir_url("música eletrônica", "pt", "br");
+    fn build_url_with_portuguese_accents() {
+        let url = build_url("música eletrônica", "pt", "br");
         assert!(url.contains("m%C3%BAsica"));
         assert!(url.contains("eletr%C3%B4nica"));
     }
 
     #[test]
-    fn construir_url_busca_adiciona_parametros_opcionais() {
-        let url = construir_url_busca(
+    fn build_search_url_adds_optional_params() {
+        let url = build_search_url(
             "rust",
             "en",
             "us",
             Endpoint::Html,
-            Some(FiltroTemporal::Semana),
+            Some(TimeFilter::Week),
             SafeSearch::Strict,
         );
         assert!(url.contains("&kp=1"));
@@ -692,8 +787,8 @@ mod testes {
     }
 
     #[test]
-    fn construir_url_busca_omite_kp_quando_moderate() {
-        let url = construir_url_busca(
+    fn build_search_url_omits_kp_when_moderate() {
+        let url = build_search_url(
             "rust",
             "en",
             "us",
@@ -706,8 +801,8 @@ mod testes {
     }
 
     #[test]
-    fn construir_url_busca_endpoint_lite_usa_url_correta() {
-        let url = construir_url_busca(
+    fn build_search_url_lite_endpoint_uses_correct_url() {
+        let url = build_search_url(
             "rust",
             "en",
             "us",
@@ -719,7 +814,7 @@ mod testes {
     }
 
     #[test]
-    fn extrair_tokens_paginacao_extrai_quando_presentes() {
+    fn extract_pagination_tokens_extracts_when_present() {
         let html = r#"
             <form>
               <input name="q" value="rust">
@@ -728,31 +823,31 @@ mod testes {
               <input name="dc" value="51">
             </form>
         "#;
-        let (vqd, s, dc) = extrair_tokens_paginacao(html).expect("todos presentes");
+        let (vqd, s, dc) = extract_pagination_tokens(html).expect("all present");
         assert_eq!(vqd, "4-12345678-abc");
         assert_eq!(s, "50");
         assert_eq!(dc, "51");
     }
 
     #[test]
-    fn extrair_tokens_paginacao_retorna_none_quando_ausentes() {
+    fn extract_pagination_tokens_returns_none_when_absent() {
         let html = r#"<html><body>Sem inputs</body></html>"#;
-        assert!(extrair_tokens_paginacao(html).is_none());
+        assert!(extract_pagination_tokens(html).is_none());
     }
 
     #[test]
-    fn motivo_falha_retry_codigo_erro_correto() {
+    fn retry_fail_reason_returns_correct_error_code() {
         assert_eq!(
-            MotivoFalhaRetry::RateLimited.como_codigo_erro(),
-            crate::error::codigos::RATE_LIMITED
+            RetryFailReason::RateLimited.as_error_code(),
+            crate::error::codes::RATE_LIMITED
         );
         assert_eq!(
-            MotivoFalhaRetry::Blocked.como_codigo_erro(),
-            crate::error::codigos::BLOCKED
+            RetryFailReason::Blocked.as_error_code(),
+            crate::error::codes::BLOCKED
         );
         assert_eq!(
-            MotivoFalhaRetry::Timeout.como_codigo_erro(),
-            crate::error::codigos::TIMEOUT
+            RetryFailReason::Timeout.as_error_code(),
+            crate::error::codes::TIMEOUT
         );
     }
 }

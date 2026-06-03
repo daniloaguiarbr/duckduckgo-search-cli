@@ -1,15 +1,16 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Testes de integração com `wiremock` — ZERO chamadas HTTP reais.
 //!
 //! Cada teste sobe um `MockServer` em porta aleatória e define URL base via
-//! variável de ambiente lida por `search::url_base_html`/`url_base_lite`. A variável
+//! variável de ambiente lida por `search::html_base_url`/`lite_base_url`. A variável
 //! é definida e limpa dentro do próprio teste. Todos os testes que manipulam env
 //! vars executam serializados (por constraint implícito do `std::env::set_var`),
 //! e cada teste usa paths distintos (ou o mesmo path `/`) para evitar interferência.
 
 use duckduckgo_search_cli::search::{
-    buscar_com_paginacao, executar_com_retry, extrair_tokens_paginacao, MotivoFalhaRetry,
+    execute_with_retry, extract_pagination_tokens, search_with_pagination, RetryFailReason,
 };
-use duckduckgo_search_cli::types::{Configuracoes, Endpoint, FormatoSaida, SafeSearch};
+use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
 use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
@@ -20,13 +21,13 @@ use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Mutex async global para serializar testes que manipulam env vars.
-/// `std::env::set_var` não é thread-safe; cada teste adquire o lock async-friendly.
+/// `std::env::set_var` is not thread-safe; each test acquires the lock async-friendly.
 fn env_lock() -> &'static TokioMutex<()> {
     static LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| TokioMutex::new(()))
 }
 
-fn cliente_teste() -> Client {
+fn test_client() -> Client {
     Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent("Mozilla/5.0 (teste)")
@@ -34,42 +35,42 @@ fn cliente_teste() -> Client {
         .expect("cliente de teste")
 }
 
-fn configuracoes_base(endpoint: Endpoint, paginas: u32, retries: u32) -> Configuracoes {
-    Configuracoes {
+fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
+    Config {
         query: "rust".to_string(),
         queries: vec!["rust".to_string()],
-        num_resultados: None,
-        formato: FormatoSaida::Json,
-        timeout_segundos: 5,
-        idioma: "pt".to_string(),
-        pais: "br".to_string(),
-        modo_verboso: false,
-        modo_silencioso: true,
+        num_results: None,
+        format: OutputFormat::Json,
+        timeout_seconds: 5,
+        language: "pt".to_string(),
+        country: "br".to_string(),
+        verbose: false,
+        quiet: true,
         user_agent: "Mozilla/5.0 (teste)".to_string(),
-        perfil_browser: duckduckgo_search_cli::http::criar_perfil_browser("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
-        paralelismo: 1,
-        paginas,
+        browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
+        parallelism: 1,
+        pages,
         retries,
         endpoint,
-        filtro_temporal: None,
+        time_filter: None,
         safe_search: SafeSearch::Moderate,
-        modo_stream: false,
-        arquivo_saida: None,
-        buscar_conteudo: false,
-        max_tamanho_conteudo: 10_000,
+        stream_mode: false,
+        output_file: None,
+        fetch_content: false,
+        max_content_length: 10_000,
         proxy: None,
-        sem_proxy: false,
-        timeout_global_segundos: 60,
-        corresponde_plataforma_ua: false,
-        limite_por_host: 2,
-        caminho_chrome: None,
-        seletores: std::sync::Arc::new(
-            duckduckgo_search_cli::types::ConfiguracaoSeletores::default(),
+        no_proxy: false,
+        global_timeout_seconds: 60,
+        match_platform_ua: false,
+        per_host_limit: 2,
+        chrome_path: None,
+        selectors: std::sync::Arc::new(
+            duckduckgo_search_cli::types::SelectorConfig::default(),
         ),
     }
 }
 
-fn html_com_3_resultados_classe() -> String {
+fn html_with_3_results_class() -> String {
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
@@ -99,7 +100,7 @@ fn html_com_3_resultados_classe() -> String {
     )
 }
 
-fn html_com_tokens_vqd_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&str]) -> String {
+fn html_with_vqd_tokens_and_results(vqd: &str, s: &str, dc: &str, titles: &[&str]) -> String {
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
@@ -109,7 +110,7 @@ fn html_com_tokens_vqd_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&st
         r#"<form><input name="vqd" value="{vqd}"><input name="s" value="{s}"><input name="dc" value="{dc}"></form>"#
     ));
     html.push_str(r#"<div id="links">"#);
-    for t in titulos {
+    for t in titles {
         html.push_str(&format!(
             r#"<div class="result"><a class="result__a" href="//exemplo.com/{}">{}</a><a class="result__snippet">snippet de {}</a></div>"#,
             t.replace(' ', "-"),
@@ -121,7 +122,7 @@ fn html_com_tokens_vqd_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&st
     html
 }
 
-fn html_vazio_sem_result() -> String {
+fn empty_html_without_result() -> String {
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
     // HTML sem `.result` para testar o caminho de zero resultados.
     let padding =
@@ -150,33 +151,33 @@ fn html_lite_tabela() -> String {
     )
 }
 
-/// Guard para configurar env vars durante um teste e limpar ao sair.
-struct GuardaEnv {
-    chaves: Vec<&'static str>,
+/// Guard to configure env vars during a test and clean up on exit.
+struct EnvGuard {
+    keys: Vec<&'static str>,
 }
-impl GuardaEnv {
-    fn set(chaves: &[(&'static str, String)]) -> Self {
-        let mut chs = Vec::new();
-        for (k, v) in chaves {
+impl EnvGuard {
+    fn set(keys: &[(&'static str, String)]) -> Self {
+        let mut ks = Vec::new();
+        for (k, v) in keys {
             std::env::set_var(k, v);
-            chs.push(*k);
+            ks.push(*k);
         }
-        GuardaEnv { chaves: chs }
+        EnvGuard { keys: ks }
     }
 }
-impl Drop for GuardaEnv {
+impl Drop for EnvGuard {
     fn drop(&mut self) {
-        for k in &self.chaves {
+        for k in &self.keys {
             std::env::remove_var(k);
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Teste 1: Estratégia 1 com HTML completo → 3 resultados extraídos, 0 anúncios.
+// Test 1: Strategy 1 with full HTML → 3 extracted results, 0 ads.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_estrategia_1_sucesso() {
+async fn test_strategy_1_success() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
@@ -184,40 +185,40 @@ async fn testa_estrategia_1_sucesso() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_com_3_resultados_classe())
+                .set_body_string(html_with_3_results_class())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_server)
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let cliente = test_client();
+    let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
         .await
         .expect("busca deve ter sucesso");
 
-    assert_eq!(agregado.resultados.len(), 3, "3 resultados orgânicos");
-    assert_eq!(agregado.resultados[0].titulo, "Resultado Um");
-    assert_eq!(agregado.resultados[0].url, "https://exemplo.com/um");
-    assert_eq!(agregado.paginas_buscadas, 1);
-    assert!(!agregado.usou_fallback_lite);
-    assert_eq!(agregado.endpoint_efetivo, Endpoint::Html);
+    assert_eq!(agregado.results.len(), 3, "3 resultados orgânicos");
+    assert_eq!(agregado.results[0].title, "Resultado Um");
+    assert_eq!(agregado.results[0].url, "https://exemplo.com/um");
+    assert_eq!(agregado.pages_fetched, 1);
+    assert!(!agregado.used_fallback_lite);
+    assert_eq!(agregado.effective_endpoint, Endpoint::Html);
 }
 
 // ---------------------------------------------------------------------------
-// Teste 2: HTML vazio → fallback para Lite → resultados extraídos via Estratégia 3.
+// Test 2: Empty HTML → fallback to Lite → results extracted via Strategy 3.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_fallback_lite_quando_html_vazio() {
+async fn test_fallback_lite_when_html_empty() {
     let _g = env_lock().lock().await;
     let mock_server_html = MockServer::start().await;
     let mock_server_lite = MockServer::start().await;
@@ -226,7 +227,7 @@ async fn testa_fallback_lite_quando_html_vazio() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_vazio_sem_result())
+                .set_body_string(empty_html_without_result())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_server_html)
@@ -244,36 +245,36 @@ async fn testa_fallback_lite_quando_html_vazio() {
 
     let base_html = format!("{}/", mock_server_html.uri());
     let base_lite = format!("{}/", mock_server_lite.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base_html),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base_lite),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let cliente = test_client();
+    let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
         .await
         .expect("fallback Lite deve ter sucesso");
 
-    assert_eq!(agregado.resultados.len(), 2, "2 resultados do Lite");
-    assert_eq!(agregado.resultados[0].titulo, "Lite Um");
-    assert!(agregado.usou_fallback_lite, "flag fallback deve estar true");
-    assert_eq!(agregado.endpoint_efetivo, Endpoint::Lite);
+    assert_eq!(agregado.results.len(), 2, "2 resultados do Lite");
+    assert_eq!(agregado.results[0].title, "Lite Um");
+    assert!(agregado.used_fallback_lite, "flag fallback deve estar true");
+    assert_eq!(agregado.effective_endpoint, Endpoint::Lite);
 }
 
 // ---------------------------------------------------------------------------
 // Teste 3: Retry em 429 — 2 primeiras respostas 429, 3a 200.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_retry_em_429() {
+async fn test_retry_on_429() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    // Limitações: cada Mock responde com o mesmo template. Para sequenciar respostas,
-    // usamos `up_to_n_times` nos mocks anteriores e deixamos o mock final como catch-all.
+    // Limitation: each Mock responds with the same template. To sequence responses,
+    // use `up_to_n_times` on prior mocks and leave the final mock as catch-all.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(ResponseTemplate::new(429))
@@ -286,7 +287,7 @@ async fn testa_retry_em_429() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_com_3_resultados_classe())
+                .set_body_string(html_with_3_results_class())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .with_priority(2)
@@ -294,24 +295,24 @@ async fn testa_retry_em_429() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    // 2 retries → até 3 tentativas no total.
-    let cfg = configuracoes_base(Endpoint::Html, 1, 2);
+    let cliente = test_client();
+    // 2 retries → up to 3 attempts total.
+    let cfg = base_config(Endpoint::Html, 1, 2);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
         .await
         .expect("retry deve eventualmente ter sucesso");
 
-    assert_eq!(agregado.resultados.len(), 3);
+    assert_eq!(agregado.results.len(), 3);
     assert_eq!(
-        agregado.tentativas, 3,
+        agregado.attempts, 3,
         "DEVE ter executado exatamente 3 tentativas (2 falhas 429 + 1 sucesso)"
     );
     assert!(
@@ -321,7 +322,7 @@ async fn testa_retry_em_429() {
 }
 
 // ---------------------------------------------------------------------------
-// Teste 4: 403 persistente → erro `blocked` após esgotar retries.
+// Test 4: Persistent 403 → `blocked` error after exhausting retries.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn testa_blocked_apos_retries_esgotados() {
@@ -335,18 +336,18 @@ async fn testa_blocked_apos_retries_esgotados() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    // 1 retry → até 2 tentativas.
-    let cfg = configuracoes_base(Endpoint::Html, 1, 1);
+    let cliente = test_client();
+    // 1 retry → up to 2 attempts.
+    let cfg = base_config(Endpoint::Html, 1, 1);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let resultado = executar_com_retry(
+    let result = execute_with_retry(
         &cliente,
         &format!("{}/", mock_server.uri()),
         cfg.retries,
@@ -355,23 +356,23 @@ async fn testa_blocked_apos_retries_esgotados() {
     )
     .await;
 
-    match resultado {
-        Err(MotivoFalhaRetry::Blocked) => {}
-        other => panic!("esperava MotivoFalhaRetry::Blocked, recebi {other:?}"),
+    match result {
+        Err(RetryFailReason::Blocked) => {}
+        other => panic!("esperava RetryFailReason::Blocked, recebi {other:?}"),
     }
 }
 
 // ---------------------------------------------------------------------------
-// Teste 5: Paginação vqd — 3 páginas, combinação de resultados.
+// Test 5: vqd pagination — 3 pages, combining results.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn testa_paginacao_vqd() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    // Página 1 (GET) — HTML com tokens vqd/s/dc.
+    // Page 1 (GET) — HTML with vqd/s/dc tokens.
     let html_pg1 =
-        html_com_tokens_vqd_e_resultados("vqd-pg1", "0", "30", &["Res Um", "Res Dois", "Res Três"]);
+        html_with_vqd_tokens_and_results("vqd-pg1", "0", "30", &["Res Um", "Res Dois", "Res Três"]);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -382,9 +383,9 @@ async fn testa_paginacao_vqd() {
         .mount(&mock_server)
         .await;
 
-    // Página 2 (POST com vqd-pg1) — retorna HTML com vqd-pg2.
+    // Page 2 (POST with vqd-pg1) — returns HTML with vqd-pg2.
     let html_pg2 =
-        html_com_tokens_vqd_e_resultados("vqd-pg2", "30", "60", &["Res Quatro", "Res Cinco"]);
+        html_with_vqd_tokens_and_results("vqd-pg2", "30", "60", &["Res Quatro", "Res Cinco"]);
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=vqd-pg1"))
@@ -397,8 +398,8 @@ async fn testa_paginacao_vqd() {
         .mount(&mock_server)
         .await;
 
-    // Página 3 (POST com vqd-pg2).
-    let html_pg3 = html_com_tokens_vqd_e_resultados("vqd-pg3", "60", "90", &["Res Seis"]);
+    // Page 3 (POST with vqd-pg2).
+    let html_pg3 = html_with_vqd_tokens_and_results("vqd-pg3", "60", "90", &["Res Seis"]);
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=vqd-pg2"))
@@ -412,44 +413,44 @@ async fn testa_paginacao_vqd() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 3, 0);
+    let cliente = test_client();
+    let cfg = base_config(Endpoint::Html, 3, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
         .await
         .expect("paginação deve funcionar");
 
     assert_eq!(
-        agregado.resultados.len(),
+        agregado.results.len(),
         6,
         "deve combinar resultados das 3 páginas"
     );
-    assert_eq!(agregado.paginas_buscadas, 3);
-    // Posições devem ser 1..=6, preservando ordem por página.
-    for (i, r) in agregado.resultados.iter().enumerate() {
-        assert_eq!(r.posicao, (i + 1) as u32);
+    assert_eq!(agregado.pages_fetched, 3);
+    // Positions must be 1..=6, preserving order per page.
+    for (i, r) in agregado.results.iter().enumerate() {
+        assert_eq!(r.position, (i + 1) as u32);
     }
-    assert_eq!(agregado.resultados[0].titulo, "Res Um");
-    assert_eq!(agregado.resultados[3].titulo, "Res Quatro");
-    assert_eq!(agregado.resultados[5].titulo, "Res Seis");
+    assert_eq!(agregado.results[0].title, "Res Um");
+    assert_eq!(agregado.results[3].title, "Res Quatro");
+    assert_eq!(agregado.results[5].title, "Res Seis");
 }
 
 // ---------------------------------------------------------------------------
-// Teste 6: Filtro de anúncios — HTML com anúncios mistos, apenas orgânicos retornados.
+// Test 6: Ad filtering — HTML with mixed ads, only organic results returned.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn testa_filtro_anuncios() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    // HTML misto: 2 orgânicos + 2 anúncios (um por classe, outro por data-nrn).
+    // Mixed HTML: 2 organic + 2 ads (one by class, another by data-nrn).
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
@@ -490,44 +491,44 @@ async fn testa_filtro_anuncios() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let cliente = test_client();
+    let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
         .await
         .expect("sucesso");
 
     assert_eq!(
-        agregado.resultados.len(),
+        agregado.results.len(),
         2,
         "apenas orgânicos devem sobreviver ao filtro"
     );
-    assert_eq!(agregado.resultados[0].titulo, "Orgânico A");
-    assert_eq!(agregado.resultados[1].titulo, "Orgânico B");
-    for r in &agregado.resultados {
+    assert_eq!(agregado.results[0].title, "Orgânico A");
+    assert_eq!(agregado.results[1].title, "Orgânico B");
+    for r in &agregado.results {
         assert!(!r.url.contains("anuncio"));
         assert!(!r.url.contains("y.js"));
     }
 }
 
 // ---------------------------------------------------------------------------
-// Teste 7 (v0.3.0): heurística "Official site" — DDG renderiza literalmente
-// "Official site" como título para domínios verificados. O scraper substitui
-// pelo `url_exibicao` e preserva o texto literal em `titulo_original`.
+// Test 7 (v0.3.0): "Official site" heuristic — DDG renders the literal text
+// "Official site" as the title for verified domains. The scraper replaces it
+// with `url_exibicao` and preserves the literal in `titulo_original`.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn testa_heuristica_official_site() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    // HTML com resultado que tem título literal "Official site" + .result__url.
+    // HTML with a result that has the literal title "Official site" + .result__url.
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
@@ -561,52 +562,52 @@ async fn testa_heuristica_official_site() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let cliente = test_client();
+    let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "saofidelis", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "saofidelis", &flag, &token)
         .await
         .expect("sucesso");
 
-    assert_eq!(agregado.resultados.len(), 2, "2 orgânicos esperados");
+    assert_eq!(agregado.results.len(), 2, "2 orgânicos esperados");
 
-    // Resultado 1: título substituído por url_exibicao, original preservado.
-    let r1 = &agregado.resultados[0];
+    // Result 1: title replaced by url_exibicao, original preserved.
+    let r1 = &agregado.results[0];
     assert_eq!(
-        r1.titulo, "saofidelis.rj.gov.br",
+        r1.title, "saofidelis.rj.gov.br",
         "titulo deve ser o url_exibicao"
     );
     assert_eq!(
-        r1.titulo_original.as_deref(),
+        r1.original_title.as_deref(),
         Some("Official site"),
         "titulo_original deve preservar o literal"
     );
 
-    // Resultado 2: título normal → sem substituição, titulo_original = None.
-    let r2 = &agregado.resultados[1];
-    assert_eq!(r2.titulo, "Título Normal");
+    // Result 2: normal title → no substitution, original_title = None.
+    let r2 = &agregado.results[1];
+    assert_eq!(r2.title, "Título Normal");
     assert!(
-        r2.titulo_original.is_none(),
-        "titulo_original deve ser None quando não há substituição"
+        r2.original_title.is_none(),
+        "original_title deve ser None quando não há substituição"
     );
 }
 
 // ---------------------------------------------------------------------------
-// Teste 8 (v0.3.0): schema JSON NÃO contém mais `buscas_relacionadas`.
+// Test 8 (v0.3.0): JSON schema NO LONGER contains `buscas_relacionadas`.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_schema_v03_sem_buscas_relacionadas() {
+async fn test_schema_v03_without_related_searches() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    let html = html_com_tokens_vqd_e_resultados("v", "0", "0", &["T1", "T2"]);
+    let html = html_with_vqd_tokens_and_results("v", "0", "0", &["T1", "T2"]);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -618,48 +619,50 @@ async fn testa_schema_v03_sem_buscas_relacionadas() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let cliente = test_client();
+    let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "teste", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "teste", &flag, &token)
         .await
         .expect("sucesso");
 
-    // Serializar como JSON e confirmar que o campo NÃO aparece.
-    use duckduckgo_search_cli::types::{MetadadosBusca, SaidaBusca};
-    let saida = SaidaBusca {
+    // Serialize as JSON and confirm the field does NOT appear.
+    use duckduckgo_search_cli::types::{SearchMetadata, SearchOutput};
+    let output = SearchOutput {
         query: "teste".into(),
-        motor: "duckduckgo".into(),
+        engine: "duckduckgo".into(),
         endpoint: "html".into(),
         timestamp: "2026-04-14T00:00:00Z".into(),
-        regiao: "br-pt".into(),
-        quantidade_resultados: agregado.resultados.len() as u32,
-        resultados: agregado.resultados,
-        paginas_buscadas: 1,
-        erro: None,
-        mensagem: None,
-        metadados: MetadadosBusca {
-            tempo_execucao_ms: 0,
-            hash_seletores: "x".into(),
-            retentativas: 0,
-            usou_endpoint_fallback: false,
-            fetches_simultaneos: 0,
-            sucessos_fetch: 0,
-            falhas_fetch: 0,
-            usou_chrome: false,
+        region: "br-pt".into(),
+        result_count: agregado.results.len() as u32,
+        results: agregado.results,
+        pages_fetched: 1,
+        error: None,
+        message: None,
+        metadata: SearchMetadata {
+            execution_time_ms: 0,
+            selectors_hash: "x".into(),
+            retries: 0,
+            used_fallback_endpoint: false,
+            concurrent_fetches: 0,
+            fetch_successes: 0,
+            fetch_failures: 0,
+            used_chrome: false,
             user_agent: "ua".into(),
-            usou_proxy: false,
+            used_proxy: false,
+            identity_used: None,
+            cascade_level: None,
         },
     };
 
-    let json = serde_json::to_string_pretty(&saida).expect("serializa");
+    let json = serde_json::to_string_pretty(&output).expect("serializa");
     assert!(
         !json.contains("buscas_relacionadas"),
         "v0.3.0: schema JSON NÃO deve expor buscas_relacionadas"
@@ -671,10 +674,10 @@ async fn testa_schema_v03_sem_buscas_relacionadas() {
 }
 
 // ===================================================================
-// Testes de --fetch-content HTTP puro (iteração 5).
+// Tests for --fetch-content pure HTTP (iteration 5).
 // ===================================================================
 
-/// Página HTML real com conteúdo suficiente para passar o limiar de 200 chars.
+/// Real HTML page with enough content to pass the 200-char threshold.
 fn html_artigo_real() -> String {
     r#"<!DOCTYPE html><html><head><title>Artigo de Teste</title></head>
     <body>
@@ -691,10 +694,11 @@ fn html_artigo_real() -> String {
 
 #[tokio::test]
 async fn fetch_content_http_extrai_artigo_real_via_wiremock() {
-    use duckduckgo_search_cli::content::extrair_conteudo_http;
+    use duckduckgo_search_cli::content::extract_http_content;
 
-    let _guarda = env_lock().lock().await;
-    let servidor = MockServer::start().await;
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    let _guard = env_lock().lock().await;
+    let server = MockServer::start().await;
 
     Mock::given(method("GET"))
         .and(path("/artigo"))
@@ -702,24 +706,24 @@ async fn fetch_content_http_extrai_artigo_real_via_wiremock() {
             ResponseTemplate::new(200)
                 .set_body_raw(html_artigo_real().into_bytes(), "text/html; charset=utf-8"),
         )
-        .mount(&servidor)
+        .mount(&server)
         .await;
 
-    let cliente = cliente_teste();
+    let cliente = test_client();
     let token = CancellationToken::new();
-    let url = format!("{}/artigo", servidor.uri());
+    let url = format!("{}/artigo", server.uri());
 
-    let resultado = extrair_conteudo_http(&cliente, &url, 2000, &token)
+    let result = extract_http_content(&cliente, &url, 2000, &token)
         .await
         .expect("fetch deve ter sucesso");
-    let (texto, tamanho_orig) = resultado.expect("conteúdo presente");
+    let (texto, tamanho_orig) = result.expect("conteúdo presente");
     assert!(
         texto.contains("primeiro parágrafo"),
         "deve conter primeiro parágrafo: {texto:?}"
     );
     assert!(texto.contains("Segundo parágrafo"));
     assert!(texto.contains("Terceiro parágrafo"));
-    // Nav e footer devem ter sido removidos.
+    // Nav and footer must have been removed.
     assert!(!texto.contains("About"));
     assert!(!texto.contains("Copyright"));
     // Tamanho original reportado > 0.
@@ -727,41 +731,40 @@ async fn fetch_content_http_extrai_artigo_real_via_wiremock() {
 }
 
 #[tokio::test]
-async fn fetch_content_http_rejeita_content_type_nao_html() {
-    use duckduckgo_search_cli::content::extrair_conteudo_http;
+async fn fetch_content_http_rejects_non_html_content_type() {
+    use duckduckgo_search_cli::content::extract_http_content;
 
-    let _guarda = env_lock().lock().await;
-    let servidor = MockServer::start().await;
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    let _guard = env_lock().lock().await;
+    let server = MockServer::start().await;
 
     Mock::given(method("GET"))
         .and(path("/pdf"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(vec![0u8; 100], "application/pdf"))
-        .mount(&servidor)
+        .mount(&server)
         .await;
 
-    let cliente = cliente_teste();
+    let cliente = test_client();
     let token = CancellationToken::new();
-    let url = format!("{}/pdf", servidor.uri());
+    let url = format!("{}/pdf", server.uri());
 
-    let resultado = extrair_conteudo_http(&cliente, &url, 1000, &token)
+    let result = extract_http_content(&cliente, &url, 1000, &token)
         .await
         .expect("request OK");
-    assert!(
-        resultado.is_none(),
-        "Content-Type não HTML deve retornar None"
-    );
+    assert!(result.is_none(), "Content-Type não HTML deve retornar None");
 }
 
 #[tokio::test]
-async fn fetch_content_http_decodifica_latin1_corretamente() {
-    use duckduckgo_search_cli::content::extrair_conteudo_http;
+async fn fetch_content_http_decodes_latin1_correctly() {
+    use duckduckgo_search_cli::content::extract_http_content;
 
-    let _guarda = env_lock().lock().await;
-    let servidor = MockServer::start().await;
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    let _guard = env_lock().lock().await;
+    let server = MockServer::start().await;
 
-    // HTML em Latin-1 (ISO-8859-1) contendo 'ç' (0xE7) + 'á' (0xE1).
+    // HTML in Latin-1 (ISO-8859-1) containing 'c-cedilla' (0xE7) + 'a-acute' (0xE1).
     let mut html: Vec<u8> = b"<html><body><article>".to_vec();
-    // Parágrafo longo o bastante para passar o limiar (20+ chars).
+    // Paragraph long enough to pass the threshold (20+ chars).
     html.extend_from_slice(
         b"<p>Uma a\xe7\xe3o interessante foi realizada pelos desenvolvedores do sistema de busca que n\xe3o pode ser ignorada.</p>"
     );
@@ -775,74 +778,76 @@ async fn fetch_content_http_decodifica_latin1_corretamente() {
         .respond_with(
             ResponseTemplate::new(200).set_body_raw(html, "text/html; charset=iso-8859-1"),
         )
-        .mount(&servidor)
+        .mount(&server)
         .await;
 
-    let cliente = cliente_teste();
+    let cliente = test_client();
     let token = CancellationToken::new();
-    let url = format!("{}/latin1", servidor.uri());
+    let url = format!("{}/latin1", server.uri());
 
-    let resultado = extrair_conteudo_http(&cliente, &url, 2000, &token)
+    let result = extract_http_content(&cliente, &url, 2000, &token)
         .await
         .expect("fetch deve ter sucesso");
-    let (texto, _) = resultado.expect("conteúdo presente");
-    // 'ação' com acento deve estar presente (decodificado corretamente de Latin-1).
+    let (texto, _) = result.expect("conteúdo presente");
+    // 'acao' with accent must be present (correctly decoded from Latin-1).
     assert!(
         texto.contains("ação") || texto.contains("parágrafo"),
         "texto deve ter acentuação UTF-8 correta: {texto:?}"
     );
 }
 
-// Sanity check do teste auxiliar extrair_tokens_paginacao (cobertura extra no
-// nível de integração para garantir que o helper está exposto e funciona).
+// Sanity check of the extract_pagination_tokens helper (extra integration-level
+// coverage to ensure the helper is exposed and works).
 #[test]
 fn sanity_extrair_tokens_paginacao_via_lib_publica() {
-    let html = html_com_tokens_vqd_e_resultados("v1", "0", "10", &["a", "b"]);
-    let (vqd, s, dc) = extrair_tokens_paginacao(&html).expect("tokens presentes");
+    let html = html_with_vqd_tokens_and_results("v1", "0", "10", &["a", "b"]);
+    let (vqd, s, dc) = extract_pagination_tokens(&html).expect("tokens presentes");
     assert_eq!(vqd, "v1");
     assert_eq!(s, "0");
     assert_eq!(dc, "10");
 }
 
 #[test]
-fn ndjson_serializa_saida_busca_em_uma_linha_valida() {
-    use duckduckgo_search_cli::types::{MetadadosBusca, ResultadoBusca, SaidaBusca};
-    let saida = SaidaBusca {
+fn ndjson_serializes_search_output_in_valid_single_line() {
+    use duckduckgo_search_cli::types::{SearchMetadata, SearchOutput, SearchResult};
+    let output = SearchOutput {
         query: "rust".into(),
-        motor: "duckduckgo".into(),
+        engine: "duckduckgo".into(),
         endpoint: "html".into(),
         timestamp: "2026-04-14T00:00:00Z".into(),
-        regiao: "br-pt".into(),
-        quantidade_resultados: 1,
-        resultados: vec![ResultadoBusca {
-            posicao: 1,
-            titulo: "Exemplo com\nnova linha".to_string(),
+        region: "br-pt".into(),
+        result_count: 1,
+        results: vec![SearchResult {
+            position: 1,
+            title: "Exemplo com\nnova linha".to_string(),
             url: "https://exemplo.com".to_string(),
-            url_exibicao: None,
+            display_url: None,
             snippet: None,
-            titulo_original: None,
-            conteudo: None,
-            tamanho_conteudo: None,
-            metodo_extracao_conteudo: None,
+            original_title: None,
+            content: None,
+            content_size: None,
+            content_extraction_method: None,
         }],
-        paginas_buscadas: 1,
-        erro: None,
-        mensagem: None,
-        metadados: MetadadosBusca {
-            tempo_execucao_ms: 100,
-            hash_seletores: "abc123".into(),
-            retentativas: 0,
-            usou_endpoint_fallback: false,
-            fetches_simultaneos: 0,
-            sucessos_fetch: 0,
-            falhas_fetch: 0,
-            usou_chrome: false,
+        pages_fetched: 1,
+        error: None,
+        message: None,
+        metadata: SearchMetadata {
+            execution_time_ms: 100,
+            selectors_hash: "abc123".into(),
+            retries: 0,
+            used_fallback_endpoint: false,
+            concurrent_fetches: 0,
+            fetch_successes: 0,
+            fetch_failures: 0,
+            used_chrome: false,
             user_agent: "ua".into(),
-            usou_proxy: false,
+            used_proxy: false,
+            identity_used: None,
+            cascade_level: None,
         },
     };
-    let linha = serde_json::to_string(&saida).expect("serializar NDJSON");
-    // Uma linha só (sem \n intermediário — \n dentro do título é escapado como \\n).
+    let linha = serde_json::to_string(&output).expect("serializar NDJSON");
+    // A single line (no intermediate \n — \n inside the title is escaped as \\n).
     assert!(
         !linha.contains('\n'),
         "NDJSON deve ser UMA linha só — \\n literais no conteúdo DEVEM estar escapados"
@@ -854,23 +859,23 @@ fn ndjson_serializa_saida_busca_em_uma_linha_valida() {
 }
 
 // ---------------------------------------------------------------------------
-// Teste v0.4.0 #1: default --num 15 + auto-paginação para 2 páginas.
+// Test v0.4.0 #1: default --num 15 + auto-pagination to 2 pages.
 //
-// Simula a configuração que `montar_configuracoes` produziria quando o usuário
-// NÃO passa `--num` (default=15) e `--pages` está no default (1): ela eleva
-// `paginas` para 2 e fixa `num_resultados = Some(15)`. O teste verifica que
-// `buscar_com_paginacao` respeita isso: faz GET da página 1, POST da página 2
-// (com vqd), agrega 11 + 10 = 21 resultados e trunca em 15.
+// Simulates the configuration that `montar_configuracoes` would produce when the user
+// does NOT pass `--num` (default=15) and `--pages` is at default (1): it raises
+// `paginas` to 2 and fixes `num_resultados = Some(15)`. The test verifies that
+// `search_with_pagination` respects this: GETs page 1, POSTs page 2
+// (with vqd), aggregates 11 + 10 = 21 results and truncates at 15.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn testa_default_num_15_auto_pagina_2_paginas() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    // Página 1 — 11 resultados (quantidade típica da primeira página do DDG).
-    let titulos_pg1: Vec<String> = (1..=11).map(|i| format!("Res Pg1 {i}")).collect();
-    let refs_pg1: Vec<&str> = titulos_pg1.iter().map(String::as_str).collect();
-    let html_pg1 = html_com_tokens_vqd_e_resultados("vqd-auto-pg1", "0", "30", &refs_pg1);
+    // Page 1 — 11 results (typical count for the first DDG page).
+    let titles_pg1: Vec<String> = (1..=11).map(|i| format!("Res Pg1 {i}")).collect();
+    let refs_pg1: Vec<&str> = titles_pg1.iter().map(String::as_str).collect();
+    let html_pg1 = html_with_vqd_tokens_and_results("vqd-auto-pg1", "0", "30", &refs_pg1);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -881,10 +886,10 @@ async fn testa_default_num_15_auto_pagina_2_paginas() {
         .mount(&mock_server)
         .await;
 
-    // Página 2 — 10 resultados adicionais. A busca virá via POST com vqd-auto-pg1.
-    let titulos_pg2: Vec<String> = (1..=10).map(|i| format!("Res Pg2 {i}")).collect();
-    let refs_pg2: Vec<&str> = titulos_pg2.iter().map(String::as_str).collect();
-    let html_pg2 = html_com_tokens_vqd_e_resultados("vqd-auto-pg2", "30", "60", &refs_pg2);
+    // Page 2 — 10 additional results. The search will come via POST with vqd-auto-pg1.
+    let titles_pg2: Vec<String> = (1..=10).map(|i| format!("Res Pg2 {i}")).collect();
+    let refs_pg2: Vec<&str> = titles_pg2.iter().map(String::as_str).collect();
+    let html_pg2 = html_with_vqd_tokens_and_results("vqd-auto-pg2", "30", "60", &refs_pg2);
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=vqd-auto-pg1"))
@@ -898,54 +903,54 @@ async fn testa_default_num_15_auto_pagina_2_paginas() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    // Simula a configuração PÓS-montar_configuracoes com default --num 15
-    // e auto-paginação para 2 páginas (comportamento novo em v0.4.0).
-    let mut cfg = configuracoes_base(Endpoint::Html, 2, 0);
-    cfg.num_resultados = Some(15);
+    let cliente = test_client();
+    // Simulate the POST-montar_configuracoes configuration with default --num 15
+    // and auto-pagination to 2 pages (new behavior in v0.4.0).
+    let mut cfg = base_config(Endpoint::Html, 2, 0);
+    cfg.num_results = Some(15);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
         .await
         .expect("auto-paginação deve funcionar");
 
     assert_eq!(
-        agregado.resultados.len(),
+        agregado.results.len(),
         15,
         "deve truncar em --num=15 após agregar 21 resultados de 2 páginas"
     );
     assert_eq!(
-        agregado.paginas_buscadas, 2,
+        agregado.pages_fetched, 2,
         "deve ter buscado exatamente 2 páginas"
     );
-    assert_eq!(agregado.resultados[0].titulo, "Res Pg1 1");
-    // Página 2 começa após os 11 da página 1 → posições 12..=15 vêm da página 2.
-    assert_eq!(agregado.resultados[11].titulo, "Res Pg2 1");
-    assert_eq!(agregado.resultados[14].titulo, "Res Pg2 4");
+    assert_eq!(agregado.results[0].title, "Res Pg1 1");
+    // Page 2 starts after the 11 from page 1 → positions 12..=15 come from page 2.
+    assert_eq!(agregado.results[11].title, "Res Pg2 1");
+    assert_eq!(agregado.results[14].title, "Res Pg2 4");
 }
 
 // ---------------------------------------------------------------------------
-// Teste v0.4.0 #2: auto-paginação RESPEITA --pages explícito do usuário.
+// Test v0.4.0 #2: auto-pagination RESPECTS explicit --pages from the user.
 //
-// Quando o usuário passa --pages 3 explicitamente, a lógica de auto-paginação
-// NÃO sobrescreve. Este teste simula cfg com paginas=3 + num=15 e verifica
-// que buscar_com_paginacao executa 3 páginas (e trunca em 15).
+// When the user passes --pages 3 explicitly, the auto-pagination logic
+// does NOT override it. This test simulates cfg with paginas=3 + num=15 and verifies
+// that search_with_pagination runs 3 pages (and truncates at 15).
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_auto_paginacao_respeita_pages_explicito() {
+async fn test_auto_pagination_respects_explicit_pages() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    // Página 1 — 11 resultados.
-    let titulos_pg1: Vec<String> = (1..=11).map(|i| format!("Pg1-{i}")).collect();
-    let refs_pg1: Vec<&str> = titulos_pg1.iter().map(String::as_str).collect();
-    let html_pg1 = html_com_tokens_vqd_e_resultados("v-expl-1", "0", "30", &refs_pg1);
+    // Page 1 — 11 results.
+    let titles_pg1: Vec<String> = (1..=11).map(|i| format!("Pg1-{i}")).collect();
+    let refs_pg1: Vec<&str> = titles_pg1.iter().map(String::as_str).collect();
+    let html_pg1 = html_with_vqd_tokens_and_results("v-expl-1", "0", "30", &refs_pg1);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -956,10 +961,10 @@ async fn testa_auto_paginacao_respeita_pages_explicito() {
         .mount(&mock_server)
         .await;
 
-    // Página 2 — 5 resultados.
-    let titulos_pg2: Vec<String> = (1..=5).map(|i| format!("Pg2-{i}")).collect();
-    let refs_pg2: Vec<&str> = titulos_pg2.iter().map(String::as_str).collect();
-    let html_pg2 = html_com_tokens_vqd_e_resultados("v-expl-2", "30", "60", &refs_pg2);
+    // Page 2 — 5 results.
+    let titles_pg2: Vec<String> = (1..=5).map(|i| format!("Pg2-{i}")).collect();
+    let refs_pg2: Vec<&str> = titles_pg2.iter().map(String::as_str).collect();
+    let html_pg2 = html_with_vqd_tokens_and_results("v-expl-2", "30", "60", &refs_pg2);
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=v-expl-1"))
@@ -972,10 +977,10 @@ async fn testa_auto_paginacao_respeita_pages_explicito() {
         .mount(&mock_server)
         .await;
 
-    // Página 3 — 3 resultados.
-    let titulos_pg3: Vec<String> = (1..=3).map(|i| format!("Pg3-{i}")).collect();
-    let refs_pg3: Vec<&str> = titulos_pg3.iter().map(String::as_str).collect();
-    let html_pg3 = html_com_tokens_vqd_e_resultados("v-expl-3", "60", "90", &refs_pg3);
+    // Page 3 — 3 results.
+    let titles_pg3: Vec<String> = (1..=3).map(|i| format!("Pg3-{i}")).collect();
+    let refs_pg3: Vec<&str> = titles_pg3.iter().map(String::as_str).collect();
+    let html_pg3 = html_with_vqd_tokens_and_results("v-expl-3", "60", "90", &refs_pg3);
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=v-expl-2"))
@@ -989,46 +994,46 @@ async fn testa_auto_paginacao_respeita_pages_explicito() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    // Simula --num 15 --pages 3 (explícito) → montar_configuracoes NÃO sobrescreve.
-    let mut cfg = configuracoes_base(Endpoint::Html, 3, 0);
-    cfg.num_resultados = Some(15);
+    let cliente = test_client();
+    // Simulate --num 15 --pages 3 (explicit) → montar_configuracoes does NOT override.
+    let mut cfg = base_config(Endpoint::Html, 3, 0);
+    cfg.num_results = Some(15);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
         .await
         .expect("deve buscar 3 páginas conforme --pages explícito");
 
     assert_eq!(
-        agregado.paginas_buscadas, 3,
+        agregado.pages_fetched, 3,
         "deve respeitar --pages=3 explícito"
     );
     // 11 + 5 + 3 = 19 agregados, truncados em 15.
     assert_eq!(
-        agregado.resultados.len(),
+        agregado.results.len(),
         15,
         "19 agregados devem ser truncados em num=15"
     );
-    assert_eq!(agregado.resultados[0].titulo, "Pg1-1");
-    assert_eq!(agregado.resultados[11].titulo, "Pg2-1");
+    assert_eq!(agregado.results[0].title, "Pg1-1");
+    assert_eq!(agregado.results[11].title, "Pg2-1");
 }
 
 // ---------------------------------------------------------------------------
-// Teste 15: HTTP 202 na primeira tentativa → recupera na segunda com 200 OK.
-// Verifica que `flag_rate_limit` foi ativada e resultado vem com sucesso.
+// Test 15: HTTP 202 on the first attempt → recovers on the second with 200 OK.
+// Verifies that `flag_rate_limit` was activated and result comes with success.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn testa_202_recupera_na_segunda_tentativa() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    // Primeira tentativa retorna 202 (anomalia anti-bot DDG).
+    // First attempt returns 202 (DDG anti-bot anomaly).
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(ResponseTemplate::new(202).set_body_string(""))
@@ -1037,12 +1042,12 @@ async fn testa_202_recupera_na_segunda_tentativa() {
         .mount(&mock_server)
         .await;
 
-    // Segunda tentativa retorna 200 com HTML válido.
+    // Second attempt returns 200 with valid HTML.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_com_3_resultados_classe())
+                .set_body_string(html_with_3_results_class())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .with_priority(2)
@@ -1050,23 +1055,23 @@ async fn testa_202_recupera_na_segunda_tentativa() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    // 1 retry → até 2 tentativas no total.
-    let cfg = configuracoes_base(Endpoint::Html, 1, 1);
+    let cliente = test_client();
+    // 1 retry → up to 2 attempts total.
+    let cfg = base_config(Endpoint::Html, 1, 1);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
         .await
         .expect("deve recuperar após 202 na primeira tentativa");
 
     assert_eq!(
-        agregado.resultados.len(),
+        agregado.results.len(),
         3,
         "deve ter extraído 3 resultados após recuperação do 202"
     );
@@ -1077,15 +1082,15 @@ async fn testa_202_recupera_na_segunda_tentativa() {
 }
 
 // ---------------------------------------------------------------------------
-// Teste 16: HTTP 202 em TODAS as tentativas → `MotivoFalhaRetry::Blocked`.
-// Verifica que `flag_rate_limit` foi ativada e a CLI termina com Blocked.
+// Test 16: HTTP 202 on ALL attempts → `RetryFailReason::Blocked`.
+// Verifies that `flag_rate_limit` was activated and the CLI terminates with Blocked.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_202_esgota_retries_retorna_blocked() {
+async fn test_202_exhausts_retries_returns_blocked() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
-    // Todas as tentativas retornam 202 (DDG nunca deixa passar).
+    // All attempts return 202 (DDG never lets through).
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(ResponseTemplate::new(202).set_body_string(""))
@@ -1093,18 +1098,18 @@ async fn testa_202_esgota_retries_retorna_blocked() {
         .await;
 
     let base = format!("{}/", mock_server.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    // 1 retry → até 2 tentativas (esgotam em 202).
-    let cfg = configuracoes_base(Endpoint::Html, 1, 1);
+    let cliente = test_client();
+    // 1 retry → up to 2 attempts (exhausted at 202).
+    let cfg = base_config(Endpoint::Html, 1, 1);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let resultado = executar_com_retry(
+    let result = execute_with_retry(
         &cliente,
         &format!("{}/", mock_server.uri()),
         cfg.retries,
@@ -1113,10 +1118,10 @@ async fn testa_202_esgota_retries_retorna_blocked() {
     )
     .await;
 
-    match resultado {
-        Err(MotivoFalhaRetry::Blocked) => {}
+    match result {
+        Err(RetryFailReason::Blocked) => {}
         other => panic!(
-            "esperava MotivoFalhaRetry::Blocked após esgotar retries com 202, recebi {other:?}"
+            "esperava RetryFailReason::Blocked após esgotar retries com 202, recebi {other:?}"
         ),
     }
     assert!(

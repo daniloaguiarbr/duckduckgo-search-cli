@@ -1,4 +1,6 @@
-//! Extraction of search results from DuckDuckGo HTML.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: CPU-bound (HTML parsing and text extraction via scraper)
+//! Extraction of search results from `DuckDuckGo` HTML.
 //!
 //! In the MVP implements ONLY Strategy 1 (stable class selectors):
 //! - Container: `#links`.
@@ -14,137 +16,244 @@
 //!
 //! URL resolution:
 //! - Protocol-relative URLs (`//example.com`) are prefixed with `https:`.
-//! - URLs containing a DuckDuckGo internal redirect (`/l/?uddg=...&rut=...`) are
+//! - URLs containing a `DuckDuckGo` internal redirect (`/l/?uddg=...&rut=...`) are
 //!   unwrapped via URL-decoding of the `uddg` parameter.
 //! - URLs on the `duckduckgo.com` domain itself are filtered out.
 
-use crate::types::{ConfiguracaoSeletores, ResultadoBusca};
+use crate::types::{SearchResult, SelectorConfig};
 use scraper::{ElementRef, Html, Selector};
+use std::sync::OnceLock;
+
+fn sel_tr() -> &'static Selector {
+    static C: OnceLock<Selector> = OnceLock::new();
+    C.get_or_init(|| Selector::parse("tr").unwrap())
+}
+
+fn sel_strategy2_links() -> &'static Selector {
+    static C: OnceLock<Selector> = OnceLock::new();
+    C.get_or_init(|| Selector::parse("#links a[href], .result a[href]").unwrap())
+}
+
+pub(crate) struct CompiledSelectors {
+    pub result_item: Selector,
+    pub ad_class: Option<Selector>,
+    pub title_sel: Option<Selector>,
+    pub snippet: Option<Selector>,
+    pub display_url_sel: Option<Selector>,
+    pub ad_classes_raw: Vec<String>,
+    pub ad_attributes: Vec<(String, String)>,
+    pub url_patterns: Vec<String>,
+}
+
+impl CompiledSelectors {
+    pub fn compile(cfg: &SelectorConfig) -> Option<Self> {
+        let result_item = match Selector::parse(&cfg.html_endpoint.result_item) {
+            Ok(s) => s,
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    selector = %cfg.html_endpoint.result_item,
+                    "Result selector invalid — cannot extract"
+                );
+                return None;
+            }
+        };
+        let join_ad = cfg.html_endpoint.ads_filter.ad_classes.join(", ");
+        let ad_class = if join_ad.is_empty() {
+            None
+        } else {
+            Selector::parse(&join_ad).ok()
+        };
+        let title_sel = Selector::parse(&cfg.html_endpoint.title_and_url).ok();
+        let snippet = Selector::parse(&cfg.html_endpoint.snippet).ok();
+        let display_url_sel = Selector::parse(&cfg.html_endpoint.display_url).ok();
+        let ad_classes_raw = cfg
+            .html_endpoint
+            .ads_filter
+            .ad_classes
+            .iter()
+            .map(|c| c.trim_start_matches('.').to_string())
+            .collect();
+        let ad_attributes = cfg
+            .html_endpoint
+            .ads_filter
+            .ad_attributes
+            .iter()
+            .filter_map(|e| {
+                let mut parts = e.splitn(2, '=');
+                let key = parts.next()?.trim().to_string();
+                let value = parts.next()?.trim().to_string();
+                Some((key, value))
+            })
+            .collect();
+        let url_patterns = cfg.html_endpoint.ads_filter.ad_url_patterns.to_vec();
+        Some(Self {
+            result_item,
+            ad_class,
+            title_sel,
+            snippet,
+            display_url_sel,
+            ad_classes_raw,
+            ad_attributes,
+            url_patterns,
+        })
+    }
+}
+
+pub(crate) struct CompiledLiteSelectors {
+    pub link: Selector,
+    pub snippet_td: Selector,
+}
+
+impl CompiledLiteSelectors {
+    pub fn compile(cfg: &SelectorConfig) -> Option<Self> {
+        let link = Selector::parse(&cfg.lite_endpoint.result_link)
+            .or_else(|_| Selector::parse("a.result-link, a"))
+            .ok()?;
+        let snippet_td = Selector::parse(&cfg.lite_endpoint.result_snippet)
+            .or_else(|_| Selector::parse("td.result-snippet, td"))
+            .ok()?;
+        Some(Self { link, snippet_td })
+    }
+}
 
 /// Bounded limits to prevent absurdly large payloads (section 5.4 — rule 4).
-const LIMITE_TITULO: usize = 200;
-const LIMITE_URL: usize = 2000;
-const LIMITE_SNIPPET: usize = 500;
+const TITLE_LIMIT: usize = 200;
+const URL_LIMIT: usize = 2000;
+const SNIPPET_LIMIT: usize = 500;
 
-/// Extracts the organic results from a DuckDuckGo HTML page using Strategy 1.
+fn join_text(el: &ElementRef<'_>) -> String {
+    let mut out = String::with_capacity(128);
+    let mut need_space = false;
+    for frag in el.text() {
+        for word in frag.split_whitespace() {
+            if need_space {
+                out.push(' ');
+            }
+            out.push_str(word);
+            need_space = true;
+        }
+    }
+    out
+}
+
+/// Extracts the organic results from a `DuckDuckGo` HTML page using Strategy 1.
 ///
 /// Returns results already filtered (no ads), with resolved URLs and positions
 /// numbered sequentially from 1.
 ///
 /// If no results are found, returns an empty `Vec` (not an error — the query may simply
 /// have no results; actual malformed-HTML errors are handled further up the call stack).
-pub fn extrair_resultados(html_bruto: &str) -> Vec<ResultadoBusca> {
-    let cfg = ConfiguracaoSeletores::default();
-    extrair_resultados_com_cfg(html_bruto, &cfg)
+pub fn extract_results(raw_html: &str) -> Vec<SearchResult> {
+    let cfg = SelectorConfig::default();
+    extract_results_with_cfg(raw_html, &cfg)
 }
 
-/// Same as `extrair_resultados`, but accepts a custom `ConfiguracaoSeletores`.
+/// Same as `extract_results`, but accepts a custom `SelectorConfig`.
 ///
 /// Iteration 6: allows selectors loaded from an external TOML file to be applied.
-pub fn extrair_resultados_com_cfg(
-    html_bruto: &str,
-    cfg: &ConfiguracaoSeletores,
-) -> Vec<ResultadoBusca> {
-    let documento = Html::parse_document(html_bruto);
-    extrair_com_documento(&documento, cfg)
+pub fn extract_results_with_cfg(raw_html: &str, cfg: &SelectorConfig) -> Vec<SearchResult> {
+    let document = Html::parse_document(raw_html);
+    let Some(compiled) = CompiledSelectors::compile(cfg) else {
+        return Vec::new();
+    };
+    extract_with_document(&document, &compiled)
 }
 
 /// Applies Strategy 1 and, if it returns empty, applies Strategy 2 (semantic fallback).
 ///
 /// Strategy 2 searches all `<a href="...">` links inside `#links` that point to
 /// an external domain; for each one it extracts the link text as the title, unwraps
-/// the href with `resolver_url`, and attempts to extract a snippet from the parent
+/// the href with `resolve_url`, and attempts to extract a snippet from the parent
 /// element (looks for the ancestor with substantial text).
-pub fn extrair_resultados_com_estrategias(html_bruto: &str) -> Vec<ResultadoBusca> {
-    let cfg = ConfiguracaoSeletores::default();
-    extrair_resultados_com_estrategias_cfg(html_bruto, &cfg)
+pub fn extract_results_with_strategies(raw_html: &str) -> Vec<SearchResult> {
+    let cfg = SelectorConfig::default();
+    extract_results_with_strategies_cfg(raw_html, &cfg)
 }
 
-/// Same as `extrair_resultados_com_estrategias`, but accepts external selectors.
-pub fn extrair_resultados_com_estrategias_cfg(
-    html_bruto: &str,
-    cfg: &ConfiguracaoSeletores,
-) -> Vec<ResultadoBusca> {
-    let documento = Html::parse_document(html_bruto);
-    let mut resultados = extrair_com_documento(&documento, cfg);
-    if !resultados.is_empty() {
-        return resultados;
+/// Same as `extract_results_with_strategies`, but accepts external selectors.
+pub fn extract_results_with_strategies_cfg(
+    raw_html: &str,
+    cfg: &SelectorConfig,
+) -> Vec<SearchResult> {
+    let document = Html::parse_document(raw_html);
+    let mut results = match CompiledSelectors::compile(cfg) {
+        Some(compiled) => extract_with_document(&document, &compiled),
+        None => Vec::new(),
+    };
+    if !results.is_empty() {
+        return results;
     }
 
-    tracing::debug!("Estratégia 1 retornou vazio — tentando Estratégia 2 (fallback semântico)");
-    resultados = extrair_estrategia_2(&documento);
-    if !resultados.is_empty() {
-        tracing::info!(
-            total = resultados.len(),
-            "Estratégia 2 recuperou resultados"
-        );
+    tracing::debug!("Strategy 1 returned empty — trying Strategy 2 (semantic fallback)");
+    results = extract_strategy_2(&document);
+    if !results.is_empty() {
+        tracing::info!(total = results.len(), "Strategy 2 recovered results");
     }
-    resultados
+    results
 }
 
 /// Strategy 2: semantic fallback. Searches all external `<a href>` links inside
 /// the results container (`#links`) and extracts title, URL and snippet.
-fn extrair_estrategia_2(documento: &Html) -> Vec<ResultadoBusca> {
-    // Seletor tenta tanto `#links a[href]` quanto `a[href]` em qualquer `.result`.
-    let Ok(seletor_links) = Selector::parse("#links a[href], .result a[href]") else {
-        return Vec::new();
-    };
+fn extract_strategy_2(document: &Html) -> Vec<SearchResult> {
+    let links_selector = sel_strategy2_links();
 
-    let mut resultados = Vec::new();
-    let mut posicao: u32 = 0;
-    let mut urls_vistas: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut results = Vec::with_capacity(16);
+    let mut position: u32 = 0;
+    let mut seen_urls: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(16);
 
-    for link in documento.select(&seletor_links) {
+    for link in document.select(links_selector) {
         let href = match link.value().attr("href") {
             Some(h) if !h.is_empty() => h,
             _ => continue,
         };
-        let url_resolvida = match resolver_url(href) {
+        let resolved_url = match resolve_url(href) {
             Some(u) => u,
             None => continue,
         };
-        if url_resolvida.contains("duckduckgo.com/y.js") || url_resolvida.len() > LIMITE_URL {
+        if resolved_url.contains("duckduckgo.com/y.js") || resolved_url.len() > URL_LIMIT {
             continue;
         }
-        // Deduplica por URL.
-        if !urls_vistas.insert(url_resolvida.clone()) {
-            continue;
-        }
-
-        let titulo_bruto: String = link.text().collect::<Vec<_>>().join(" ");
-        let titulo = normalizar_texto(&titulo_bruto, LIMITE_TITULO);
-        if titulo.is_empty() {
+        // Deduplicate by URL.
+        if !seen_urls.insert(resolved_url.clone()) {
             continue;
         }
 
-        // Procura ancestral com texto substancial para extrair snippet.
-        let snippet = extrair_snippet_do_ancestral(&link, &titulo);
+        let raw_title = join_text(&link);
+        let title = normalize_text(&raw_title, TITLE_LIMIT);
+        if title.is_empty() {
+            continue;
+        }
 
-        posicao += 1;
-        resultados.push(ResultadoBusca {
-            posicao,
-            titulo,
-            url: url_resolvida,
-            url_exibicao: None,
+        // Look for an ancestor with substantial text to extract as snippet.
+        let snippet = extract_snippet_from_ancestor(&link, &title);
+
+        position += 1;
+        results.push(SearchResult {
+            position,
+            title,
+            url: resolved_url,
+            display_url: None,
             snippet,
-            titulo_original: None,
-            conteudo: None,
-            tamanho_conteudo: None,
-            metodo_extracao_conteudo: None,
+            original_title: None,
+            content: None,
+            content_size: None,
+            content_extraction_method: None,
         });
 
-        // Limite de sanidade para evitar páginas que explodem a lista.
-        if resultados.len() >= 50 {
+        // Sanity limit to avoid pages that explode the list.
+        if results.len() >= 50 {
             break;
         }
     }
 
-    resultados
+    results
 }
 
 /// Walks the link's ancestors looking for the first one with "substantial" text
 /// (at least 40 characters distinct from the title itself).
-fn extrair_snippet_do_ancestral(link: &ElementRef<'_>, titulo: &str) -> Option<String> {
+fn extract_snippet_from_ancestor(link: &ElementRef<'_>, title: &str) -> Option<String> {
     let mut atual = link.parent();
     let mut nivel = 0;
     while let Some(no) = atual {
@@ -153,13 +262,13 @@ fn extrair_snippet_do_ancestral(link: &ElementRef<'_>, titulo: &str) -> Option<S
             break;
         }
         if let Some(el) = ElementRef::wrap(no) {
-            let texto = el.text().collect::<Vec<_>>().join(" ");
-            let normalizado = normalizar_texto(&texto, LIMITE_SNIPPET);
-            // Remove o título do texto para isolar o "resto" que pode ser snippet.
-            let sem_titulo = normalizado.replacen(titulo, "", 1);
-            let sem_titulo_tr = sem_titulo.trim();
-            if sem_titulo_tr.chars().count() >= 40 {
-                return Some(normalizar_texto(sem_titulo_tr, LIMITE_SNIPPET));
+            let text = join_text(&el);
+            let normalized = normalize_text(&text, SNIPPET_LIMIT);
+            // Remove the title from the text to isolate the "rest" that may be a snippet.
+            let without_title = normalized.replacen(title, "", 1);
+            let without_title_tr = without_title.trim();
+            if without_title_tr.chars().count() >= 40 {
+                return Some(normalize_text(without_title_tr, SNIPPET_LIMIT));
             }
         }
         atual = no.parent();
@@ -172,75 +281,59 @@ fn extrair_snippet_do_ancestral(link: &ElementRef<'_>, titulo: &str) -> Option<S
 /// Lite returns tabular HTML. We iterate over `<tr>` elements capturing pairs:
 /// 1. `<tr>` with `<a class="result-link">` (or any `<a>` in `<td>`) → title/URL.
 /// 2. The following `<tr>` with `td.result-snippet` (or a `<td>` with substantial text) → snippet.
-pub fn extrair_resultados_lite(html_bruto: &str) -> Vec<ResultadoBusca> {
-    let cfg = ConfiguracaoSeletores::default();
-    extrair_resultados_lite_com_cfg(html_bruto, &cfg)
+pub fn extract_results_lite(raw_html: &str) -> Vec<SearchResult> {
+    let cfg = SelectorConfig::default();
+    extract_results_lite_with_cfg(raw_html, &cfg)
 }
 
-/// Same as `extrair_resultados_lite`, but accepts external selectors.
-pub fn extrair_resultados_lite_com_cfg(
-    html_bruto: &str,
-    cfg: &ConfiguracaoSeletores,
-) -> Vec<ResultadoBusca> {
-    let documento = Html::parse_document(html_bruto);
-    let Ok(sel_tr) = Selector::parse("tr") else {
+/// Same as `extract_results_lite`, but accepts external selectors.
+pub fn extract_results_lite_with_cfg(raw_html: &str, cfg: &SelectorConfig) -> Vec<SearchResult> {
+    let document = Html::parse_document(raw_html);
+    let Some(compiled_lite) = CompiledLiteSelectors::compile(cfg) else {
         return Vec::new();
     };
-    // Tenta o seletor customizado primeiro; fallback para o tradicional.
-    let sel_link = match Selector::parse(&cfg.lite_endpoint.result_link) {
-        Ok(s) => s,
-        Err(_) => match Selector::parse("a.result-link, a") {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        },
-    };
-    let sel_snippet_td = match Selector::parse(&cfg.lite_endpoint.result_snippet) {
-        Ok(s) => s,
-        Err(_) => match Selector::parse("td.result-snippet, td") {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        },
-    };
+    let sel_link = &compiled_lite.link;
+    let sel_snippet_td = &compiled_lite.snippet_td;
 
-    let mut resultados: Vec<ResultadoBusca> = Vec::new();
-    let mut posicao: u32 = 0;
-    let mut titulo_pendente: Option<(String, String)> = None;
+    let mut results: Vec<SearchResult> = Vec::with_capacity(16);
+    let mut position: u32 = 0;
+    let mut pending_title: Option<(String, String)> = None;
 
-    for tr in documento.select(&sel_tr) {
-        // Tenta link de resultado no primeiro <a> da linha (class result-link preferido).
-        let link_candidato = tr.select(&sel_link).next();
-        if let Some(link) = link_candidato {
-            let eh_result_link = link
+    for tr in document.select(sel_tr()) {
+        // Try the result link in the first <a> of the row (class result-link preferred).
+        let link_candidate = tr.select(sel_link).next();
+        if let Some(link) = link_candidate {
+            let is_result_link = link
                 .value()
                 .attr("class")
                 .map(|c| c.contains("result-link"))
                 .unwrap_or(false);
 
-            if eh_result_link || titulo_pendente.is_none() {
+            if is_result_link || pending_title.is_none() {
                 if let Some(href) = link.value().attr("href") {
-                    if let Some(url_resolvida) = resolver_url(href) {
-                        if url_resolvida.contains("duckduckgo.com/y.js") {
+                    if let Some(resolved_url) = resolve_url(href) {
+                        if resolved_url.contains("duckduckgo.com/y.js") {
                             continue;
                         }
-                        let titulo_bruto = link.text().collect::<Vec<_>>().join(" ");
-                        let titulo = normalizar_texto(&titulo_bruto, LIMITE_TITULO);
-                        if !titulo.is_empty() && !url_resolvida.contains("duckduckgo.com") {
-                            // Flush de qualquer título pendente sem snippet.
-                            if let Some((t_pend, u_pend)) = titulo_pendente.take() {
-                                posicao += 1;
-                                resultados.push(ResultadoBusca {
-                                    posicao,
-                                    titulo: t_pend,
-                                    url: u_pend,
-                                    url_exibicao: None,
+                        let raw_title = join_text(&link);
+                        let title = normalize_text(&raw_title, TITLE_LIMIT);
+                        if !title.is_empty() && !resolved_url.contains("duckduckgo.com") {
+                            // Flush any pending title without snippet.
+                            if let Some((pending_t, pending_u)) = pending_title.take() {
+                                position += 1;
+                                results.push(SearchResult {
+                                    position,
+                                    title: pending_t,
+                                    url: pending_u,
+                                    display_url: None,
                                     snippet: None,
-                                    titulo_original: None,
-                                    conteudo: None,
-                                    tamanho_conteudo: None,
-                                    metodo_extracao_conteudo: None,
+                                    original_title: None,
+                                    content: None,
+                                    content_size: None,
+                                    content_extraction_method: None,
                                 });
                             }
-                            titulo_pendente = Some((titulo, url_resolvida));
+                            pending_title = Some((title, resolved_url));
                             continue;
                         }
                     }
@@ -248,269 +341,241 @@ pub fn extrair_resultados_lite_com_cfg(
             }
         }
 
-        // Linha de snippet: procura td.result-snippet ou td com texto substancial.
-        if let Some((titulo, url)) = titulo_pendente.take() {
-            let snippet_texto = tr
-                .select(&sel_snippet_td)
-                .map(|td| td.text().collect::<Vec<_>>().join(" "))
+        // Snippet row: look for td.result-snippet or td with substantial text.
+        if let Some((title, url)) = pending_title.take() {
+            let snippet_text = tr
+                .select(sel_snippet_td)
+                .map(|td| join_text(&td))
                 .find(|t| t.split_whitespace().count() > 5);
-            let snippet = snippet_texto.map(|t| normalizar_texto(&t, LIMITE_SNIPPET));
+            let snippet = snippet_text.map(|t| normalize_text(&t, SNIPPET_LIMIT));
 
-            posicao += 1;
-            resultados.push(ResultadoBusca {
-                posicao,
-                titulo,
+            position += 1;
+            results.push(SearchResult {
+                position,
+                title,
                 url,
-                url_exibicao: None,
+                display_url: None,
                 snippet,
-                titulo_original: None,
-                conteudo: None,
-                tamanho_conteudo: None,
-                metodo_extracao_conteudo: None,
+                original_title: None,
+                content: None,
+                content_size: None,
+                content_extraction_method: None,
             });
         }
 
-        if resultados.len() >= 50 {
+        if results.len() >= 50 {
             break;
         }
     }
 
-    // Flush final de título pendente.
-    if let Some((titulo, url)) = titulo_pendente {
-        posicao += 1;
-        resultados.push(ResultadoBusca {
-            posicao,
-            titulo,
+    // Final flush of any pending title.
+    if let Some((title, url)) = pending_title {
+        position += 1;
+        results.push(SearchResult {
+            position,
+            title,
             url,
-            url_exibicao: None,
+            display_url: None,
             snippet: None,
-            titulo_original: None,
-            conteudo: None,
-            tamanho_conteudo: None,
-            metodo_extracao_conteudo: None,
+            original_title: None,
+            content: None,
+            content_size: None,
+            content_extraction_method: None,
         });
     }
 
-    resultados
+    results
 }
 
-fn extrair_com_documento(documento: &Html, cfg: &ConfiguracaoSeletores) -> Vec<ResultadoBusca> {
-    let seletor_result = match Selector::parse(&cfg.html_endpoint.result_item) {
-        Ok(s) => s,
-        Err(erro) => {
-            tracing::error!(
-                ?erro,
-                seletor = %cfg.html_endpoint.result_item,
-                "Selector de resultado inválido — impossível extrair"
-            );
-            return Vec::new();
-        }
-    };
+fn extract_with_document(document: &Html, compiled: &CompiledSelectors) -> Vec<SearchResult> {
+    let mut results = Vec::with_capacity(16);
+    let mut position: u32 = 0;
 
-    // Para filtro de anúncios, junta todas as classes em um seletor CSS combinado.
-    let join_ad = cfg.html_endpoint.ads_filter.ad_classes.join(", ");
-    let seletor_ad_class = if join_ad.is_empty() {
-        None
-    } else {
-        Selector::parse(&join_ad).ok()
-    };
-    let seletor_titulo = Selector::parse(&cfg.html_endpoint.title_and_url).ok();
-    let seletor_snippet = Selector::parse(&cfg.html_endpoint.snippet).ok();
-    let seletor_url_exibicao = Selector::parse(&cfg.html_endpoint.display_url).ok();
-
-    // Classes nuas (sem ponto) para verificar contém no element value — usa a lista bruta do config.
-    let ad_classes_nua: Vec<String> = cfg
-        .html_endpoint
-        .ads_filter
-        .ad_classes
-        .iter()
-        .map(|c| c.trim_start_matches('.').to_string())
-        .collect();
-
-    // Atributos "chave=valor" para filtro — pré-parse em pares.
-    let ad_atributos: Vec<(String, String)> = cfg
-        .html_endpoint
-        .ads_filter
-        .ad_attributes
-        .iter()
-        .filter_map(|e| {
-            let mut partes = e.splitn(2, '=');
-            let chave = partes.next()?.trim().to_string();
-            let valor = partes.next()?.trim().to_string();
-            Some((chave, valor))
-        })
-        .collect();
-
-    let url_patterns: Vec<&str> = cfg
-        .html_endpoint
-        .ads_filter
-        .ad_url_patterns
-        .iter()
-        .map(String::as_str)
-        .collect();
-
-    let mut resultados = Vec::new();
-    let mut posicao: u32 = 0;
-
-    for elemento_resultado in documento.select(&seletor_result) {
-        // --- Filtro de anúncios por classe (descendente ou próprio elemento) ---
-        if let Some(ref ad_sel) = seletor_ad_class {
-            if elemento_resultado.select(ad_sel).next().is_some()
-                || contem_classe_anuncio_dinamico(&elemento_resultado, &ad_classes_nua)
+    for result_element in document.select(&compiled.result_item) {
+        // --- Ad filter by class (descendant or element itself) ---
+        if let Some(ref ad_sel) = compiled.ad_class {
+            if result_element.select(ad_sel).next().is_some()
+                || contem_classe_anuncio_dinamico(&result_element, &compiled.ad_classes_raw)
             {
-                tracing::trace!("Resultado filtrado por classe de anúncio");
+                tracing::trace!("Result filtered by ad class");
                 continue;
             }
         }
 
-        // --- Filtro por atributos (pares chave=valor configurados) ---
-        let mut filtrado_por_atributo = false;
-        for (chave, valor) in &ad_atributos {
-            if elemento_resultado.value().attr(chave.as_str()) == Some(valor.as_str()) {
-                tracing::trace!(atributo = %chave, "Resultado filtrado por atributo de anúncio");
-                filtrado_por_atributo = true;
+        // --- Filter by attributes (configured key=value pairs) ---
+        let mut filtered_by_attribute = false;
+        for (key, value) in &compiled.ad_attributes {
+            if result_element.value().attr(key.as_str()) == Some(value.as_str()) {
+                tracing::trace!(attribute = %key, "Result filtered by ad attribute");
+                filtered_by_attribute = true;
                 break;
             }
         }
-        if filtrado_por_atributo {
+        if filtered_by_attribute {
             continue;
         }
 
-        // --- Extração de título + URL ---
-        let Some(ref sel_titulo) = seletor_titulo else {
+        // --- Title + URL extraction ---
+        let Some(ref title_selector) = compiled.title_sel else {
             continue;
         };
-        let elemento_titulo = match elemento_resultado.select(sel_titulo).next() {
+        let title_element = match result_element.select(title_selector).next() {
             Some(e) => e,
             None => {
-                tracing::trace!("Resultado sem elemento de título — pulando");
+                tracing::trace!("Result missing title element — skipping");
                 continue;
             }
         };
 
-        let titulo_bruto: String = elemento_titulo.text().collect::<Vec<_>>().join(" ");
-        let titulo = normalizar_texto(&titulo_bruto, LIMITE_TITULO);
-        if titulo.is_empty() {
+        let raw_title = join_text(&title_element);
+        let title = normalize_text(&raw_title, TITLE_LIMIT);
+        if title.is_empty() {
             continue;
         }
 
-        let url_bruto = match elemento_titulo.value().attr("href") {
+        let raw_url = match title_element.value().attr("href") {
             Some(href) => href.to_string(),
             None => {
-                tracing::trace!("Título sem atributo href — pulando");
+                tracing::trace!("Title missing href attribute — skipping");
                 continue;
             }
         };
-        let url_resolvida = match resolver_url(&url_bruto) {
+        let resolved_url = match resolve_url(&raw_url) {
             Some(u) => u,
             None => {
-                tracing::trace!(url = %url_bruto, "URL filtrada ou inválida");
+                tracing::trace!(url = %raw_url, "URL filtered or invalid");
                 continue;
             }
         };
-        // Filtro por padrões de URL de anúncio (configuráveis).
-        if url_patterns.iter().any(|p| url_resolvida.contains(p)) {
-            tracing::trace!(url = %url_resolvida, "URL filtrada por padrão de anúncio");
+        // Filter by ad URL patterns (configurable).
+        if compiled
+            .url_patterns
+            .iter()
+            .any(|p| resolved_url.contains(p))
+        {
+            tracing::trace!(url = %resolved_url, "URL filtered by ad pattern");
             continue;
         }
-        if url_resolvida.len() > LIMITE_URL {
-            tracing::trace!(tamanho = url_resolvida.len(), "URL excede limite — pulando");
+        if resolved_url.len() > URL_LIMIT {
+            tracing::trace!(size = resolved_url.len(), "URL exceeds limit — skipping");
             continue;
         }
 
-        // --- Extração do snippet (opcional) ---
-        let snippet = seletor_snippet.as_ref().and_then(|sel| {
-            elemento_resultado
+        // --- Snippet extraction (optional) ---
+        let snippet = compiled.snippet.as_ref().and_then(|sel| {
+            result_element
                 .select(sel)
                 .next()
-                .map(|el| {
-                    normalizar_texto(&el.text().collect::<Vec<_>>().join(" "), LIMITE_SNIPPET)
-                })
+                .map(|el| normalize_text(&join_text(&el), SNIPPET_LIMIT))
                 .filter(|s| !s.is_empty())
         });
 
-        // --- Extração da URL de exibição (opcional) ---
-        let url_exibicao = seletor_url_exibicao.as_ref().and_then(|sel| {
-            elemento_resultado
+        // --- Display URL extraction (optional) ---
+        let display_url = compiled.display_url_sel.as_ref().and_then(|sel| {
+            result_element
                 .select(sel)
                 .next()
-                .map(|el| normalizar_texto(&el.text().collect::<Vec<_>>().join(" "), LIMITE_URL))
+                .map(|el| normalize_text(&join_text(&el), URL_LIMIT))
                 .filter(|s| !s.is_empty())
         });
 
-        // --- Heurística "Official site" (v0.3.0) ---
-        // O DDG renderiza literalmente "Official site" como título para domínios
-        // verificados (ex: wikipedia.org, rust-lang.org). Substituímos pelo
-        // `url_exibicao` quando disponível e preservamos o literal em
-        // `titulo_original` para auditoria.
-        let (titulo_final, titulo_original) =
-            aplicar_heuristica_official_site(titulo, url_exibicao.as_deref());
+        // --- "Official site" heuristic (v0.3.0) ---
+        // DDG renders the literal "Official site" as the title for verified domains
+        // (e.g., wikipedia.org, rust-lang.org). We replace it with
+        // `display_url` when available and preserve the literal in
+        // `original_title` for auditing.
+        let (final_title, original_title) =
+            apply_official_site_heuristic(title, display_url.as_deref());
 
-        posicao += 1;
-        resultados.push(ResultadoBusca {
-            posicao,
-            titulo: titulo_final,
-            url: url_resolvida,
-            url_exibicao,
+        position += 1;
+        results.push(SearchResult {
+            position,
+            title: final_title,
+            url: resolved_url,
+            display_url,
             snippet,
-            titulo_original,
-            conteudo: None,
-            tamanho_conteudo: None,
-            metodo_extracao_conteudo: None,
+            original_title,
+            content: None,
+            content_size: None,
+            content_extraction_method: None,
         });
     }
 
     tracing::debug!(
-        total = resultados.len(),
-        "Extração concluída após filtragem de anúncios"
+        total = results.len(),
+        "Extraction complete after ad filtering"
     );
-    resultados
+    results
 }
 
 /// Dynamic version: accepts the list of ad classes configured in the TOML file.
-fn contem_classe_anuncio_dinamico(elemento: &ElementRef<'_>, classes_nua: &[String]) -> bool {
-    elemento
+fn contem_classe_anuncio_dinamico(element: &ElementRef<'_>, raw_classes: &[String]) -> bool {
+    element
         .value()
         .classes()
-        .any(|classe| classes_nua.iter().any(|c| c == classe))
+        .any(|class| raw_classes.iter().any(|c| c == class))
 }
 
 /// Applies the "Official site" replacement heuristic (v0.3.0).
 ///
-/// DuckDuckGo renders the literal text `"Official site"` (case-insensitive)
+/// `DuckDuckGo` renders the literal text `"Official site"` (case-insensitive)
 /// as the title when the result's domain is verified (e.g. rust-lang.org,
 /// wikipedia.org). That title is not useful for API consumers — we replace it
-/// with `url_exibicao` and preserve the literal in `titulo_original` for auditing.
+/// with `url_exibicao` and preserve the literal in `original_title` for auditing.
 ///
-/// Returns `(titulo_final, titulo_original)`:
+/// Returns `(final_title, original_title)`:
 /// - If the title matches exactly "Official site" (case-insensitive) AND a non-empty
 ///   `url_exibicao` exists, returns `(url_exibicao, Some("Official site"))`.
-/// - Otherwise returns `(titulo, None)` unchanged.
-fn aplicar_heuristica_official_site(
-    titulo: String,
-    url_exibicao: Option<&str>,
+/// - Otherwise returns `(title, None)` unchanged.
+fn apply_official_site_heuristic(
+    title: String,
+    display_url: Option<&str>,
 ) -> (String, Option<String>) {
-    if titulo.eq_ignore_ascii_case("Official site") {
-        if let Some(url_amigavel) = url_exibicao.map(str::trim).filter(|s| !s.is_empty()) {
-            let original = titulo.clone();
-            return (url_amigavel.to_string(), Some(original));
+    if title.eq_ignore_ascii_case("Official site") {
+        if let Some(friendly_url) = display_url.map(str::trim).filter(|s| !s.is_empty()) {
+            return (friendly_url.to_string(), Some(title));
         }
     }
-    (titulo, None)
+    (title, None)
 }
 
-/// Normalises extracted text: collapses whitespace, trims and truncates at `limite` characters
+/// Normalises extracted text: collapses whitespace, trims and truncates at `limit` characters
 /// respecting UTF-8 character boundaries.
-fn normalizar_texto(bruto: &str, limite: usize) -> String {
-    let colapsado: String = bruto.split_whitespace().collect::<Vec<_>>().join(" ");
-    if colapsado.chars().count() <= limite {
-        return colapsado;
+fn normalize_text(raw: &str, limit: usize) -> String {
+    let mut result_buf = String::with_capacity(raw.len().min(limit + 64));
+    let mut needs_space = false;
+    let mut chars_written: usize = 0;
+
+    for word in raw.split_whitespace() {
+        let separator = usize::from(needs_space);
+        let word_len = word.chars().count();
+
+        if chars_written + separator + word_len > limit {
+            let remaining = limit.saturating_sub(chars_written + separator);
+            if remaining > 0 {
+                if needs_space {
+                    result_buf.push(' ');
+                }
+                for ch in word.chars().take(remaining) {
+                    result_buf.push(ch);
+                }
+            }
+            break;
+        }
+
+        if needs_space {
+            result_buf.push(' ');
+            chars_written += 1;
+        }
+        result_buf.push_str(word);
+        chars_written += word_len;
+        needs_space = true;
     }
-    // Truncamento seguro respeitando char boundary.
-    colapsado.chars().take(limite).collect()
+
+    result_buf
 }
 
-/// Resolves a URL found in the DuckDuckGo DOM to the final URL.
+/// Resolves a URL found in the `DuckDuckGo` DOM to the final URL.
 ///
 /// Handled cases:
 /// 1. `//example.com/path` → `https://example.com/path` (protocol-relative).
@@ -519,69 +584,81 @@ fn normalizar_texto(bruto: &str, limite: usize) -> String {
 /// 4. Absolute external URLs are returned as-is.
 /// 5. URLs on the `duckduckgo.com` domain itself (except `/l/?uddg=`) are filtered.
 ///
-/// Returns `None` if the URL is invalid or belongs to DuckDuckGo.
-pub fn resolver_url(href: &str) -> Option<String> {
+/// Returns `None` if the URL is invalid or belongs to `DuckDuckGo`.
+pub fn resolve_url(href: &str) -> Option<String> {
     let href_trim = href.trim();
     if href_trim.is_empty() {
         return None;
     }
 
-    // Caso 1: protocol-relative.
-    let normalizada = if let Some(resto) = href_trim.strip_prefix("//") {
-        format!("https://{resto}")
+    // Case 1: protocol-relative.
+    let normalized = if let Some(rest) = href_trim.strip_prefix("//") {
+        format!("https://{rest}")
     } else if href_trim.starts_with('/') {
-        // Caso 2: path relativo do DuckDuckGo (ex: "/l/?uddg=...").
+        // Case 2: relative DuckDuckGo path (e.g., "/l/?uddg=...").
         format!("https://duckduckgo.com{href_trim}")
     } else {
         href_trim.to_string()
     };
 
-    // Caso 3: redirect do DuckDuckGo com parâmetro `uddg`.
-    if let Some(uddg_decodificada) = extrair_uddg(&normalizada) {
-        return Some(uddg_decodificada);
+    // Case 3: DuckDuckGo redirect with `uddg` parameter.
+    if let Some(uddg_decoded) = extract_uddg(&normalized) {
+        return Some(uddg_decoded);
     }
 
-    // Caso 4: filtrar URLs do próprio DuckDuckGo (sem uddg).
-    if eh_url_duckduckgo(&normalizada) {
+    // Case 4: filter URLs from DuckDuckGo itself (without uddg).
+    if eh_url_duckduckgo(&normalized) {
         return None;
     }
 
-    Some(normalizada)
+    Some(normalized)
 }
 
-/// If the URL is a DuckDuckGo redirect (`/l/?uddg=<REAL_URL>`), extracts and
+/// If the URL is a `DuckDuckGo` redirect (`/l/?uddg=<REAL_URL>`), extracts and
 /// URL-decodes `uddg`. Returns `None` if it is not a redirect or the parameter is absent.
-fn extrair_uddg(url: &str) -> Option<String> {
-    // Busca por "uddg=" na query string.
+fn extract_uddg(url: &str) -> Option<String> {
+    // Search for "uddg=" in the query string.
     let idx_uddg = url.find("uddg=")?;
-    let apos_igual = &url[idx_uddg + "uddg=".len()..];
-    // O valor de uddg vai até o próximo `&` ou fim da string.
-    let valor_encoded = match apos_igual.find('&') {
-        Some(fim) => &apos_igual[..fim],
-        None => apos_igual,
+    let after_equals = &url[idx_uddg + "uddg=".len()..];
+    // The uddg value extends to the next `&` or end of string.
+    let encoded_value = match after_equals.find('&') {
+        Some(end) => &after_equals[..end],
+        None => after_equals,
     };
-    urlencoding::decode(valor_encoded)
+    urlencoding::decode(encoded_value)
         .ok()
         .map(|cow| cow.into_owned())
 }
 
-/// Checks whether the URL points to any subdomain of DuckDuckGo.
+/// Checks whether the URL points to any subdomain of `DuckDuckGo`.
 fn eh_url_duckduckgo(url: &str) -> bool {
-    let lower = url.to_ascii_lowercase();
-    lower.contains("://duckduckgo.com")
-        || lower.contains("://html.duckduckgo.com")
-        || lower.contains("://lite.duckduckgo.com")
-        || lower.contains(".duckduckgo.com")
+    let after_proto = if let Some(pos) = url.find("://") {
+        &url[pos + 3..]
+    } else {
+        url
+    };
+    let host = after_proto
+        .split('/')
+        .next()
+        .unwrap_or(after_proto)
+        .split('?')
+        .next()
+        .unwrap_or(after_proto);
+    host.eq_ignore_ascii_case("duckduckgo.com")
+        || host.eq_ignore_ascii_case("html.duckduckgo.com")
+        || host.eq_ignore_ascii_case("lite.duckduckgo.com")
+        || (host.len() > ".duckduckgo.com".len()
+            && host[host.len() - ".duckduckgo.com".len()..].eq_ignore_ascii_case(".duckduckgo.com"))
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
     fn resolver_url_prefixa_protocol_relative() {
         assert_eq!(
-            resolver_url("//exemplo.com/caminho"),
+            resolve_url("//exemplo.com/caminho"),
             Some("https://exemplo.com/caminho".to_string())
         );
     }
@@ -589,54 +666,54 @@ mod testes {
     #[test]
     fn resolver_url_desencapsula_redirect_uddg() {
         let href = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexemplo.com%2Fnoticia&rut=abc123";
-        let resolvida = resolver_url(href).expect("deve decodar uddg");
+        let resolvida = resolve_url(href).expect("should decode uddg");
         assert_eq!(resolvida, "https://exemplo.com/noticia");
     }
 
     #[test]
-    fn resolver_url_desencapsula_uddg_com_path_absoluto() {
+    fn resolve_url_unwraps_uddg_with_absolute_path() {
         let href = "/l/?uddg=https%3A%2F%2Fexemplo.com%2Farticle";
-        let resolvida = resolver_url(href).expect("deve decodar uddg");
+        let resolvida = resolve_url(href).expect("should decode uddg");
         assert_eq!(resolvida, "https://exemplo.com/article");
     }
 
     #[test]
-    fn resolver_url_filtra_duckduckgo_sem_uddg() {
-        assert_eq!(resolver_url("https://duckduckgo.com/settings"), None);
-        assert_eq!(resolver_url("//html.duckduckgo.com/html/?q=teste"), None);
+    fn resolve_url_filters_duckduckgo_without_uddg() {
+        assert_eq!(resolve_url("https://duckduckgo.com/settings"), None);
+        assert_eq!(resolve_url("//html.duckduckgo.com/html/?q=teste"), None);
     }
 
     #[test]
     fn resolver_url_mantem_absolutas_externas() {
         assert_eq!(
-            resolver_url("https://exemplo.com.br/noticia"),
+            resolve_url("https://exemplo.com.br/noticia"),
             Some("https://exemplo.com.br/noticia".to_string())
         );
     }
 
     #[test]
-    fn resolver_url_retorna_none_para_string_vazia() {
-        assert_eq!(resolver_url(""), None);
-        assert_eq!(resolver_url("   "), None);
+    fn resolve_url_returns_none_for_empty_string() {
+        assert_eq!(resolve_url(""), None);
+        assert_eq!(resolve_url("   "), None);
     }
 
     #[test]
-    fn normalizar_texto_colapsa_whitespace() {
+    fn normalize_text_colapsa_whitespace() {
         assert_eq!(
-            normalizar_texto("  olá   mundo\n\n\ttexto  ", 100),
+            normalize_text("  olá   mundo\n\n\ttexto  ", 100),
             "olá mundo texto"
         );
     }
 
     #[test]
-    fn normalizar_texto_trunca_respeitando_char_boundary() {
-        let longo = "á".repeat(300);
-        let truncado = normalizar_texto(&longo, 200);
-        assert_eq!(truncado.chars().count(), 200);
+    fn normalize_text_trunca_respeitando_char_boundary() {
+        let long_text = "á".repeat(300);
+        let truncated = normalize_text(&long_text, 200);
+        assert_eq!(truncated.chars().count(), 200);
     }
 
     #[test]
-    fn extrair_resultados_funciona_com_html_minimo() {
+    fn extract_results_works_with_minimal_html() {
         let html = r#"
             <html><body>
             <div id="links">
@@ -655,22 +732,22 @@ mod testes {
             </div>
             </body></html>
         "#;
-        let resultados = extrair_resultados(html);
-        assert_eq!(resultados.len(), 2, "deve filtrar o anúncio");
-        assert_eq!(resultados[0].posicao, 1);
-        assert_eq!(resultados[0].titulo, "Título Exemplo");
-        assert_eq!(resultados[0].url, "https://exemplo.com/pagina");
+        let results = extract_results(html);
+        assert_eq!(results.len(), 2, "deve filtrar o anúncio");
+        assert_eq!(results[0].position, 1);
+        assert_eq!(results[0].title, "Título Exemplo");
+        assert_eq!(results[0].url, "https://exemplo.com/pagina");
         assert_eq!(
-            resultados[0].snippet.as_deref(),
+            results[0].snippet.as_deref(),
             Some("Esta é uma descrição de exemplo.")
         );
-        assert_eq!(resultados[1].posicao, 2);
-        assert_eq!(resultados[1].titulo, "Rust");
-        assert_eq!(resultados[1].url, "https://wikipedia.org/wiki/Rust");
+        assert_eq!(results[1].position, 2);
+        assert_eq!(results[1].title, "Rust");
+        assert_eq!(results[1].url, "https://wikipedia.org/wiki/Rust");
     }
 
     #[test]
-    fn extrair_resultados_filtra_urls_y_js() {
+    fn extract_results_filters_js_urls() {
         let html = r#"
             <div id="links">
               <div class="result">
@@ -681,13 +758,13 @@ mod testes {
               </div>
             </div>
         "#;
-        let resultados = extrair_resultados(html);
-        assert_eq!(resultados.len(), 1);
-        assert_eq!(resultados[0].titulo, "Válido");
+        let results = extract_results(html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Válido");
     }
 
     #[test]
-    fn extrair_resultados_respeita_atributo_data_nrn_ad() {
+    fn extract_results_respects_data_nrn_ad_attribute() {
         let html = r#"
             <div id="links">
               <div class="result" data-nrn="ad">
@@ -698,20 +775,20 @@ mod testes {
               </div>
             </div>
         "#;
-        let resultados = extrair_resultados(html);
-        assert_eq!(resultados.len(), 1);
-        assert_eq!(resultados[0].url, "https://organico.com");
+        let results = extract_results(html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, "https://organico.com");
     }
 
     #[test]
-    fn extrair_resultados_vazio_retorna_vec_vazio() {
-        let html = "<html><body>Sem resultados</body></html>";
-        let resultados = extrair_resultados(html);
-        assert!(resultados.is_empty());
+    fn extract_results_empty_returns_empty_vec() {
+        let html = "<html><body>Sem results</body></html>";
+        let results = extract_results(html);
+        assert!(results.is_empty());
     }
 
     #[test]
-    fn estrategia_2_recupera_quando_classes_ausentes() {
+    fn strategy_2_recovers_when_classes_absent() {
         let html = r#"
             <html><body>
             <div id="links">
@@ -726,17 +803,17 @@ mod testes {
             </div>
             </body></html>
         "#;
-        let resultados = extrair_resultados_com_estrategias(html);
+        let results = extract_results_with_strategies(html);
         assert!(
-            resultados.len() >= 2,
-            "Estratégia 2 deve recuperar pelo menos 2 resultados"
+            results.len() >= 2,
+            "Estratégia 2 deve recuperar pelo menos 2 results"
         );
-        assert_eq!(resultados[0].titulo, "Título do Artigo de Exemplo");
-        assert_eq!(resultados[0].url, "https://exemplo.com/artigo");
+        assert_eq!(results[0].title, "Título do Artigo de Exemplo");
+        assert_eq!(results[0].url, "https://exemplo.com/artigo");
     }
 
     #[test]
-    fn estrategia_2_nao_executa_se_estrategia_1_funcionou() {
+    fn strategy_2_does_not_run_if_strategy_1_worked() {
         let html = r#"
             <html><body>
             <div id="links">
@@ -747,13 +824,13 @@ mod testes {
             </div>
             </body></html>
         "#;
-        let resultados = extrair_resultados_com_estrategias(html);
-        assert_eq!(resultados.len(), 1);
-        assert_eq!(resultados[0].titulo, "Válido via Estratégia 1");
+        let results = extract_results_with_strategies(html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Válido via Estratégia 1");
     }
 
     #[test]
-    fn extrair_resultados_lite_parseia_tabela_duckduckgo_lite() {
+    fn extract_results_lite_parses_duckduckgo_lite_table() {
         let html = r#"
             <html><body>
             <table>
@@ -776,24 +853,24 @@ mod testes {
             </table>
             </body></html>
         "#;
-        let resultados = extrair_resultados_lite(html);
-        assert_eq!(resultados.len(), 2);
-        assert_eq!(resultados[0].posicao, 1);
-        assert_eq!(resultados[0].titulo, "Primeiro Resultado Lite");
-        assert_eq!(resultados[0].url, "https://exemplo.com/pagina1");
-        assert!(resultados[0].snippet.is_some());
-        assert_eq!(resultados[1].titulo, "Segundo Resultado Lite");
+        let results = extract_results_lite(html);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].position, 1);
+        assert_eq!(results[0].title, "Primeiro Resultado Lite");
+        assert_eq!(results[0].url, "https://exemplo.com/pagina1");
+        assert!(results[0].snippet.is_some());
+        assert_eq!(results[1].title, "Segundo Resultado Lite");
     }
 
     #[test]
-    fn extrair_resultados_lite_vazio_retorna_vec_vazio() {
+    fn extract_results_lite_empty_returns_empty_vec() {
         let html = "<html><body><p>Nada aqui</p></body></html>";
-        let resultados = extrair_resultados_lite(html);
-        assert!(resultados.is_empty());
+        let results = extract_results_lite(html);
+        assert!(results.is_empty());
     }
 
     #[test]
-    fn extrair_resultados_com_cfg_customizada_usa_seletor_alternativo() {
+    fn extract_results_with_custom_cfg_uses_alternate_selector() {
         // HTML sem `.result` original, mas com `.custom-result` — extrator default falharia.
         let html = r#"
             <div id="custom-links">
@@ -808,27 +885,27 @@ mod testes {
             </div>
         "#;
 
-        // Default não encontra nada.
-        let padrao = extrair_resultados(html);
+        // Default finds nothing.
+        let padrao = extract_results(html);
         assert!(
             padrao.is_empty(),
             "default não deve casar com .custom-result"
         );
 
         // Config customizada deve funcionar.
-        let mut cfg = ConfiguracaoSeletores::default();
+        let mut cfg = SelectorConfig::default();
         cfg.html_endpoint.result_item = "#custom-links .custom-result".to_string();
         cfg.html_endpoint.title_and_url = ".custom-title".to_string();
         cfg.html_endpoint.snippet = ".custom-snippet".to_string();
 
-        let resultados = extrair_resultados_com_cfg(html, &cfg);
-        assert_eq!(resultados.len(), 2);
-        assert_eq!(resultados[0].titulo, "Título A");
-        assert_eq!(resultados[1].titulo, "Título B");
+        let results = extract_results_with_cfg(html, &cfg);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "Título A");
+        assert_eq!(results[1].title, "Título B");
     }
 
     #[test]
-    fn extrair_resultados_com_cfg_filtra_com_classes_customizadas() {
+    fn extract_results_with_cfg_filters_custom_classes() {
         let html = r#"
             <div id="links">
               <div class="result organic">
@@ -840,16 +917,16 @@ mod testes {
             </div>
         "#;
 
-        let mut cfg = ConfiguracaoSeletores::default();
+        let mut cfg = SelectorConfig::default();
         cfg.html_endpoint.ads_filter.ad_classes = vec![".my-custom-ad".to_string()];
 
-        let resultados = extrair_resultados_com_cfg(html, &cfg);
-        assert_eq!(resultados.len(), 1);
-        assert_eq!(resultados[0].url, "https://a.com");
+        let results = extract_results_with_cfg(html, &cfg);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, "https://a.com");
     }
 
     #[test]
-    fn extrair_resultados_lite_filtra_links_do_duckduckgo() {
+    fn extract_results_lite_filters_duckduckgo_links() {
         let html = r#"
             <table>
               <tr><td><a href="//duckduckgo.com/about" class="result-link">Sobre DDG</a></td></tr>
@@ -858,8 +935,8 @@ mod testes {
               <tr><td class="result-snippet">Descrição da documentação externa relevante.</td></tr>
             </table>
         "#;
-        let resultados = extrair_resultados_lite(html);
-        assert_eq!(resultados.len(), 1);
-        assert_eq!(resultados[0].url, "https://externo.com/doc");
+        let results = extract_results_lite(html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, "https://externo.com/doc");
     }
 }

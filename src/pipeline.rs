@@ -1,22 +1,24 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload classification: I/O-bound orchestrator (dispatches to parallel.rs and content_fetch.rs).
+// No direct parallelism in this module — delegates fan-out to parallel::execute_*.
+// Bounded mpsc channel provides backpressure between producer and consumer in streaming mode.
 //! Orchestration of the CLI execution flow.
 //!
 //! In iteration 2, decides between single-query and multi-query flow based on
 //! the number of effective queries (after combining positional + file + stdin,
 //! dedup and empty-string filtering).
 //!
-//! - Single-query (1 query): uses the legacy `executar_busca_unica` flow and emits `SaidaBusca`.
-//! - Multi-query (>=2 queries): delegates to `parallel::executar_buscas_paralelas`
-//!   and emits `SaidaBuscaMultipla`.
+//! - Single-query (1 query): uses the legacy `execute_single_search` flow and emits `SearchOutput`.
+//! - Multi-query (>=2 queries): delegates to `parallel::execute_parallel_searches`
+//!   and emits `MultiSearchOutput`.
 
-use crate::fetch_conteudo;
+use crate::content_fetch;
+use crate::error::CliError;
 use crate::http;
-use crate::http::ConfiguracaoProxy;
+use crate::http::ProxyConfig;
 use crate::parallel;
 use crate::search;
-use crate::types::{
-    ConfiguracaoSeletores, Configuracoes, MetadadosBusca, SaidaBusca, SaidaBuscaMultipla,
-};
-use anyhow::{Context, Result};
+use crate::types::{Config, MultiSearchOutput, SearchMetadata, SearchOutput, SelectorConfig};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -30,27 +32,29 @@ use tokio_util::sync::CancellationToken;
 /// the consumer; the final `output` step MUST NOT re-emit anything. Only the
 /// aggregated statistics are available for logging / exit-code decisions.
 #[derive(Debug, Clone)]
-pub enum ResultadoPipeline {
-    Unica(Box<SaidaBusca>),
-    Multipla(Box<SaidaBuscaMultipla>),
-    Stream(crate::parallel::EstatisticasStream),
+pub enum PipelineResult {
+    /// Single-query execution produced one output.
+    Single(Box<SearchOutput>),
+    /// Multi-query execution produced aggregated output.
+    Multi(Box<MultiSearchOutput>),
+    /// Streaming mode — output already emitted incrementally; only stats remain.
+    Stream(crate::parallel::StreamStats),
 }
 
-impl ResultadoPipeline {
+impl PipelineResult {
     /// Total results summed across all queries (used for exit-code decisions).
     ///
-    /// For `Stream` returns `sucessos` — a sufficient approximation for exit codes 0/5
-    /// (success vs zero-results). Fine-grained `quantidade_resultados` precision in
-    /// streaming mode would require duplicate aggregation by the consumer, which is not worth the cost.
-    pub fn total_resultados(&self) -> u32 {
+    /// For `Stream` returns `successes` — a sufficient approximation for exit codes 0/5
+    /// (success vs zero-results).
+    pub fn total_results(&self) -> u32 {
         match self {
-            ResultadoPipeline::Unica(s) => s.quantidade_resultados,
-            ResultadoPipeline::Multipla(m) => m
-                .buscas
+            PipelineResult::Single(s) => s.result_count,
+            PipelineResult::Multi(m) => m
+                .searches
                 .iter()
-                .map(|b| b.quantidade_resultados)
+                .map(|b| b.result_count)
                 .fold(0u32, |acc, v| acc.saturating_add(v)),
-            ResultadoPipeline::Stream(e) => e.sucessos,
+            PipelineResult::Stream(e) => e.successes,
         }
     }
 }
@@ -60,34 +64,45 @@ impl ResultadoPipeline {
 /// `cancelamento` is the token that signals SIGINT (ctrl+c). In single-query mode
 /// cancellation only affects the request via `reqwest` timeout; in multi-query mode it
 /// is propagated explicitly to each task.
-pub async fn executar_pipeline(
-    configuracoes: Configuracoes,
-    cancelamento: CancellationToken,
-) -> Result<ResultadoPipeline> {
-    match configuracoes.queries.len() {
-        0 => anyhow::bail!("nenhuma query para executar (lista vazia após filtragem)"),
+///
+/// # Errors
+///
+/// Returns an error if the query list is empty, if the HTTP client cannot be built,
+/// or if the underlying single-query or multi-query execution fails unrecoverably.
+///
+/// # Cancel safety
+///
+/// This function is cancel-safe. Dropping the future propagates the cancellation
+/// token to any in-flight sub-tasks, which will terminate gracefully.
+pub async fn execute_pipeline(
+    config: Config,
+    cancellation: CancellationToken,
+) -> Result<PipelineResult, CliError> {
+    match config.queries.len() {
+        0 => Err(CliError::InvalidConfig {
+            message: "no queries to execute (list empty after filtering)".into(),
+        }),
         1 => {
-            if configuracoes.modo_stream {
+            if config.stream_mode {
                 tracing::warn!(
-                    "--stream ignorado em modo single-query (apenas 1 query efetiva); \
-                     emitindo saída agregada padrão"
+                    "--stream ignored in single-query mode (only 1 effective query); \
+                     emitting default aggregated output"
                 );
             }
-            // Fluxo single-query preserva compatibilidade do MVP.
-            let mut cfg_single = configuracoes.clone();
+            // Clone intentional: overwrites query field for single-query compatibility.
+            // Cost: ~15 String clones, executed exactly once per CLI invocation.
+            let mut cfg_single = config.clone();
             cfg_single.query = cfg_single.queries[0].clone();
-            let saida = executar_busca_unica(&cfg_single, &cancelamento).await?;
-            Ok(ResultadoPipeline::Unica(Box::new(saida)))
+            let output = execute_single_search(&cfg_single, &cancellation).await?;
+            Ok(PipelineResult::Single(Box::new(output)))
         }
         _ => {
-            if configuracoes.modo_stream {
-                return executar_pipeline_streaming(configuracoes, cancelamento).await;
+            if config.stream_mode {
+                return execute_pipeline_streaming(config, cancellation).await;
             }
-            let queries = configuracoes.queries.clone();
-            let multi = parallel::executar_buscas_paralelas(queries, configuracoes, cancelamento)
-                .await
-                .context("falha na execução multi-query paralela")?;
-            Ok(ResultadoPipeline::Multipla(Box::new(multi)))
+            let queries = config.queries.clone();
+            let multi = parallel::execute_parallel_searches(queries, config, cancellation).await?;
+            Ok(PipelineResult::Multi(Box::new(multi)))
         }
     }
 }
@@ -95,202 +110,222 @@ pub async fn executar_pipeline(
 /// Pipeline in streaming mode — emits results as tasks complete.
 ///
 /// The spawned consumer drains the mpsc channel and emits NDJSON/text/markdown line by line.
-/// Returns `ResultadoPipeline::Stream` at the end, indicating there is nothing left to emit.
-async fn executar_pipeline_streaming(
-    configuracoes: Configuracoes,
-    cancelamento: CancellationToken,
-) -> Result<ResultadoPipeline> {
-    use crate::types::FormatoSaida;
+/// Returns `PipelineResult::Stream` at the end, indicating there is nothing left to emit.
+async fn execute_pipeline_streaming(
+    config: Config,
+    cancellation: CancellationToken,
+) -> Result<PipelineResult, CliError> {
+    use crate::types::OutputFormat;
     use tokio::sync::mpsc;
 
-    let formato = configuracoes.formato;
-    let arquivo_saida = configuracoes.arquivo_saida.clone();
-    let queries = configuracoes.queries.clone();
-    let paralelismo = configuracoes.paralelismo.max(1) as usize;
+    let format = config.format;
+    let output_file = config.output_file.clone();
+    let queries = config.queries.clone();
+    let paralelismo = config.parallelism.max(1) as usize;
 
-    // Buffer = paralelismo * 2, conforme spec. Min 2 para evitar starvation trivial.
-    let (tx, mut rx) = mpsc::channel::<(usize, SaidaBusca)>(paralelismo.saturating_mul(2).max(2));
+    // Buffer = parallelism * 2, per spec. Min 2 to avoid trivial starvation.
+    let (tx, mut rx) = mpsc::channel::<(usize, SearchOutput)>(paralelismo.saturating_mul(2).max(2));
 
-    // Spawn consumer: consome itens e emite conforme formato.
+    // Spawn consumer: drains items and emits per format.
     let consumer = tokio::spawn(async move {
         let mut emitidos: u64 = 0;
-        while let Some((indice, saida)) = rx.recv().await {
-            let formato_resolvido = match formato {
-                FormatoSaida::Auto | FormatoSaida::Json => FormatoSaida::Json,
+        while let Some((index, output)) = rx.recv().await {
+            let resolved_format = match format {
+                OutputFormat::Auto | OutputFormat::Json => OutputFormat::Json,
                 outro => outro,
             };
-            let res = match formato_resolvido {
-                FormatoSaida::Json | FormatoSaida::Auto => {
-                    crate::output::emitir_ndjson(&saida, arquivo_saida.as_deref())
+            let res = match resolved_format {
+                OutputFormat::Json | OutputFormat::Auto => {
+                    crate::output::emit_ndjson(&output, output_file.as_deref())
                 }
-                FormatoSaida::Text => {
-                    crate::output::emitir_stream_text(indice, &saida, arquivo_saida.as_deref())
+                OutputFormat::Text => {
+                    crate::output::emit_stream_text(index, &output, output_file.as_deref())
                 }
-                FormatoSaida::Markdown => {
-                    crate::output::emitir_stream_markdown(indice, &saida, arquivo_saida.as_deref())
+                OutputFormat::Markdown => {
+                    crate::output::emit_stream_markdown(index, &output, output_file.as_deref())
                 }
             };
             if let Err(erro) = res {
-                if crate::output::eh_broken_pipe(&erro) {
-                    tracing::debug!("BrokenPipe em streaming — encerrando consumer");
+                if crate::output::is_broken_pipe(&erro) {
+                    tracing::debug!("BrokenPipe in streaming — stopping consumer");
                     return Ok(());
                 }
-                tracing::error!(
-                    ?erro,
-                    "falha ao emitir item de streaming — abortando consumer"
-                );
+                tracing::error!(?erro, "failed to emit streaming item — aborting consumer");
                 return Err(erro);
             }
             emitidos = emitidos.saturating_add(1);
         }
-        tracing::info!(emitidos, "consumer de streaming finalizado");
-        Ok::<(), anyhow::Error>(())
+        tracing::info!(emitidos, "streaming consumer finished");
+        Ok::<(), CliError>(())
     });
 
     let stats =
-        parallel::executar_buscas_paralelas_streaming(queries, configuracoes, cancelamento, tx)
-            .await
-            .context("falha na execução multi-query streaming")?;
+        parallel::execute_parallel_searches_streaming(queries, config, cancellation, tx).await?;
 
-    // Aguardar consumer drenar canal.
     match consumer.await {
         Ok(Ok(())) => {}
-        Ok(Err(erro)) => return Err(erro.context("consumer de streaming falhou")),
+        Ok(Err(erro)) => return Err(erro),
         Err(erro_join) => {
-            tracing::error!(?erro_join, "consumer panicou");
-            anyhow::bail!("consumer de streaming panicou: {erro_join}");
+            if erro_join.is_panic() {
+                tracing::error!(?erro_join, "streaming consumer panicked");
+            } else {
+                tracing::warn!(?erro_join, "streaming consumer cancelled");
+            }
+            return Err(CliError::NetworkError {
+                message: format!("streaming consumer panicked: {erro_join}"),
+            });
         }
     }
 
-    Ok(ResultadoPipeline::Stream(stats))
+    Ok(PipelineResult::Stream(stats))
 }
 
 /// Executes the full flow for a single-query search with pagination, retry and Lite fallback.
-pub async fn executar_busca_unica(
-    cfg: &Configuracoes,
-    cancelamento: &CancellationToken,
-) -> Result<SaidaBusca> {
-    let inicio = Instant::now();
+///
+/// # Errors
+///
+/// Returns an error if the HTTP client cannot be built. Search failures (rate limit,
+/// timeout, block) are captured in the returned [`SearchOutput`] error fields rather
+/// than propagated as `Err`.
+///
+/// # Cancel safety
+///
+/// This function is cancel-safe. Dropping the future aborts the in-flight HTTP
+/// request; any partial pagination state is discarded without side effects.
+pub async fn execute_single_search(
+    cfg: &Config,
+    cancellation: &CancellationToken,
+) -> Result<SearchOutput, CliError> {
+    let start = Instant::now();
 
-    let config_proxy = ConfiguracaoProxy::a_partir_de(cfg.proxy.as_deref(), cfg.sem_proxy);
-    let cliente = http::construir_cliente_com_proxy(
-        &cfg.perfil_browser,
-        cfg.timeout_segundos,
-        &cfg.idioma,
-        &cfg.pais,
+    let config_proxy = ProxyConfig::from_options(cfg.proxy.as_deref(), cfg.no_proxy);
+    let client = http::build_client_with_proxy(
+        &cfg.browser_profile,
+        cfg.timeout_seconds,
+        &cfg.language,
+        &cfg.country,
         &config_proxy,
-    )
-    .context("falha ao construir cliente HTTP")?;
+    )?;
 
-    tracing::info!(query = %cfg.query, endpoint = cfg.endpoint.como_str(), "Executando busca");
+    tracing::info!(query = %cfg.query, endpoint = cfg.endpoint.as_str(), "Executing search");
 
     let flag_rate_limit = Arc::new(AtomicBool::new(false));
 
-    let agregado = match search::buscar_com_paginacao(
-        &cliente,
+    let agregado = match search::search_with_pagination(
+        &client,
         cfg,
         &cfg.query,
         &flag_rate_limit,
-        cancelamento,
+        cancellation,
     )
     .await
     {
         Ok(a) => a,
-        Err(motivo) => {
-            return Ok(saida_de_falha(cfg, &motivo, inicio));
+        Err(reason) => {
+            return Ok(failure_output(cfg, &reason, start));
         }
     };
 
-    let quantidade = u32::try_from(agregado.resultados.len()).unwrap_or(u32::MAX);
-    let hash_seletores = calcular_hash_seletores(&cfg.seletores);
-    let tempo_ms = inicio.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    let quantidade = u32::try_from(agregado.results.len()).unwrap_or(u32::MAX);
+    let selectors_hash = calculate_selectors_hash(&cfg.selectors);
+    let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let timestamp = chrono::Utc::now().to_rfc3339();
-    // Retries = tentativas - 1 (o primeiro request não conta como retry).
-    let retentativas = agregado.tentativas.saturating_sub(1);
+    // Retries = attempts - 1 (the first request does not count as a retry).
+    let retries_count = agregado.attempts.saturating_sub(1);
 
-    let metadados = MetadadosBusca {
-        tempo_execucao_ms: tempo_ms,
-        hash_seletores,
-        retentativas,
-        usou_endpoint_fallback: agregado.usou_fallback_lite,
-        fetches_simultaneos: 0,
-        sucessos_fetch: 0,
-        falhas_fetch: 0,
-        usou_chrome: false,
+    let metadata_val = SearchMetadata {
+        execution_time_ms: elapsed_ms,
+        selectors_hash,
+        retries: retries_count,
+        used_fallback_endpoint: agregado.used_fallback_lite,
+        concurrent_fetches: 0,
+        fetch_successes: 0,
+        fetch_failures: 0,
+        used_chrome: false,
         user_agent: cfg.user_agent.clone(),
-        usou_proxy: config_proxy.esta_ativo(),
+        used_proxy: config_proxy.is_active(),
+        identity_used: None,
+        cascade_level: None,
     };
 
-    let mut saida = SaidaBusca {
+    let mut output = SearchOutput {
         query: cfg.query.clone(),
-        motor: "duckduckgo".to_string(),
-        endpoint: agregado.endpoint_efetivo.como_str().to_string(),
+        engine: "duckduckgo".to_string(),
+        endpoint: agregado.effective_endpoint.as_str().to_string(),
         timestamp,
-        regiao: search::formatar_kl(&cfg.idioma, &cfg.pais),
-        quantidade_resultados: quantidade,
-        resultados: agregado.resultados,
-        paginas_buscadas: agregado.paginas_buscadas,
-        erro: None,
-        mensagem: None,
-        metadados,
+        region: search::format_kl(&cfg.language, &cfg.country),
+        result_count: quantidade,
+        results: agregado.results,
+        pages_fetched: agregado.pages_fetched,
+        error: None,
+        message: None,
+        metadata: metadata_val,
     };
 
     // Enriquecimento opcional via --fetch-content (iter. 5).
-    fetch_conteudo::enriquecer_com_conteudo(&mut saida, &cliente, cfg, cancelamento).await;
+    content_fetch::enrich_with_content(&mut output, &client, cfg, cancellation).await;
 
     tracing::info!(
-        total = saida.quantidade_resultados,
-        paginas = saida.paginas_buscadas,
-        fallback = saida.metadados.usou_endpoint_fallback,
-        fetch_content = cfg.buscar_conteudo,
-        sucessos_fetch = saida.metadados.sucessos_fetch,
-        "Busca concluída com sucesso"
+        total = output.result_count,
+        pages = output.pages_fetched,
+        fallback = output.metadata.used_fallback_endpoint,
+        fetch_content = cfg.fetch_content,
+        fetch_successes = output.metadata.fetch_successes,
+        "Search completed successfully"
     );
-    Ok(saida)
+    Ok(output)
 }
 
-/// Generates a `SaidaBusca` from a retry failure, preserving the structured error code
+/// Generates a `SearchOutput` from a retry failure, preserving the structured error code
 /// and partial metrics.
-fn saida_de_falha(
-    cfg: &Configuracoes,
-    motivo: &search::MotivoFalhaRetry,
-    inicio: Instant,
-) -> SaidaBusca {
-    let tempo_ms = inicio.elapsed().as_millis().min(u64::MAX as u128) as u64;
+#[cold]
+fn failure_output(cfg: &Config, reason: &search::RetryFailReason, start: Instant) -> SearchOutput {
+    let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let timestamp = chrono::Utc::now().to_rfc3339();
-    let hash_seletores = calcular_hash_seletores(&cfg.seletores);
-    let usou_proxy =
-        ConfiguracaoProxy::a_partir_de(cfg.proxy.as_deref(), cfg.sem_proxy).esta_ativo();
+    let selectors_hash = calculate_selectors_hash(&cfg.selectors);
+    let used_proxy = ProxyConfig::from_options(cfg.proxy.as_deref(), cfg.no_proxy).is_active();
 
-    SaidaBusca {
+    SearchOutput {
         query: cfg.query.clone(),
-        motor: "duckduckgo".to_string(),
-        endpoint: cfg.endpoint.como_str().to_string(),
+        engine: "duckduckgo".to_string(),
+        endpoint: cfg.endpoint.as_str().to_string(),
         timestamp,
-        regiao: search::formatar_kl(&cfg.idioma, &cfg.pais),
-        quantidade_resultados: 0,
-        resultados: Vec::new(),
-        paginas_buscadas: 0,
-        erro: Some(motivo.como_codigo_erro().to_string()),
-        mensagem: Some(motivo.mensagem()),
-        metadados: MetadadosBusca {
-            tempo_execucao_ms: tempo_ms,
-            hash_seletores,
-            retentativas: cfg.retries,
-            usou_endpoint_fallback: false,
-            fetches_simultaneos: 0,
-            sucessos_fetch: 0,
-            falhas_fetch: 0,
-            usou_chrome: false,
+        region: search::format_kl(&cfg.language, &cfg.country),
+        result_count: 0,
+        results: Vec::new(),
+        pages_fetched: 0,
+        error: Some(reason.as_error_code().to_string()),
+        message: Some(reason.message()),
+        metadata: SearchMetadata {
+            execution_time_ms: elapsed_ms,
+            selectors_hash,
+            retries: cfg.retries,
+            used_fallback_endpoint: false,
+            concurrent_fetches: 0,
+            fetch_successes: 0,
+            fetch_failures: 0,
+            used_chrome: false,
             user_agent: cfg.user_agent.clone(),
-            usou_proxy,
+            used_proxy,
+            identity_used: None,
+            cascade_level: None,
         },
     }
 }
 
-/// Backwards-compatible alias — preserves the `executar` name used in the original `lib.rs`.
-pub async fn executar(cfg: &Configuracoes) -> Result<SaidaBusca> {
-    executar_busca_unica(cfg, &CancellationToken::new()).await
+/// Backwards-compatible alias — preserves the `execute` name used in the original `lib.rs`.
+///
+/// # Errors
+///
+/// Returns an error if the HTTP client cannot be built or if `execute_single_search`
+/// fails unrecoverably (see that function's documentation for details).
+///
+/// # Cancel safety
+///
+/// This function is cancel-safe. It delegates directly to [`execute_single_search`]
+/// with a fresh, never-cancelled [`CancellationToken`]; dropping the future is safe.
+pub async fn execute(cfg: &Config) -> Result<SearchOutput, CliError> {
+    execute_single_search(cfg, &CancellationToken::new()).await
 }
 
 /// Combines queries from three sources (positional, file, stdin), deduplicates
@@ -301,112 +336,133 @@ pub async fn executar(cfg: &Configuracoes) -> Result<SaidaBusca> {
 /// # Example
 ///
 /// ```
-/// use duckduckgo_search_cli::pipeline::combinar_e_deduplicar_queries;
+/// use duckduckgo_search_cli::pipeline::combine_and_dedup_queries;
 ///
-/// let resultado = combinar_e_deduplicar_queries(
+/// let result_vec = combine_and_dedup_queries(
 ///     vec!["rust".into(), "  ".into(), "tokio".into()],
 ///     vec!["rust".into(), "serde".into()],
 ///     vec!["".into(), "serde".into(), "axum".into()],
 /// );
 ///
 /// // Dedup preserves order of first occurrence; empty strings (after trim) are removed.
-/// assert_eq!(resultado, vec!["rust", "tokio", "serde", "axum"]);
+/// assert_eq!(result_vec, vec!["rust", "tokio", "serde", "axum"]);
 /// ```
-pub fn combinar_e_deduplicar_queries(
+pub fn combine_and_dedup_queries(
     posicionais: Vec<String>,
     de_arquivo: Vec<String>,
     de_stdin: Vec<String>,
 ) -> Vec<String> {
-    let mut vistos: HashSet<String> = HashSet::new();
-    let mut resultado: Vec<String> = Vec::new();
+    let capacity = posicionais.len() + de_arquivo.len() + de_stdin.len();
+    let mut vistos: HashSet<String> = HashSet::with_capacity(capacity);
+    let mut result_vec: Vec<String> = Vec::with_capacity(capacity);
 
     let todas = posicionais.into_iter().chain(de_arquivo).chain(de_stdin);
 
-    for bruta in todas {
-        let limpa = bruta.trim().to_string();
-        if limpa.is_empty() {
+    for raw in todas {
+        let clean = raw.trim().to_string();
+        if clean.is_empty() {
             continue;
         }
-        if vistos.insert(limpa.clone()) {
-            resultado.push(limpa);
+        if vistos.insert(clean.clone()) {
+            result_vec.push(clean);
         }
     }
 
-    resultado
+    result_vec
 }
 
 /// Reads a queries file — one query per line, ignoring empty lines after trim.
 ///
 /// Correctly handles both `\n` and `\r\n` (Windows) via `BufRead::lines`.
-pub fn ler_queries_de_arquivo(caminho: &Path) -> Result<Vec<String>> {
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be opened or if any line cannot be read
+/// (e.g. invalid UTF-8 or an I/O error).
+// std::fs is intentional: query files are small config files (<1 KB typical)
+// read synchronously BEFORE fan-out begins. No async tasks are blocked.
+// Migrating to tokio::fs would add complexity without measurable benefit.
+pub fn read_queries_from_file(path: &Path) -> Result<Vec<String>, CliError> {
     use std::io::BufRead;
-    let arquivo = std::fs::File::open(caminho)
-        .with_context(|| format!("falha ao abrir arquivo de queries {}", caminho.display()))?;
-    let leitor = std::io::BufReader::new(arquivo);
-    let mut linhas: Vec<String> = Vec::new();
-    for (indice, linha) in leitor.lines().enumerate() {
-        let linha = linha.with_context(|| {
-            format!("falha ao ler linha {} de {}", indice + 1, caminho.display())
+    let file = std::fs::File::open(path).map_err(|e| CliError::PathError {
+        message: format!("failed to open query file {}: {e}", path.display()),
+    })?;
+    let reader = std::io::BufReader::new(file);
+    let mut lines_vec: Vec<String> = Vec::with_capacity(20);
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.map_err(|e| CliError::PathError {
+            message: format!(
+                "failed to read line {} of {}: {e}",
+                index + 1,
+                path.display()
+            ),
         })?;
-        let tratada = linha.trim().to_string();
-        if !tratada.is_empty() {
-            linhas.push(tratada);
+        let trimmed = line.trim().to_string();
+        if !trimmed.is_empty() {
+            lines_vec.push(trimmed);
         }
     }
-    Ok(linhas)
+    Ok(lines_vec)
 }
 
 /// Reads queries from stdin — one per line — ONLY if stdin is not a TTY.
 /// Returns an empty `Vec` when stdin is a TTY (i.e. the user did not pipe/redirect input).
-pub fn ler_queries_de_stdin_se_pipe() -> Result<Vec<String>> {
+///
+/// # Errors
+///
+/// Returns an error if any line from stdin cannot be read (e.g. invalid UTF-8
+/// or an I/O error while consuming the piped input).
+pub fn read_queries_from_stdin_if_pipe() -> Result<Vec<String>, CliError> {
     use std::io::{BufRead, IsTerminal};
     if std::io::stdin().is_terminal() {
         return Ok(Vec::new());
     }
-    let leitor = std::io::stdin().lock();
-    let mut linhas: Vec<String> = Vec::new();
-    for (indice, linha) in leitor.lines().enumerate() {
-        let linha = linha.with_context(|| format!("falha ao ler linha {} de stdin", indice + 1))?;
-        let tratada = linha.trim().to_string();
-        if !tratada.is_empty() {
-            linhas.push(tratada);
+    let reader = std::io::stdin().lock();
+    let mut lines_vec: Vec<String> = Vec::with_capacity(20);
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.map_err(|e| CliError::PathError {
+            message: format!("failed to read line {} from stdin: {e}", index + 1),
+        })?;
+        let trimmed = line.trim().to_string();
+        if !trimmed.is_empty() {
+            lines_vec.push(trimmed);
         }
     }
-    Ok(linhas)
+    Ok(lines_vec)
 }
 
 /// Computes a blake3 hash (hex, first 16 chars) of the serialised selector configuration.
 /// Useful for versioning changes to the `selectors.toml` file in future iterations.
-fn calcular_hash_seletores(cfg: &ConfiguracaoSeletores) -> String {
+pub(crate) fn calculate_selectors_hash(cfg: &SelectorConfig) -> String {
     match toml::to_string(cfg) {
-        Ok(serializado) => {
-            let hash = blake3::hash(serializado.as_bytes());
+        Ok(serialized) => {
+            let hash = blake3::hash(serialized.as_bytes());
             hash.to_hex().chars().take(16).collect()
         }
-        Err(erro) => {
-            tracing::warn!(?erro, "falha ao serializar config de seletores para hash");
+        Err(err) => {
+            tracing::warn!(?err, "failed to serialize selector config for hash");
             "unknown".to_string()
         }
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn calcular_hash_seletores_retorna_16_chars() {
-        let cfg = ConfiguracaoSeletores::default();
-        let hash = calcular_hash_seletores(&cfg);
+    fn calculate_selectors_hash_returns_16_chars() {
+        let cfg = SelectorConfig::default();
+        let hash = calculate_selectors_hash(&cfg);
         assert_eq!(hash.len(), 16);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
-    fn calcular_hash_seletores_eh_deterministico() {
-        let cfg = ConfiguracaoSeletores::default();
-        let h1 = calcular_hash_seletores(&cfg);
-        let h2 = calcular_hash_seletores(&cfg);
+    fn calculate_selectors_hash_is_deterministic() {
+        let cfg = SelectorConfig::default();
+        let h1 = calculate_selectors_hash(&cfg);
+        let h2 = calculate_selectors_hash(&cfg);
         assert_eq!(h1, h2);
     }
 
@@ -415,7 +471,7 @@ mod testes {
         let posicionais = vec!["alfa".to_string(), "beta".to_string()];
         let de_arquivo = vec!["beta".to_string(), "gama".to_string()];
         let de_stdin = vec!["alfa".to_string(), "delta".to_string()];
-        let combinado = combinar_e_deduplicar_queries(posicionais, de_arquivo, de_stdin);
+        let combinado = combine_and_dedup_queries(posicionais, de_arquivo, de_stdin);
         assert_eq!(
             combinado,
             vec!["alfa", "beta", "gama", "delta"],
@@ -428,16 +484,16 @@ mod testes {
         let posicionais = vec!["   ".to_string(), "rust".to_string(), "".to_string()];
         let de_arquivo = vec!["\t\t".to_string(), "tokio".to_string()];
         let de_stdin = vec![];
-        let combinado = combinar_e_deduplicar_queries(posicionais, de_arquivo, de_stdin);
+        let combinado = combine_and_dedup_queries(posicionais, de_arquivo, de_stdin);
         assert_eq!(combinado, vec!["rust", "tokio"]);
     }
 
     #[test]
-    fn combinar_trimma_whitespace_antes_de_comparar() {
+    fn combine_trims_whitespace_before_comparing() {
         let posicionais = vec!["  alfa  ".to_string()];
         let de_arquivo = vec!["alfa".to_string()];
         let de_stdin = vec!["alfa\t".to_string()];
-        let combinado = combinar_e_deduplicar_queries(posicionais, de_arquivo, de_stdin);
+        let combinado = combine_and_dedup_queries(posicionais, de_arquivo, de_stdin);
         assert_eq!(
             combinado,
             vec!["alfa"],
@@ -446,95 +502,93 @@ mod testes {
     }
 
     #[test]
-    fn combinar_vazio_retorna_vazio() {
-        let combinado = combinar_e_deduplicar_queries(vec![], vec![], vec![]);
+    fn combine_empty_returns_empty() {
+        let combinado = combine_and_dedup_queries(vec![], vec![], vec![]);
         assert!(combinado.is_empty());
     }
 
     #[test]
-    fn ler_queries_de_arquivo_aceita_linhas_windows_e_vazias() {
+    fn read_queries_from_file_accepts_windows_lines_and_empty() {
         use std::io::Write;
         let dir = std::env::temp_dir().join("ddg_cli_iter2_queries_test");
         std::fs::create_dir_all(&dir).unwrap();
-        let caminho = dir.join("queries.txt");
-        let conteudo = "rust\r\ntokio\r\n\r\n  axum  \n\nhttp://exemplo.com\n";
-        let mut arquivo = std::fs::File::create(&caminho).unwrap();
-        arquivo.write_all(conteudo.as_bytes()).unwrap();
-        drop(arquivo);
+        let path = dir.join("queries.txt");
+        let content = "rust\r\ntokio\r\n\r\n  axum  \n\nhttp://exemplo.com\n";
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        drop(file);
 
-        let linhas = ler_queries_de_arquivo(&caminho).expect("deve ler arquivo");
-        assert_eq!(linhas, vec!["rust", "tokio", "axum", "http://exemplo.com"]);
+        let lines = read_queries_from_file(&path).expect("should read file");
+        assert_eq!(lines, vec!["rust", "tokio", "axum", "http://exemplo.com"]);
         // Cleanup best-effort.
-        let _ = std::fs::remove_file(&caminho);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
-    fn total_resultados_em_saida_unica() {
-        let saida = SaidaBusca {
+    fn total_results_in_single_output() {
+        let output = SearchOutput {
             query: "q".into(),
-            motor: "duckduckgo".into(),
+            engine: "duckduckgo".into(),
             endpoint: "html".into(),
             timestamp: "t".into(),
-            regiao: "br-pt".into(),
-            quantidade_resultados: 7,
-            resultados: vec![],
-            paginas_buscadas: 1,
-            erro: None,
-            mensagem: None,
-            metadados: MetadadosBusca {
-                tempo_execucao_ms: 0,
-                hash_seletores: "x".into(),
-                retentativas: 0,
-                usou_endpoint_fallback: false,
-                fetches_simultaneos: 0,
-                sucessos_fetch: 0,
-                falhas_fetch: 0,
-                usou_chrome: false,
+            region: "br-pt".into(),
+            result_count: 7,
+            results: vec![],
+            pages_fetched: 1,
+            error: None,
+            message: None,
+            metadata: SearchMetadata {
+                execution_time_ms: 0,
+                selectors_hash: "x".into(),
+                retries: 0,
+                used_fallback_endpoint: false,
+                concurrent_fetches: 0,
+                fetch_successes: 0,
+                fetch_failures: 0,
+                used_chrome: false,
                 user_agent: "ua".into(),
-                usou_proxy: false,
+                used_proxy: false,
+                identity_used: None,
+                cascade_level: None,
             },
         };
-        assert_eq!(
-            ResultadoPipeline::Unica(Box::new(saida)).total_resultados(),
-            7
-        );
+        assert_eq!(PipelineResult::Single(Box::new(output)).total_results(), 7);
     }
 
     #[test]
-    fn total_resultados_em_saida_multipla_soma_todas() {
-        let nova_saida = |n: u32| SaidaBusca {
+    fn total_results_in_multi_output_sums_all() {
+        let nova_saida = |n: u32| SearchOutput {
             query: "q".into(),
-            motor: "duckduckgo".into(),
+            engine: "duckduckgo".into(),
             endpoint: "html".into(),
             timestamp: "t".into(),
-            regiao: "br-pt".into(),
-            quantidade_resultados: n,
-            resultados: vec![],
-            paginas_buscadas: 1,
-            erro: None,
-            mensagem: None,
-            metadados: MetadadosBusca {
-                tempo_execucao_ms: 0,
-                hash_seletores: "x".into(),
-                retentativas: 0,
-                usou_endpoint_fallback: false,
-                fetches_simultaneos: 0,
-                sucessos_fetch: 0,
-                falhas_fetch: 0,
-                usou_chrome: false,
+            region: "br-pt".into(),
+            result_count: n,
+            results: vec![],
+            pages_fetched: 1,
+            error: None,
+            message: None,
+            metadata: SearchMetadata {
+                execution_time_ms: 0,
+                selectors_hash: "x".into(),
+                retries: 0,
+                used_fallback_endpoint: false,
+                concurrent_fetches: 0,
+                fetch_successes: 0,
+                fetch_failures: 0,
+                used_chrome: false,
                 user_agent: "ua".into(),
-                usou_proxy: false,
+                used_proxy: false,
+                identity_used: None,
+                cascade_level: None,
             },
         };
-        let multi = SaidaBuscaMultipla {
-            quantidade_queries: 3,
+        let multi = MultiSearchOutput {
+            query_count: 3,
             timestamp: "t".into(),
-            paralelismo: 3,
-            buscas: vec![nova_saida(2), nova_saida(5), nova_saida(0)],
+            parallelism: 3,
+            searches: vec![nova_saida(2), nova_saida(5), nova_saida(0)],
         };
-        assert_eq!(
-            ResultadoPipeline::Multipla(Box::new(multi)).total_resultados(),
-            7
-        );
+        assert_eq!(PipelineResult::Multi(Box::new(multi)).total_results(), 7);
     }
 }

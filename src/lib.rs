@@ -1,6 +1,22 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: orchestrator (config assembly, delegation to pipeline)
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.6.4")]
+#![doc(html_playground_url = "https://play.rust-lang.org")]
+#![warn(missing_docs)]
+#![warn(missing_debug_implementations)]
+#![warn(rustdoc::broken_intra_doc_links)]
+#![warn(rustdoc::private_intra_doc_links)]
+#![warn(rustdoc::missing_crate_level_docs)]
+#![warn(rustdoc::invalid_codeblock_attributes)]
+#![warn(rustdoc::invalid_html_tags)]
+#![warn(rustdoc::bare_urls)]
+#![warn(rustdoc::redundant_explicit_links)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::multiple_unsafe_ops_per_block)]
+#![warn(unsafe_op_in_unsafe_fn)]
 //! # duckduckgo-search-cli
 //!
-//! Rust CLI for searching DuckDuckGo via pure HTTP, with structured JSON output
+//! Rust CLI for searching `DuckDuckGo` via pure HTTP, with structured JSON output
 //! for LLM consumption. No paid API. No Chrome (during the search phase).
 //! No cache. Universal cross-platform (Linux including Alpine/NixOS/Flatpak/Snap,
 //! macOS including Apple Silicon, Windows including cmd.exe and PowerShell).
@@ -11,17 +27,17 @@
 //! |---------------|--------------------------------------------------------------|
 //! | [`cli`]       | Clap structs (command-line argument parsing).                |
 //! | [`http`]      | `reqwest::Client` construction and User-Agent selection.     |
-//! | [`search`]    | URL building and HTTP request to the DuckDuckGo endpoint.    |
+//! | [`search`]    | URL building and HTTP request to the `DuckDuckGo` endpoint.    |
 //! | [`extraction`]| HTML parsing with `scraper` and ad filtering.                |
 //! | [`pipeline`]  | Single/multi orchestration, deduplication and source reading.|
-//! | [`parallel`]  | Multi-query fan-out with JoinSet, Semaphore, CancellationToken.|
+//! | [`parallel`]  | Multi-query fan-out with `JoinSet`, Semaphore, `CancellationToken`.|
 //! | [`output`]    | JSON serialization and stdout writing (ONLY module with `println!`).|
 //! | [`platform`]  | Cross-platform initialization (UTF-8 on Windows, TTY detect).|
 //! | [`types`]     | Shared structs and enums.                                    |
 //! | [`error`]     | Error codes and exit codes.                                  |
 //! | [`content`]   | HTTP + readability extraction for `--fetch-content` (iter. 5).|
-//! | [`fetch_conteudo`] | Parallel fan-out + per-host rate-limit (iter. 5 / 6).  |
-//! | [`selectors`] | Loading of external `ConfiguracaoSeletores` (iter. 6).      |
+//! | [`content_fetch`] | Parallel fan-out + per-host rate-limit (iter. 5 / 6).   |
+//! | [`selectors`] | Loading of external `SelectorConfig` (iter. 6).      |
 //! | [`signals`]   | Cross-platform signal handlers (SIGPIPE, Ctrl+C).            |
 //! | [`config_init`] | `init-config` subcommand (iter. 6).                       |
 //! | [`paths`]     | Path validation and sanitization for I/O.                    |
@@ -35,10 +51,11 @@
 pub mod cli;
 pub mod config_init;
 pub mod content;
+pub mod content_fetch;
 pub mod error;
 pub mod extraction;
-pub mod fetch_conteudo;
 pub mod http;
+pub mod identity;
 pub mod output;
 pub mod parallel;
 pub mod paths;
@@ -49,17 +66,18 @@ pub mod selectors;
 pub mod signals;
 pub mod types;
 
-// browser.rs só compila com a feature `chrome` (zero overhead no MVP).
+// browser.rs only compiles with the `chrome` feature (zero overhead in the MVP).
+#[cfg_attr(docsrs, doc(cfg(feature = "chrome")))]
 #[cfg(feature = "chrome")]
 pub mod browser;
 
 use crate::cli::{
-    ArgumentosCli, ArgumentosInitConfig, ArgumentosRaiz, EndpointCli, FiltroTemporalCli,
-    SafeSearchCli, Subcomando,
+    CliArgs, CliEndpoint, CliSafeSearch, CliTimeFilter, CompletionsArgs, InitConfigArgs, RootArgs,
+    Subcommand,
 };
 use crate::error::exit_codes;
-use crate::types::{Configuracoes, Endpoint, FiltroTemporal, FormatoSaida, SafeSearch};
-use anyhow::{Context, Result};
+use crate::error::CliError;
+use crate::types::{Config, Endpoint, OutputFormat, SafeSearch, TimeFilter};
 use clap::Parser;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -67,90 +85,104 @@ use tracing_subscriber::{fmt, EnvFilter};
 /// Library entry point. Called by `main.rs`.
 ///
 /// Returns the appropriate exit code (0 success, 1 generic error, 2 invalid config, etc.).
-pub async fn run(cancelamento: CancellationToken) -> i32 {
-    // Parse da linha de comando — clap termina o processo com código 2 em caso de erro.
-    let raiz = ArgumentosRaiz::parse();
+///
+/// # Cancel safety
+///
+/// This function is cancel-safe. Dropping the future cancels all
+/// in-flight HTTP requests via the [`CancellationToken`].
+pub async fn run(cancellation: CancellationToken) -> i32 {
+    // Parse command-line arguments — clap terminates the process with exit code 2 on error.
+    let root = RootArgs::parse();
 
-    // Despacha subcomando (ou cai no default = Buscar).
-    let argumentos = match raiz.subcomando {
-        Some(Subcomando::InitConfig(args)) => {
-            return executar_init_config(args);
+    // Dispatch subcommand (or fall through to default = Buscar).
+    let args = match root.subcomando {
+        Some(Subcommand::InitConfig(args)) => {
+            return execute_init_config(args);
         }
-        Some(Subcomando::Buscar(args)) => *args,
-        None => raiz.buscar,
+        Some(Subcommand::Completions(args)) => {
+            return execute_completions(args);
+        }
+        Some(Subcommand::Buscar(args)) => *args,
+        None => root.buscar,
     };
 
-    // Inicializa logging em stderr (antes de qualquer operação que possa emitir logs).
-    inicializar_logging(argumentos.verboso, argumentos.silencioso);
+    // Initialize logging to stderr (before any operation that might emit logs).
+    let disable_colors = platform::should_disable_color(args.no_color);
+    initialize_logging(args.verbose, args.quiet, disable_colors);
 
-    // Inicializa plataforma (UTF-8 no Windows, etc.).
-    platform::iniciar();
+    // Initialize platform (UTF-8 on Windows, etc.).
+    platform::init();
 
-    // Converte ArgumentosCli em Configuracoes internas.
-    let configuracoes = match montar_configuracoes(&argumentos) {
+    // v0.6.4 WS-26: Intercept --probe BEFORE query validation. The probe
+    // is a pre-flight health check that does NOT require a query — it sends
+    // 1 minimal request to the configured endpoint and reports status as JSON.
+    if args.probe {
+        return execute_probe(&args).await;
+    }
+
+    // Convert CliArgs into internal Config.
+    let config = match build_config(&args) {
         Ok(c) => c,
-        Err(erro) => {
-            tracing::error!(?erro, "Configuração inválida");
-            eprintln!("Erro de configuração: {erro:#}");
-            return exit_codes::CONFIGURACAO_INVALIDA;
+        Err(err) => {
+            tracing::error!(?err, "Invalid configuration");
+            output::emit_stderr(&format!("Configuration error: {err:#}"));
+            return exit_codes::INVALID_CONFIG;
         }
     };
 
-    let formato = configuracoes.formato;
-    let arquivo_saida = configuracoes.arquivo_saida.clone();
-    let timeout_global = std::time::Duration::from_secs(configuracoes.timeout_global_segundos);
+    let format = config.format;
+    let output_file = config.output_file.clone();
+    let global_timeout = std::time::Duration::from_secs(config.global_timeout_seconds);
 
-    // Envolve o pipeline em `tokio::time::timeout` — se expirar, cancela tudo
-    // e retorna exit code 4 (TIMEOUT_GLOBAL).
-    let cancelamento_interno = cancelamento.clone();
-    let futuro_pipeline = pipeline::executar_pipeline(configuracoes, cancelamento_interno);
+    // Wrap the pipeline in `tokio::time::timeout` — if it expires, cancel everything
+    // and return exit code 4 (TIMEOUT_GLOBAL).
+    let internal_cancellation = cancellation.clone();
+    let pipeline_future = pipeline::execute_pipeline(config, internal_cancellation);
 
-    let resultado_pipeline = match tokio::time::timeout(timeout_global, futuro_pipeline).await {
-        Ok(resultado) => resultado,
+    let pipeline_result = match tokio::time::timeout(global_timeout, pipeline_future).await {
+        Ok(result) => result,
         Err(_elapsed) => {
-            // Propaga cancelamento para qualquer task que ainda esteja em voo.
-            cancelamento.cancel();
+            // Propagate cancellation to any task still in-flight.
+            cancellation.cancel();
             tracing::error!(
-                segundos = timeout_global.as_secs(),
-                "timeout global excedido — execução abortada"
+                seconds = global_timeout.as_secs(),
+                "global timeout exceeded — execution aborted"
             );
-            eprintln!(
-                "Erro: timeout global de {}s excedido",
-                timeout_global.as_secs()
-            );
-            return exit_codes::TIMEOUT_GLOBAL;
+            output::emit_stderr(&format!(
+                "Error: global timeout of {}s exceeded",
+                global_timeout.as_secs()
+            ));
+            return exit_codes::GLOBAL_TIMEOUT;
         }
     };
 
-    match resultado_pipeline {
-        Ok(resultado) => {
-            let total = resultado.total_resultados();
-            let codigo_saida = if total == 0 {
-                tracing::warn!("Zero resultados retornados em todas as queries");
-                exit_codes::ZERO_RESULTADOS
+    match pipeline_result {
+        Ok(output) => {
+            let total = output.total_results();
+            let exit_code = if total == 0 {
+                tracing::warn!("Zero results returned across all queries");
+                exit_codes::ZERO_RESULTS
             } else {
-                exit_codes::SUCESSO
+                exit_codes::SUCCESS
             };
 
-            if let Err(erro) =
-                output::emitir_resultado(&resultado, formato, arquivo_saida.as_deref())
-            {
-                if output::eh_broken_pipe(&erro) {
-                    // Pipe fechado pelo consumidor (ex: `| jaq`, `| head`).
-                    // Comportamento Unix padrão — exit 0 silenciosamente.
-                    return exit_codes::SUCESSO;
+            if let Err(err) = output::emit_result(&output, format, output_file.as_deref()) {
+                if output::is_broken_pipe(&err) {
+                    // Pipe closed by consumer (e.g. `| jaq`, `| head`).
+                    // Standard Unix behavior — exit 0 silently.
+                    return exit_codes::SUCCESS;
                 }
-                tracing::error!(?erro, "Falha ao emitir resultado");
-                eprintln!("Erro ao escrever output: {erro:#}");
-                return exit_codes::ERRO_GENERICO;
+                tracing::error!(?err, "Failed to emit result");
+                output::emit_stderr(&format!("Error writing output: {err:#}"));
+                return exit_codes::GENERIC_ERROR;
             }
 
-            codigo_saida
+            exit_code
         }
-        Err(erro) => {
-            tracing::error!(?erro, "Falha na execução do pipeline");
-            eprintln!("Erro: {erro:#}");
-            exit_codes::ERRO_GENERICO
+        Err(err) => {
+            tracing::error!(?err, "Pipeline execution failed");
+            output::emit_stderr(&format!("Error: {err:#}"));
+            exit_codes::GENERIC_ERROR
         }
     }
 }
@@ -159,46 +191,157 @@ pub async fn run(cancelamento: CancellationToken) -> i32 {
 ///
 /// Returns `SUCESSO` if all files were processed (including skipped ones);
 /// returns `ERRO_GENERICO` on fatal failure (e.g., config directory undetermined).
-fn executar_init_config(args: ArgumentosInitConfig) -> i32 {
-    // Inicializa logging mínimo (info) para o relatório.
-    inicializar_logging(false, false);
-    platform::iniciar();
+fn execute_init_config(args: InitConfigArgs) -> i32 {
+    initialize_logging(false, false, false);
+    platform::init();
 
-    let relatorio = match config_init::inicializar_config(args.forcar, args.dry_run) {
+    let report = match config_init::initialize_config(args.force, args.dry_run) {
         Ok(r) => r,
-        Err(erro) => {
-            tracing::error!(?erro, "falha ao inicializar config");
-            eprintln!("Erro: {erro:#}");
-            return exit_codes::ERRO_GENERICO;
+        Err(err) => {
+            tracing::error!(?err, "failed to initialize config");
+            output::emit_stderr(&format!("Error: {err:#}"));
+            return exit_codes::GENERIC_ERROR;
         }
     };
 
-    match serde_json::to_string_pretty(&relatorio) {
+    match serde_json::to_string_pretty(&report) {
         Ok(json) => {
-            if let Err(erro) = output::imprimir_linha_stdout(&json) {
-                if output::eh_broken_pipe(&erro) {
-                    return exit_codes::SUCESSO;
+            if let Err(err) = output::print_line_stdout(&json) {
+                if output::is_broken_pipe(&err) {
+                    return exit_codes::SUCCESS;
                 }
-                tracing::error!(?erro, "falha ao emitir relatório");
-                return exit_codes::ERRO_GENERICO;
+                tracing::error!(?err, "failed to emit report");
+                return exit_codes::GENERIC_ERROR;
             }
         }
-        Err(erro) => {
-            tracing::error!(?erro, "falha ao serializar relatório JSON");
-            return exit_codes::ERRO_GENERICO;
+        Err(err) => {
+            tracing::error!(?err, "failed to serialize JSON report");
+            return exit_codes::GENERIC_ERROR;
         }
     }
 
-    // Houve erro em algum arquivo individual? Retornar erro genérico mesmo assim.
-    let houve_erro = relatorio
-        .arquivos
-        .iter()
-        .any(|a| matches!(a.acao, crate::config_init::AcaoArquivoConfig::Erro { .. }));
-    if houve_erro {
-        return exit_codes::ERRO_GENERICO;
+    // Was there an error in any individual file? Return a generic error regardless.
+    let had_error = report.files.iter().any(|a| {
+        matches!(
+            a.action_taken,
+            crate::config_init::ConfigFileAction::Error { .. }
+        )
+    });
+    if had_error {
+        return exit_codes::GENERIC_ERROR;
     }
 
-    exit_codes::SUCESSO
+    exit_codes::SUCCESS
+}
+
+/// Executes the v0.6.4 --probe pre-flight health check.
+///
+/// Sends ONE minimal GET request to the configured endpoint and emits a
+/// JSON report on stdout with `status`, `latency_ms`, `has_set_cookie`,
+/// `endpoint`, and `identity` fields. Exits 0 if the request succeeded
+/// (any HTTP status, including 202/403/429 — the probe reports but does
+/// not retry), 1 if the network/TLS/DNS layer failed.
+async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
+    use crate::error::exit_codes;
+    use std::time::Instant;
+
+    let endpoint = match args.endpoint {
+        crate::cli::CliEndpoint::Html => "html",
+        crate::cli::CliEndpoint::Lite => "lite",
+    };
+    let probe_url = if endpoint == "lite" {
+        crate::search::lite_base_url()
+    } else {
+        crate::search::html_base_url()
+    };
+
+    // Build a minimal client. Use the same UA + Accept-Language defaults
+    // the main pipeline uses (no --probe-specific profile).
+    // Pick a User-Agent (rotated, seeded if --seed is set) — keeps probe
+    // behavior consistent with the main pipeline.
+    // Pick a User-Agent (rotated, seeded if --seed is set) — keeps probe
+    // behavior consistent with the main pipeline.
+    let ua = match args.seed {
+        Some(seed) => {
+            crate::http::select_profile_from_list_seeded(
+                &crate::http::load_user_agents(args.match_platform_ua),
+                Some(seed),
+            )
+            .user_agent
+        }
+        None => crate::http::select_user_agent(),
+    };
+    let client =
+        match crate::http::build_client(&ua, args.timeout_seconds, &args.language, &args.country) {
+            Ok(c) => c,
+            Err(err) => {
+                let payload = serde_json::json!({
+                    "type": "probe",
+                    "endpoint": endpoint,
+                    "status": 0u16,
+                    "latency_ms": 0u64,
+                    "has_set_cookie": false,
+                    "error": format!("client build failed: {err}"),
+                });
+                let _ = crate::output::print_line_stdout(&payload.to_string());
+                return exit_codes::GENERIC_ERROR;
+            }
+        };
+
+    let started = Instant::now();
+    let result = client.get(&probe_url).send().await;
+    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+
+    match result {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let has_set_cookie = response.headers().contains_key("set-cookie");
+            let payload = serde_json::json!({
+                "type": "probe",
+                "endpoint": endpoint,
+                "status": status,
+                "latency_ms": latency_ms,
+                "has_set_cookie": has_set_cookie,
+                "url": probe_url,
+            });
+            // Emit single JSON object to stdout.
+            if let Err(err) = crate::output::print_line_stdout(&payload.to_string()) {
+                if !crate::output::is_broken_pipe(&err) {
+                    tracing::error!(?err, "failed to emit probe report");
+                    return exit_codes::GENERIC_ERROR;
+                }
+            }
+            // Probe succeeds on ANY HTTP response (even 202/403/429) — caller
+            // decides what to do based on the status field.
+            exit_codes::SUCCESS
+        }
+        Err(err) => {
+            let payload = serde_json::json!({
+                "type": "probe",
+                "endpoint": endpoint,
+                "status": 0u16,
+                "latency_ms": latency_ms,
+                "has_set_cookie": false,
+                "url": probe_url,
+                "error": format!("network error: {err}"),
+            });
+            let _ = crate::output::print_line_stdout(&payload.to_string());
+            exit_codes::GENERIC_ERROR
+        }
+    }
+}
+
+/// Executes the `completions` subcommand — generates shell completion scripts.
+fn execute_completions(args: CompletionsArgs) -> i32 {
+    use clap::CommandFactory;
+    let mut cmd = RootArgs::command();
+    clap_complete::generate(
+        args.shell,
+        &mut cmd,
+        "duckduckgo-search-cli",
+        &mut std::io::stdout(),
+    );
+    exit_codes::SUCCESS
 }
 
 /// Initializes the tracing subscriber writing to stderr.
@@ -206,279 +349,280 @@ fn executar_init_config(args: ArgumentosInitConfig) -> i32 {
 /// - `--quiet` → `ERROR` only.
 /// - `--verbose` → `DEBUG` and above.
 /// - Default → `INFO` and above (but respects `RUST_LOG` if set).
-fn inicializar_logging(verboso: bool, silencioso: bool) {
-    let filtro = if silencioso {
+fn initialize_logging(verbose: bool, quiet: bool, disable_colors: bool) {
+    let filter = if quiet {
         EnvFilter::new("error")
-    } else if verboso {
+    } else if verbose {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"))
     } else {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
     };
 
-    // Escrevemos em stderr para NÃO contaminar o output JSON em stdout.
     let subscriber = fmt()
-        .with_env_filter(filtro)
+        .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .with_target(false)
+        .with_ansi(!disable_colors)
         .compact()
         .finish();
 
-    // try_init permite que testes instalem seu próprio subscriber sem conflito.
     let _ = tracing::subscriber::set_global_default(subscriber);
 }
 
-/// Converts raw CLI arguments into validated `Configuracoes`.
+/// Converts raw CLI arguments into validated `Config`.
 ///
 /// Combines queries from: (1) positional arguments, (2) file via
 /// `--queries-file`, (3) stdin when it is not a TTY. Deduplicates while
 /// preserving the order of first occurrence.
-fn montar_configuracoes(argumentos: &ArgumentosCli) -> Result<Configuracoes> {
-    let formato = FormatoSaida::a_partir_de_str(&argumentos.formato)
-        .with_context(|| format!("formato desconhecido: {:?}", argumentos.formato))?;
+fn build_config(args: &CliArgs) -> Result<Config, CliError> {
+    let format =
+        OutputFormat::from_str_value(&args.format).ok_or_else(|| CliError::InvalidConfig {
+            message: format!("unknown format: {:?}", args.format),
+        })?;
 
-    argumentos
-        .validar_paralelismo()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    argumentos
-        .validar_paginas()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    argumentos
-        .validar_retries()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    argumentos
-        .validar_max_tamanho_conteudo()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    argumentos
-        .validar_global_timeout()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    argumentos.validar_proxy().map_err(|e| anyhow::anyhow!(e))?;
-    argumentos
-        .validar_limite_por_host()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    argumentos
-        .validar_timeout_segundos()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    if let Some(caminho) = &argumentos.arquivo_saida {
-        crate::paths::validar_caminho_saida(caminho)?;
+    args.validate_parallelism()
+        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_pages()
+        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_retries()
+        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_max_content_length()
+        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_global_timeout()
+        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_proxy()
+        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_per_host_limit()
+        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_timeout_seconds()
+        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    if let Some(path) = &args.output_file {
+        crate::paths::validate_output_path(path)?;
     }
 
-    let queries_arquivo = match &argumentos.arquivo_queries {
-        Some(caminho) => pipeline::ler_queries_de_arquivo(caminho)
-            .with_context(|| format!("falha ao processar --queries-file {}", caminho.display()))?,
+    let file_queries = match &args.queries_file {
+        Some(path) => pipeline::read_queries_from_file(path)?,
         None => Vec::new(),
     };
 
-    // Lê stdin apenas se nenhum argumento posicional foi fornecido E nenhum
-    // arquivo foi passado. Isso reproduz o comportamento Unix clássico.
-    let queries_stdin = if argumentos.queries.is_empty() && argumentos.arquivo_queries.is_none() {
-        pipeline::ler_queries_de_stdin_se_pipe().context("falha ao ler queries de stdin")?
+    let queries_stdin = if args.queries.is_empty() && args.queries_file.is_none() {
+        pipeline::read_queries_from_stdin_if_pipe()?
     } else {
         Vec::new()
     };
 
-    let queries = pipeline::combinar_e_deduplicar_queries(
-        argumentos.queries.clone(),
-        queries_arquivo,
-        queries_stdin,
-    );
+    let queries =
+        pipeline::combine_and_dedup_queries(args.queries.clone(), file_queries, queries_stdin);
 
     if queries.is_empty() {
-        anyhow::bail!(
-            "nenhuma query fornecida (argumentos posicionais, --queries-file ou stdin vazios)"
-        );
+        return Err(CliError::InvalidConfig {
+            message:
+                "no query provided (positional arguments, --queries-file, and stdin are all empty)"
+                    .into(),
+        });
     }
 
-    let primeira = queries[0].clone();
+    let first_query = queries[0].clone();
 
-    // Carrega lista de UAs — tenta arquivo externo, cai em defaults embutidos.
-    let lista_uas = http::carregar_user_agents(argumentos.corresponde_plataforma_ua);
-    let perfil_browser = http::escolher_perfil_da_lista(&lista_uas);
-    let user_agent = perfil_browser.user_agent.clone();
+    // Load UA list — tries external file, falls back to embedded defaults.
+    let ua_list = http::load_user_agents(args.match_platform_ua);
+    let browser_profile = http::select_profile_from_list_seeded(&ua_list, args.seed);
+    let user_agent = browser_profile.user_agent.clone();
 
-    // Carrega seletores CSS — tenta arquivo TOML externo, cai em defaults embutidos.
-    let seletores = selectors::carregar_seletores();
+    // Load CSS selectors — tries external TOML file, falls back to embedded defaults.
+    // --config overrides the default config directory.
+    let selectors = if let Some(ref dir) = args.config_path {
+        selectors::load_selectors_from_dir(dir)
+    } else {
+        selectors::load_selectors()
+    };
 
-    // --- Default de --num e auto-paginação (v0.4.0) ---
+    // --- Default for --num and auto-pagination (v0.4.0) ---
     //
-    // Semântica (decidida em v0.4.0):
-    // - Se o usuário NÃO passa `--num`, usamos 15 como default efetivo.
-    // - Se o `num` efetivo for > 10 e o usuário NÃO customizou `--pages`
-    //   (ou seja, `paginas == 1`, que é o default do clap), auto-elevamos
-    //   `paginas` para `ceil(num/10)`, limitado ao teto de 5 (PAGINAS_MAXIMO
-    //   validado em `validar_paginas`).
-    // - Se o usuário passa `--pages > 1` explicitamente, RESPEITAMOS o valor
-    //   dele sem sobrescrever (caso raro: `--pages 1` explícito é
-    //   indistinguível do default; trade-off aceito).
-    let num_efetivo = argumentos.num_resultados.unwrap_or(15);
-    let paginas_efetivas = if argumentos.paginas > 1 {
-        argumentos.paginas
-    } else if num_efetivo > 10 {
-        num_efetivo.div_ceil(10).min(5)
+    // Semantics (decided in v0.4.0):
+    // - If the user does NOT pass `--num`, we use 15 as the effective default.
+    // - If the effective `num` is > 10 and the user did NOT customize `--pages`
+    //   (i.e., `paginas == 1`, which is the clap default), we auto-raise
+    //   `paginas` to `ceil(num/10)`, capped at 5 (MAX_PAGES
+    //   validated in `validar_paginas`).
+    // - If the user passes `--pages > 1` explicitly, we RESPECT that value
+    //   without overriding (edge case: `--pages 1` explicit is
+    //   indistinguishable from the default; accepted trade-off).
+    let effective_num = args.num_results.unwrap_or(15);
+    let effective_pages = if args.pages > 1 {
+        args.pages
+    } else if effective_num > 10 {
+        effective_num.div_ceil(10).min(5)
     } else {
         1
     };
 
-    Ok(Configuracoes {
-        query: primeira,
+    Ok(Config {
+        query: first_query,
         queries,
-        num_resultados: Some(num_efetivo),
-        formato,
-        timeout_segundos: argumentos.timeout_segundos,
-        idioma: argumentos.idioma.clone(),
-        pais: argumentos.pais.clone(),
-        modo_verboso: argumentos.verboso,
-        modo_silencioso: argumentos.silencioso,
+        num_results: Some(effective_num),
+        format,
+        timeout_seconds: args.timeout_seconds,
+        language: args.language.clone(),
+        country: args.country.clone(),
+        verbose: args.verbose,
+        quiet: args.quiet,
         user_agent,
-        perfil_browser,
-        paralelismo: argumentos.paralelismo,
-        paginas: paginas_efetivas,
-        retries: argumentos.retries,
-        endpoint: converter_endpoint(argumentos.endpoint),
-        filtro_temporal: argumentos.filtro_temporal.map(converter_filtro_temporal),
-        safe_search: converter_safe_search(argumentos.safe_search),
-        modo_stream: argumentos.modo_stream,
-        arquivo_saida: argumentos.arquivo_saida.clone(),
-        buscar_conteudo: argumentos.buscar_conteudo,
-        max_tamanho_conteudo: argumentos.max_tamanho_conteudo,
-        proxy: argumentos.proxy.clone(),
-        sem_proxy: argumentos.sem_proxy,
-        timeout_global_segundos: argumentos.timeout_global_segundos,
-        corresponde_plataforma_ua: argumentos.corresponde_plataforma_ua,
-        limite_por_host: argumentos.limite_por_host as usize,
-        caminho_chrome: argumentos.caminho_chrome.clone(),
-        seletores,
+        browser_profile,
+        parallelism: args.parallelism,
+        pages: effective_pages,
+        retries: args.retries,
+        endpoint: convert_endpoint(args.endpoint),
+        time_filter: args.time_filter.map(convert_time_filter),
+        safe_search: convert_safe_search(args.safe_search),
+        stream_mode: args.stream_mode,
+        output_file: args.output_file.clone(),
+        fetch_content: args.fetch_content,
+        max_content_length: args.max_content_length,
+        proxy: args.proxy.clone(),
+        no_proxy: args.no_proxy,
+        global_timeout_seconds: args.global_timeout_seconds,
+        match_platform_ua: args.match_platform_ua,
+        per_host_limit: args.per_host_limit as usize,
+        chrome_path: args.chrome_path.clone(),
+        selectors,
     })
 }
 
-/// Converts the `EndpointCli` enum (clap) into the internal `Endpoint` type.
-fn converter_endpoint(origem: EndpointCli) -> Endpoint {
-    match origem {
-        EndpointCli::Html => Endpoint::Html,
-        EndpointCli::Lite => Endpoint::Lite,
+/// Converts the `CliEndpoint` enum (clap) into the internal `Endpoint` type.
+fn convert_endpoint(source: CliEndpoint) -> Endpoint {
+    match source {
+        CliEndpoint::Html => Endpoint::Html,
+        CliEndpoint::Lite => Endpoint::Lite,
     }
 }
 
-/// Converts the `FiltroTemporalCli` enum (clap) into the internal `FiltroTemporal` type.
-fn converter_filtro_temporal(origem: FiltroTemporalCli) -> FiltroTemporal {
-    match origem {
-        FiltroTemporalCli::D => FiltroTemporal::Dia,
-        FiltroTemporalCli::W => FiltroTemporal::Semana,
-        FiltroTemporalCli::M => FiltroTemporal::Mes,
-        FiltroTemporalCli::Y => FiltroTemporal::Ano,
+/// Converts the `CliTimeFilter` enum (clap) into the internal `TimeFilter` type.
+fn convert_time_filter(source: CliTimeFilter) -> TimeFilter {
+    match source {
+        CliTimeFilter::D => TimeFilter::Day,
+        CliTimeFilter::W => TimeFilter::Week,
+        CliTimeFilter::M => TimeFilter::Month,
+        CliTimeFilter::Y => TimeFilter::Year,
     }
 }
 
-/// Converts the `SafeSearchCli` enum (clap) into the internal `SafeSearch` type.
-fn converter_safe_search(origem: SafeSearchCli) -> SafeSearch {
-    match origem {
-        SafeSearchCli::Off => SafeSearch::Off,
-        SafeSearchCli::Moderate => SafeSearch::Moderate,
-        SafeSearchCli::On => SafeSearch::Strict,
+/// Converts the `CliSafeSearch` enum (clap) into the internal `SafeSearch` type.
+fn convert_safe_search(source: CliSafeSearch) -> SafeSearch {
+    match source {
+        CliSafeSearch::Off => SafeSearch::Off,
+        CliSafeSearch::Moderate => SafeSearch::Moderate,
+        CliSafeSearch::On => SafeSearch::Strict,
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn argumentos_base() -> ArgumentosCli {
-        ArgumentosCli {
+    fn base_args() -> CliArgs {
+        CliArgs {
             queries: vec!["rust async".to_string()],
-            num_resultados: Some(5),
-            formato: "json".to_string(),
-            arquivo_saida: None,
-            timeout_segundos: 15,
-            idioma: "pt".to_string(),
-            pais: "br".to_string(),
-            paralelismo: 5,
-            arquivo_queries: None,
-            paginas: 1,
+            num_results: Some(5),
+            format: "json".to_string(),
+            output_file: None,
+            timeout_seconds: 15,
+            language: "pt".to_string(),
+            country: "br".to_string(),
+            parallelism: 5,
+            queries_file: None,
+            pages: 1,
             retries: 2,
-            endpoint: EndpointCli::Html,
-            filtro_temporal: None,
-            safe_search: SafeSearchCli::Moderate,
-            modo_stream: false,
-            verboso: false,
-            silencioso: false,
-            buscar_conteudo: false,
-            max_tamanho_conteudo: crate::cli::MAX_CONTENT_LENGTH_PADRAO,
+            endpoint: CliEndpoint::Html,
+            time_filter: None,
+            safe_search: CliSafeSearch::Moderate,
+            probe: false,
+            identity_profile: crate::cli::CliIdentityProfile::Auto,
+            stream_mode: false,
+            verbose: false,
+            quiet: false,
+            fetch_content: false,
+            max_content_length: crate::cli::DEFAULT_MAX_CONTENT_LENGTH,
             proxy: None,
-            sem_proxy: false,
-            timeout_global_segundos: crate::cli::GLOBAL_TIMEOUT_PADRAO,
-            corresponde_plataforma_ua: false,
-            limite_por_host: crate::cli::PER_HOST_LIMIT_PADRAO,
-            caminho_chrome: None,
+            no_proxy: false,
+            global_timeout_seconds: crate::cli::DEFAULT_GLOBAL_TIMEOUT,
+            match_platform_ua: false,
+            per_host_limit: crate::cli::DEFAULT_PER_HOST_LIMIT,
+            chrome_path: None,
+            no_color: false,
+            seed: None,
+            config_path: None,
         }
     }
 
     #[test]
-    fn montar_configuracoes_com_argumentos_validos() {
-        let argumentos = argumentos_base();
-        let cfg = montar_configuracoes(&argumentos).expect("deve montar configurações");
+    fn build_config_with_valid_args() {
+        let args = base_args();
+        let cfg = build_config(&args).expect("should build config");
         assert_eq!(cfg.query, "rust async");
         assert_eq!(cfg.queries, vec!["rust async".to_string()]);
-        assert_eq!(cfg.formato, FormatoSaida::Json);
-        assert_eq!(cfg.num_resultados, Some(5));
-        assert_eq!(cfg.paralelismo, 5);
-        assert_eq!(cfg.paginas, 1);
-        assert!(!cfg.modo_stream);
+        assert_eq!(cfg.format, OutputFormat::Json);
+        assert_eq!(cfg.num_results, Some(5));
+        assert_eq!(cfg.parallelism, 5);
+        assert_eq!(cfg.pages, 1);
+        assert!(!cfg.stream_mode);
     }
 
     #[test]
-    fn montar_configuracoes_rejeita_queries_todas_vazias() {
-        let mut argumentos = argumentos_base();
-        argumentos.queries = vec!["   ".to_string(), "".to_string()];
-        let resultado = montar_configuracoes(&argumentos);
-        assert!(resultado.is_err());
+    fn build_config_rejects_all_empty_queries() {
+        let mut args = base_args();
+        args.queries = vec!["   ".to_string(), "".to_string()];
+        let result = build_config(&args);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn montar_configuracoes_rejeita_formato_desconhecido() {
-        let mut argumentos = argumentos_base();
-        argumentos.formato = "xml".to_string();
-        assert!(montar_configuracoes(&argumentos).is_err());
+    fn build_config_rejects_unknown_format() {
+        let mut args = base_args();
+        args.format = "xml".to_string();
+        assert!(build_config(&args).is_err());
     }
 
     #[test]
-    fn montar_configuracoes_rejeita_paralelismo_zero() {
-        let mut argumentos = argumentos_base();
-        argumentos.paralelismo = 0;
-        assert!(montar_configuracoes(&argumentos).is_err());
+    fn build_config_rejects_zero_parallelism() {
+        let mut args = base_args();
+        args.parallelism = 0;
+        assert!(build_config(&args).is_err());
     }
 
     #[test]
-    fn montar_configuracoes_rejeita_paralelismo_acima_do_maximo() {
-        let mut argumentos = argumentos_base();
-        argumentos.paralelismo = 50;
-        assert!(montar_configuracoes(&argumentos).is_err());
+    fn build_config_rejects_parallelism_above_max() {
+        let mut args = base_args();
+        args.parallelism = 50;
+        assert!(build_config(&args).is_err());
     }
 
     #[test]
-    fn montar_configuracoes_aplica_default_num_15_quando_omitido() {
-        // v0.4.0: quando `--num` é omitido (None), o default efetivo é 15
-        // E isso auto-eleva `--pages` para 2 (já que 15 > 10 e pages=1 é o default).
-        let mut argumentos = argumentos_base();
-        argumentos.num_resultados = None;
-        argumentos.paginas = 1;
-        let cfg = montar_configuracoes(&argumentos).expect("deve montar");
-        assert_eq!(cfg.num_resultados, Some(15), "default 15 quando None");
-        assert_eq!(cfg.paginas, 2, "auto-eleva para ceil(15/10) = 2");
+    fn build_config_applies_default_num_15_when_omitted() {
+        // v0.4.0: when `--num` is omitted (None), the effective default is 15
+        // and this auto-raises `--pages` to 2 (since 15 > 10 and pages=1 is the default).
+        let mut args = base_args();
+        args.num_results = None;
+        args.pages = 1;
+        let cfg = build_config(&args).expect("should build");
+        assert_eq!(cfg.num_results, Some(15), "default 15 quando None");
+        assert_eq!(cfg.pages, 2, "auto-eleva para ceil(15/10) = 2");
     }
 
     #[test]
-    fn montar_configuracoes_respeita_pages_explicito_acima_de_1() {
-        // Se o usuário passa `--pages 3` explícito, NÃO sobrescrever com
-        // auto-paginação, mesmo que num efetivo exigisse menos.
-        let mut argumentos = argumentos_base();
-        argumentos.num_resultados = Some(20);
-        argumentos.paginas = 3;
-        let cfg = montar_configuracoes(&argumentos).expect("deve montar");
-        assert_eq!(cfg.num_resultados, Some(20));
-        assert_eq!(cfg.paginas, 3, "respeita --pages explícito do usuário");
+    fn build_config_respects_explicit_pages_above_1() {
+        // If the user passes `--pages 3` explicitly, do NOT override with
+        // auto-pagination, even if the effective num would require fewer.
+        let mut args = base_args();
+        args.num_results = Some(20);
+        args.pages = 3;
+        let cfg = build_config(&args).expect("should build");
+        assert_eq!(cfg.num_results, Some(20));
+        assert_eq!(cfg.pages, 3, "respeita --pages explícito do usuário");
     }
 
     #[test]
-    fn montar_configuracoes_auto_pagina_quando_num_maior_que_10() {
+    fn build_config_auto_paginates_when_num_above_10() {
         // Casos de fronteira do auto-paginador.
         let casos = [
             (11u32, 2u32), // ceil(11/10) = 2
@@ -488,41 +632,41 @@ mod testes {
             (45, 5),       // ceil(45/10) = 5
             (60, 5),       // ceil(60/10) = 6 mas clamp em 5
         ];
-        for (num, paginas_esperadas) in casos {
-            let mut argumentos = argumentos_base();
-            argumentos.num_resultados = Some(num);
-            argumentos.paginas = 1;
-            let cfg = montar_configuracoes(&argumentos)
-                .unwrap_or_else(|e| panic!("deve montar para num={num}: {e}"));
+        for (num, expected_pages) in casos {
+            let mut args = base_args();
+            args.num_results = Some(num);
+            args.pages = 1;
+            let cfg =
+                build_config(&args).unwrap_or_else(|e| panic!("should build for num={num}: {e}"));
             assert_eq!(
-                cfg.paginas, paginas_esperadas,
-                "para num={num}, paginas deveria ser {paginas_esperadas}"
+                cfg.pages, expected_pages,
+                "para num={num}, paginas deveria ser {expected_pages}"
             );
         }
     }
 
     #[test]
-    fn montar_configuracoes_nao_auto_pagina_quando_num_10_ou_menos() {
-        // Se num efetivo <= 10, mantém paginas=1 (sem auto-paginação).
+    fn build_config_no_auto_paginate_when_num_10_or_less() {
+        // If effective num <= 10, keep paginas=1 (no auto-pagination).
         for num in [1u32, 5, 10] {
-            let mut argumentos = argumentos_base();
-            argumentos.num_resultados = Some(num);
-            argumentos.paginas = 1;
-            let cfg = montar_configuracoes(&argumentos).expect("deve montar");
-            assert_eq!(cfg.paginas, 1, "num={num} não deveria auto-paginar");
+            let mut args = base_args();
+            args.num_results = Some(num);
+            args.pages = 1;
+            let cfg = build_config(&args).expect("should build");
+            assert_eq!(cfg.pages, 1, "num={num} não deveria auto-paginar");
         }
     }
 
     #[test]
-    fn montar_configuracoes_combina_multiplas_queries_posicionais() {
-        let mut argumentos = argumentos_base();
-        argumentos.queries = vec![
+    fn build_config_combines_multiple_positional_queries() {
+        let mut args = base_args();
+        args.queries = vec![
             "alfa".to_string(),
             "beta".to_string(),
             "alfa".to_string(), // duplicata
             "gama".to_string(),
         ];
-        let cfg = montar_configuracoes(&argumentos).expect("deve montar configurações");
+        let cfg = build_config(&args).expect("should build config");
         assert_eq!(cfg.queries, vec!["alfa", "beta", "gama"]);
         assert_eq!(cfg.query, "alfa");
     }

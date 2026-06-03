@@ -13,7 +13,7 @@
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: 0.6.1 — MSRV: Rust 1.75.
+- Versão: 0.6.4 — MSRV: Rust 1.75.
 
 
 ## Instalação
@@ -225,6 +225,44 @@ duckduckgo-search-cli "consulta" -q
 - Usar `--stream` (placeholder, comportamento indefinido)
 - Invocar sem envoltório `timeout` (pipeline trava indefinidamente)
 - Definir `--global-timeout` igual ao `timeout` externo (CLI nunca termina limpa)
+- Hardcodar `--identity-profile` em vez de deixar o pool rotacionar adaptativamente (v0.6.4+)
+- Ler `.metadados.identidade_usada` como garantia quando é `Option<String>` (v0.6.4+)
+- Ler `.metadados.nivel_cascata` como garantia quando é `Option<u32>` (v0.6.4+)
+- Pular `duckduckgo-search-cli --probe` antes de lançar queries reais em CI
+
+
+## v0.6.4 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
+
+### OBRIGATÓRIO — Reconhecer as Novas Flags
+- `--probe` — verificação de saúde pré-voo. DEVE ser usada em CI antes de lançar queries reais.
+- `--identity-profile <auto|chrome-win|chrome-mac|chrome-linux|edge-win|firefox-linux|safari-mac>` — fixa a sessão em uma identidade específica. `auto` (padrão) rotaciona adaptativamente.
+- `--seed <u64>` — seed determinístico para seleção de UA E rotação do pool de identidades.
+
+### OBRIGATÓRIO — Ler os Novos Campos de Metadados
+- `.metadados.identidade_usada` — `Option<String>` — tag de identidade que produziu a resposta (formato `<família>-<plataforma>-<16hex>`)
+- `.metadados.nivel_cascata` — `Option<u32>` (0..=4) — nível de cascata atingido durante a requisição
+
+```bash
+# Verifica qual identidade produziu a resposta
+timeout 30 duckduckgo-search-cli -q -f json "query" | jaq '.metadados.identidade_usada // "auto"'
+
+# Diagnostica bloqueios repetidos via nível de cascata
+timeout 30 duckduckgo-search-cli -q -f json "query" | jaq '.metadados.nivel_cascata // 0'
+```
+
+### OBRIGATÓRIO — Estratégia de Cascata Anti-Bot
+Quando exit code `3` é encontrado, a CLI já rotacionou por até 5 identidades internamente. Se `--identity-profile auto` está em efeito e exit code `3` persiste, o agente DEVE:
+1. Aguardar 300+ segundos antes de retentar (o nível de cascata atingido indica o quão esgotado o pool está)
+2. Trocar para `--endpoint lite` como fallback
+3. Rotacionar proxy com `--proxy socks5://127.0.0.1:9050`
+4. Se o problema persistir, abrir bug com o valor de `nivel_cascata` capturado
+
+### OBRIGATÓRIO — Probe Antes de Queries Reais
+```bash
+# Gate de pipeline CI
+timeout 15 duckduckgo-search-cli --probe || { echo "DDG bloqueado em nível de rede, abortando" >&2; exit 1; }
+timeout 30 duckduckgo-search-cli -q -f json "query real"
+```
 
 
 ## Compilação
@@ -237,7 +275,7 @@ duckduckgo-search-cli "consulta" -q
 ## Testes
 - Executar todos os testes: `timeout 300 cargo nextest run`
 - Executar testes de documentação separadamente: `cargo test --doc`
-- Executar testes de integração E2E: `timeout 300 cargo test --test integracao_pipeline`
+- Executar testes de integração E2E: `timeout 300 cargo test --test integration_pipeline`
 - Executar com todas as features: `timeout 300 cargo test --all-features`
 - Cobertura mínima: 80% — JAMAIS faça merge abaixo deste limite
 

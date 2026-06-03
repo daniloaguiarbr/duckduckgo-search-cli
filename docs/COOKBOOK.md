@@ -1094,7 +1094,7 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 ```
 
 ### Recipe 17 / Receita 17 — Anti-blocking with v0.6.0 browser fingerprint profiles
-- Gain: use the built-in `PerfilBrowser` fingerprint to reduce HTTP 202 blocks and silent truncation.
+- Gain: use the built-in `BrowserProfile` fingerprint to reduce HTTP 202 blocks and silent truncation.
 - Problem: generic User-Agent strings trigger anti-bot challenges on DuckDuckGo systematically.
 - Benefit: per-family `Sec-Fetch-*` headers and Client Hints mimic a real browser session.
 - Benefit: HTTP 202 anomaly detection retries automatically with exponential backoff.
@@ -1121,7 +1121,7 @@ case $? in
 esac
 ```
 
-- Ganho: use o perfil `PerfilBrowser` embutido para reduzir bloqueios HTTP 202 e truncamentos silenciosos.
+- Ganho: use o perfil `BrowserProfile` embutido para reduzir bloqueios HTTP 202 e truncamentos silenciosos.
 - Problema: User-Agent genérico dispara desafios anti-bot do DuckDuckGo sistematicamente.
 - Benefício: headers `Sec-Fetch-*` por família e Client Hints imitam sessão real de browser.
 - Benefício: detecção de HTTP 202 anomaly reenvia com backoff exponencial automaticamente.
@@ -1149,5 +1149,7 @@ esac
 | 15 | Defaults opinativos reutilizáveis / Reusable opinionated defaults | `duckduckgo-search-cli`, função bash, `jaq`, `date`, `timeout` |
 | 16 | Diagnóstico de pipe com PIPESTATUS / Pipe diagnostic with PIPESTATUS | `duckduckgo-search-cli`, `jaq`, `PIPESTATUS`, `timeout` |
 | 17 | Anti-bloqueio com perfis de browser v0.6.0 / Anti-blocking with v0.6.0 fingerprint profiles | `duckduckgo-search-cli`, `jaq`, `bash case`, `timeout` |
+| 18 | Pre-flight health check com `--probe` v0.6.4 / Pre-flight health check with `--probe` v0.6.4 | `duckduckgo-search-cli --probe`, `jaq`, `bash case` |
+| 19 | Pool de identidades adaptativo v0.6.4 / Adaptive identity pool v0.6.4 | `duckduckgo-search-cli`, `jaq`, `--identity-profile`, `--seed` |
 
 _End of COOKBOOK / Fim do Livro de Receitas._

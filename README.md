@@ -133,7 +133,7 @@ duckduckgo-search-cli "vendor status page 2026" --num 15 \
   --proxy http://user:pass@proxy.internal:8080 -f json
 
 # 6. Offline smoke test (no real network).
-cargo test --test integracao_wiremock
+cargo test --test integration_wiremock
 ```
 
 ### Configuration
@@ -185,6 +185,9 @@ duckduckgo-search-cli init-config --force
 | `--chrome-path PATH`       | (auto)     | Manual Chrome executable (feature `chrome`).                       |
 | `-v`, `--verbose`          | off        | Debug logs on stderr.                                              |
 | `-q`, `--quiet`            | off        | Error-only logs on stderr.                                         |
+| `--probe`                  | off        | Pre-flight health check (1 minimal request, JSON report).          |
+| `--identity-profile`       | `auto`     | Pin a 12-identity pool profile (`chrome-win`, `safari-mac`, ...). |
+| `--seed N`                 | (random)   | Deterministic seed for UA + identity selection.                   |
 
 ### Environment variables
 
@@ -233,6 +236,45 @@ duckduckgo-search-cli init-config --force
 - JSON schema unchanged: `resultados[]`, `metadados`, `titulo_original` remain exactly as in v0.3.x.
 
 See the [CHANGELOG](CHANGELOG.md) for release history.
+
+
+## Migration notes (v0.6.3 → v0.6.4)
+
+- **Zero breaking changes.** All CLI flags, JSON output schemas, and exit codes from v0.6.3 remain unchanged.
+- **New CLI flags (additive)**:
+  - `--probe` — sends one minimal pre-flight request and reports health as JSON
+  - `--identity-profile` — pins the session to a specific identity from the 12-identity pool (`auto` by default for adaptive rotation)
+  - `--seed` — now also controls identity pool rotation (was UA-only in v0.6.3)
+- **New JSON metadata fields (additive, `skip_serializing_if = "Option::is_none"`)**:
+  - `metadados.identidade_usada` — identity tag (`<family>-<platform>-<16hex>`) used for the response
+  - `metadados.nivel_cascata` — cascade level (0..=4) reached during the request
+- **Version note**: v0.7.0 was in development but rolled back to v0.6.4 to preserve the feature set under a stable patch number. The released binary is functionally identical to what would have been v0.7.0.
+
+
+## v0.6.4 highlights (WS-26 anti-bot)
+
+v0.6.4 introduces an adaptive anti-bot identity pool that addresses the root cause of HTTP 202/403/429 blocks from DuckDuckGo. The previous version selected a single User-Agent at startup and reused it for the entire session, producing a single fingerprint that anti-bot systems could classify after the first request. The new pool:
+
+- Maintains 12 identities (4 browser families × 3 platforms: Windows, macOS, Linux)
+- On detected block (HTTP 202/403/429), rotates through a 5-level cascade: same identity → same family/different platform → different family/same platform → different family+platform → random
+- Produces seed-deterministic header order via `IdentityProfile::shuffled_headers()` (Accept-Language variants, Sec-CH-UA-Arch variations, randomized header order)
+- Reports `identidade_usada` and `nivel_cascata` in NDJSON for diagnostic visibility
+
+Usage:
+
+```bash
+# Default — adaptive rotation from 12 identities
+duckduckgo-search-cli -q -n 10 -f json "query"
+
+# Pin a specific identity for reproducible testing
+duckduckgo-search-cli -q -n 10 -f json --identity-profile chrome-linux "query"
+
+# Pre-flight health check before launching a real query
+duckduckgo-search-cli --probe
+
+# Deterministic seed for debugging anti-bot rotation
+duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
+```
 
 License: MIT OR Apache-2.0.
 
@@ -349,7 +391,7 @@ duckduckgo-search-cli "vendor status page 2026" --num 15 \
   --proxy http://user:pass@proxy.internal:8080 -f json
 
 # 6. Teste offline sem rede real.
-cargo test --test integracao_wiremock
+cargo test --test integration_wiremock
 ```
 
 ### Configuração
@@ -370,7 +412,7 @@ duckduckgo-search-cli init-config --force
 | Comando                                    | Propósito                                               |
 | ------------------------------------------ | ------------------------------------------------------- |
 | `duckduckgo-search-cli <QUERY>...`         | Busca padrão (equivalente a `buscar`).                  |
-| `duckduckgo-search-cli buscar <QUERY>...`  | Subcomando explícito de busca.                          |
+| `duckduckgo-search-cli buscar <QUERY>...`  | Subcommand explícito de busca.                          |
 | `duckduckgo-search-cli init-config`        | Grava `selectors.toml` e `user-agents.toml` no XDG.     |
 
 ### Flags

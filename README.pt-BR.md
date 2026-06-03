@@ -124,7 +124,7 @@ duckduckgo-search-cli init-config --force
 | Comando | Propósito |
 |---|---|
 | `duckduckgo-search-cli <QUERY>...` | Busca padrão (equivalente a `buscar`) |
-| `duckduckgo-search-cli buscar <QUERY>...` | Subcomando explícito de busca |
+| `duckduckgo-search-cli buscar <QUERY>...` | Subcommand explícito de busca |
 | `duckduckgo-search-cli init-config` | Grava `selectors.toml` e `user-agents.toml` no XDG |
 
 
@@ -156,6 +156,9 @@ duckduckgo-search-cli init-config --force
 | `--chrome-path PATH` | (auto) | Caminho manual do Chrome (feature `chrome`) |
 | `-v`, `--verbose` | off | Logs DEBUG em stderr |
 | `-q`, `--quiet` | off | Apenas logs ERROR em stderr |
+| `--probe` | off | Verificação de saúde pré-voo (1 requisição mínima, relatório JSON) |
+| `--identity-profile` | `auto` | Fixa um perfil do pool de 12 identidades (`chrome-win`, `safari-mac`, ...) |
+| `--seed N` | (aleatório) | Seed determinístico para seleção de UA e identidade |
 
 
 ## Variáveis de Ambiente
@@ -252,6 +255,45 @@ cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
 - Schema JSON inalterado: `resultados[]`, `metadados` e `titulo_original` permanecem idênticos à v0.3.x
 
 Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo de versões.
+
+
+## Notas de Migração (v0.6.3 → v0.6.4)
+
+- **Zero breaking changes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.6.3 permanecem inalterados.
+- **Novas flags CLI (aditivas)**:
+  - `--probe` — envia uma requisição mínima de pre-flight e reporta saúde como JSON
+  - `--identity-profile` — fixa a sessão em uma identidade específica do pool de 12 identidades (`auto` por padrão para rotação adaptativa)
+  - `--seed` — agora também controla a rotação do pool de identidades (era só UA em v0.6.3)
+- **Novos campos JSON em metadados (aditivos, `skip_serializing_if = "Option::is_none"`)**:
+  - `metadados.identidade_usada` — tag de identidade (`<família>-<plataforma>-<16hex>`) usada na resposta
+  - `metadados.nivel_cascata` — nível de cascata (0..=4) atingido durante a requisição
+- **Nota de versão**: v0.7.0 estava em desenvolvimento mas foi revertido para v0.6.4 para preservar o conjunto de features sob um número de patch estável. O binário lançado é funcionalmente idêntico ao que seria v0.7.0.
+
+
+## Destaques v0.6.4 (WS-26 anti-bot)
+
+v0.6.4 introduz um pool adaptativo de identidades anti-bot que endereça a causa raiz dos bloqueios HTTP 202/403/429 do DuckDuckGo. A versão anterior selecionava um único User-Agent no início e o reutilizava para toda a sessão, produzindo uma única fingerprint que sistemas anti-bot podiam classificar após a primeira requisição. O novo pool:
+
+- Mantém 12 identidades (4 famílias de browser × 3 plataformas: Windows, macOS, Linux)
+- Em bloqueio detectado (HTTP 202/403/429), rotaciona através de cascata de 5 níveis: mesma identidade → mesma família/plataforma diferente → família diferente/mesma plataforma → família+plataforma diferentes → aleatória
+- Produz ordem de headers determinística via seed em `IdentityProfile::shuffled_headers()` (variantes de Accept-Language, variações de Sec-CH-UA-Arch, ordem aleatorizada)
+- Reporta `identidade_usada` e `nivel_cascata` no NDJSON para visibilidade diagnóstica
+
+Uso:
+
+```bash
+# Padrão — rotação adaptativa entre 12 identidades
+duckduckgo-search-cli -q -n 10 -f json "query"
+
+# Fixa uma identidade específica para testes reproduzíveis
+duckduckgo-search-cli -q -n 10 -f json --identity-profile chrome-linux "query"
+
+# Verificação de saúde pré-voo antes de lançar query real
+duckduckgo-search-cli --probe
+
+# Seed determinístico para debugar rotação anti-bot
+duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
+```
 
 
 ## Contribuindo

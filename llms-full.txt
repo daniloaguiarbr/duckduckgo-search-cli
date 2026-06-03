@@ -1,4 +1,35 @@
-# duckduckgo-search-cli v0.6.2 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.6.4 — Full Documentation for LLM Context
+
+## v0.6.4 Highlights (2026-06-03)
+
+- **WS-26 Adaptive Anti-Bot Identity Pool** — 12 identities (4 browser families × 3 platforms) with 5-level cascade rotation
+- **New CLI flags** (additive, no breaking changes): `--probe`, `--identity-profile`, `--seed` (extended)
+- **New JSON metadata fields** (additive): `identidade_usada`, `nivel_cascata`
+- **Zero breaking changes** — All existing CLI flags, JSON output schemas, and exit codes preserved
+- **Builds clean**: 313 tests passing, clippy clean, fmt clean, doc clean
+
+## New CLI Flags (v0.6.4)
+
+- `--probe` — Pre-flight health check. Sends 1 minimal request and reports status, latency, Set-Cookie presence as JSON. Exits 0 on success, 1 on failure.
+- `--identity-profile` — Pins the session to a specific identity from the 12-identity pool. Values: `auto` (default, adaptive), `chrome-win`, `chrome-mac`, `chrome-linux`, `edge-win`, `firefox-linux`, `safari-mac`.
+- `--seed N` — Deterministic seed for UA selection AND identity pool rotation. Same seed = same sequence of identities across runs.
+
+## New JSON Metadata Fields (v0.6.4)
+
+```json
+{
+  "metadados": {
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) ...",
+    "identidade_usada": "chrome-linux-11111111aaaa0001",
+    "nivel_cascata": 0,
+    "tempo_execucao_ms": 1234,
+    "usou_proxy": false
+  }
+}
+```
+
+- `identidade_usada` (string, optional) — Format `<family>-<platform>-<16hex>`. Reports the identity that produced the response.
+- `nivel_cascata` (integer 0-4, optional) — Cascade level reached during the request. 0 = first attempt, 1-4 = rotated identities.
 
 ---
 # README.md
@@ -968,7 +999,7 @@ timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
 - Pipe safety: SIGPIPE restored to SIG_DFL on Unix — pipes terminate cleanly. BrokenPipe returns exit 0.
 - Path safety (v0.5.0): `--output` validates paths BEFORE writing — rejects `..` components and system directories.
 - Credential safety (v0.5.0): proxy credentials NEVER appear in error messages — automatic masking.
-- Anti-blocking (v0.6.0): `PerfilBrowser` injects per-family `Sec-Fetch-*`, Client Hints, and RFC 7231 `Accept-Language`.
+- Anti-blocking (v0.6.0): `BrowserProfile` injects per-family `Sec-Fetch-*`, Client Hints, and RFC 7231 `Accept-Language`.
 - Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
 # ENGLISH SECTION

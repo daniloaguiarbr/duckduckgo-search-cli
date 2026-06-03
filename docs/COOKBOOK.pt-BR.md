@@ -568,7 +568,7 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 
 
 ## Receita 17 — Anti-bloqueio com perfis de browser v0.6.0
-- Ganho: use o perfil `PerfilBrowser` embutido para reduzir bloqueios HTTP 202 e truncamentos silenciosos.
+- Ganho: use o perfil `BrowserProfile` embutido para reduzir bloqueios HTTP 202 e truncamentos silenciosos.
 - Problema: User-Agent genérico dispara desafios anti-bot do DuckDuckGo sistematicamente.
 - Benefício: headers `Sec-Fetch-*` por família e Client Hints imitam sessão real de browser.
 - Benefício: detecção de HTTP 202 anomaly reenvia com backoff exponencial automaticamente.
@@ -617,5 +617,7 @@ esac
 | 15 | Defaults opinativos reutilizáveis | `duckduckgo-search-cli`, função bash, `jaq`, `date`, `timeout` |
 | 16 | Diagnóstico de pipe com PIPESTATUS | `duckduckgo-search-cli`, `jaq`, `PIPESTATUS`, `timeout` |
 | 17 | Anti-bloqueio com perfis de browser v0.6.0 | `duckduckgo-search-cli`, `jaq`, `bash case`, `timeout` |
+| 18 | Pre-flight health check com `--probe` v0.6.4 | `duckduckgo-search-cli --probe`, `jaq`, `bash case` |
+| 19 | Pool de identidades adaptativo v0.6.4 | `duckduckgo-search-cli`, `jaq`, `--identity-profile`, `--seed` |
 
 _Fim do Livro de Receitas._

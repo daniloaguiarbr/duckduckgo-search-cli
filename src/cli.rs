@@ -1,50 +1,60 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: declarative (CLI parsing via clap derive, zero runtime)
 //! CLI argument definitions via `clap` derive.
 //!
 //! This module contains ONLY declarative clap structs. ZERO business logic.
-//! Conversion of `ArgumentosCli` into `Configuracoes` used by the pipeline occurs
+//! Conversion of `CliArgs` into `Config` used by the pipeline occurs
 //! in the `lib.rs` module (`run` function).
 //!
 //! In iteration 6 the `init-config` subcommand was added — backward-compatible,
 //! since when no subcommand is passed, the previous search behavior is preserved
-//! via `#[command(subcommand)]` with `Option<Subcomando>`.
+//! via `#[command(subcommand)]` with `Option<Subcommand>`.
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand as ClapSubcommand, ValueEnum};
 use std::path::PathBuf;
 
-/// Hard upper bound for `--per-host-limit` (fetch-content).
-pub const PER_HOST_LIMIT_PADRAO: u32 = 2;
-pub const PER_HOST_LIMIT_MAXIMO: u32 = 10;
+// Shell completion generation (MP-04).
+pub use clap_complete::Shell as CompletionShell;
+
+/// Default value for `--per-host-limit` (concurrent fetches per host in `--fetch-content`).
+pub const DEFAULT_PER_HOST_LIMIT: u32 = 2;
+/// Hard upper bound for `--per-host-limit`.
+pub const MAX_PER_HOST_LIMIT: u32 = 10;
 
 /// Hard upper bound for parallelism degree, per sections 4.2 and 17.4.
-pub const PARALELISMO_MAXIMO: u32 = 20;
+pub const MAX_PARALLELISM: u32 = 20;
 
 /// Default parallelism degree when the user does not specify `-p`.
-pub const PARALELISMO_PADRAO: u32 = 5;
+pub const DEFAULT_PARALLELISM: u32 = 5;
 
 /// Hard upper bound for the number of pages (avoids expensive loops).
-pub const PAGINAS_MAXIMO: u32 = 5;
+pub const MAX_PAGES: u32 = 5;
 
 /// Hard upper bound for retries (avoids infinite-429 hangs).
-pub const RETRIES_MAXIMO: u32 = 10;
+pub const MAX_RETRIES: u32 = 10;
 
-/// Hard upper bound for `--max-content-length` (100_000 chars — ~100KB of clean text).
-pub const MAX_CONTENT_LENGTH_PADRAO: usize = 10_000;
-pub const MAX_CONTENT_LENGTH_MAXIMO: usize = 100_000;
+/// Default value for `--max-content-length` (characters of extracted page text).
+pub const DEFAULT_MAX_CONTENT_LENGTH: usize = 10_000;
+/// Hard upper bound for `--max-content-length` (`100_000` chars ~100 KB of clean text).
+pub const MAX_CONTENT_LENGTH_LIMIT: usize = 100_000;
 
-/// Min/max values for the `--global-timeout` flag in seconds.
-pub const GLOBAL_TIMEOUT_PADRAO: u64 = 60;
-pub const GLOBAL_TIMEOUT_MAXIMO: u64 = 3600;
+/// Default value for `--global-timeout` in seconds.
+pub const DEFAULT_GLOBAL_TIMEOUT: u64 = 60;
+/// Hard upper bound for `--global-timeout` (1 hour).
+pub const MAX_GLOBAL_TIMEOUT: u64 = 3600;
 
-/// Selectable DuckDuckGo endpoint via `--endpoint`.
+/// Selectable `DuckDuckGo` endpoint via `--endpoint`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum EndpointCli {
+pub enum CliEndpoint {
+    /// Full HTML endpoint (`html.duckduckgo.com`).
     Html,
+    /// Lightweight endpoint (`lite.duckduckgo.com`).
     Lite,
 }
 
 /// Time filter accepted by `--time-filter` (DDG `df` parameter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum FiltroTemporalCli {
+pub enum CliTimeFilter {
     /// Last day.
     D,
     /// Last week.
@@ -57,13 +67,56 @@ pub enum FiltroTemporalCli {
 
 /// Safe-search accepted by `--safe-search` (DDG `kp` parameter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum SafeSearchCli {
+pub enum CliSafeSearch {
+    /// Disable all content filters.
     Off,
+    /// DDG default moderate filtering.
     Moderate,
+    /// Strict filtering of adult content.
     On,
 }
 
-/// CLI for searching DuckDuckGo via pure HTTP, with structured output for LLM consumption.
+/// Browser identity profile accepted by `--identity-profile`.
+///
+/// `Auto` (default) selects from the 12-identity pool adaptively, rotating on
+/// detected blocks. The other variants pin the session to a single identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CliIdentityProfile {
+    /// Adaptive selection from the 12-identity pool (default).
+    Auto,
+    /// Chrome on Windows.
+    ChromeWin,
+    /// Chrome on macOS.
+    ChromeMac,
+    /// Chrome on Linux.
+    ChromeLinux,
+    /// Edge on Windows.
+    EdgeWin,
+    /// Firefox on Linux.
+    FirefoxLinux,
+    /// Safari on macOS.
+    SafariMac,
+}
+
+impl CliIdentityProfile {
+    /// Returns the family and platform tuple for the profile, or `None` for `Auto`.
+    pub fn family_and_platform(
+        self,
+    ) -> Option<(crate::identity::BrowserFamily, crate::identity::Platform)> {
+        use crate::identity::{BrowserFamily, Platform};
+        match self {
+            Self::Auto => None,
+            Self::ChromeWin => Some((BrowserFamily::Chrome, Platform::Windows)),
+            Self::ChromeMac => Some((BrowserFamily::Chrome, Platform::MacOS)),
+            Self::ChromeLinux => Some((BrowserFamily::Chrome, Platform::Linux)),
+            Self::EdgeWin => Some((BrowserFamily::Edge, Platform::Windows)),
+            Self::FirefoxLinux => Some((BrowserFamily::Firefox, Platform::Linux)),
+            Self::SafariMac => Some((BrowserFamily::Safari, Platform::MacOS)),
+        }
+    }
+}
+
+/// CLI for searching `DuckDuckGo` via pure HTTP, with structured output for LLM consumption.
 ///
 /// Root accepts an optional subcommand. When no subcommand is passed, the
 /// default behavior is `buscar` — maintains full backward compatibility with
@@ -90,37 +143,47 @@ PIPE USAGE:\n\
     duckduckgo-search-cli -q -f json \"query\" | jaq '.resultados[].url'\n\
     Logs go to stderr (-q suppresses them). JSON goes to stdout."
 )]
-pub struct ArgumentosRaiz {
+pub struct RootArgs {
     /// Optional subcommand (`init-config`). No subcommand = search (default).
     #[command(subcommand)]
-    pub subcomando: Option<Subcomando>,
+    pub subcomando: Option<Subcommand>,
 
     /// Search arguments (also accepted without a subcommand for backward compatibility).
     #[command(flatten)]
-    pub buscar: ArgumentosCli,
+    pub buscar: CliArgs,
 }
 
-/// Supported subcommands. Chosen architecture: `Option<Subcomando>` at the root
+/// Supported subcommands. Chosen architecture: `Option<Subcommand>` at the root
 /// allows invocation without a subcommand (direct search) OR with an explicit subcommand.
 ///
-/// `Buscar` is `Box`ed to avoid a large enum variant (ArgumentosCli has
+/// `Buscar` is `Box`ed to avoid a large enum variant (`CliArgs` has
 /// many clap-derived fields).
-#[derive(Debug, Clone, Subcommand)]
-pub enum Subcomando {
-    /// Search on DuckDuckGo (equivalent to the no-subcommand mode).
-    Buscar(Box<ArgumentosCli>),
+#[derive(Debug, Clone, ClapSubcommand)]
+pub enum Subcommand {
+    /// Search on `DuckDuckGo` (equivalent to the no-subcommand mode).
+    Buscar(Box<CliArgs>),
     /// Initializes configuration files (`selectors.toml`, `user-agents.toml`)
     /// in the default OS configuration directory.
-    InitConfig(ArgumentosInitConfig),
+    InitConfig(InitConfigArgs),
+    /// Generates shell completion scripts for the specified shell.
+    Completions(CompletionsArgs),
+}
+
+/// Arguments for the `completions` subcommand (MP-04).
+#[derive(Debug, Clone, Args)]
+pub struct CompletionsArgs {
+    /// Shell to generate completions for (bash, zsh, fish, powershell, elvish).
+    #[arg(value_enum)]
+    pub shell: CompletionShell,
 }
 
 /// Arguments specific to the `init-config` subcommand.
 #[derive(Debug, Clone, Args)]
-pub struct ArgumentosInitConfig {
+pub struct InitConfigArgs {
     /// Overwrites existing files. Without this flag, files already present
     /// are kept intact.
     #[arg(long = "force")]
-    pub forcar: bool,
+    pub force: bool,
 
     /// Simulates execution without writing any file to disk. Reports the actions
     /// that would be taken.
@@ -130,7 +193,7 @@ pub struct ArgumentosInitConfig {
 
 /// Search arguments (shared between the direct mode and the `buscar` subcommand).
 #[derive(Debug, Clone, Args)]
-pub struct ArgumentosCli {
+pub struct CliArgs {
     /// Search queries (free text). Accepts multiple space-separated values
     /// or via stdin (one per line) if none are passed here or via `--queries-file`.
     #[arg(value_name = "QUERY")]
@@ -141,7 +204,7 @@ pub struct ArgumentosCli {
     /// If omitted, uses 15; if `--num > 10` and `--pages == 1` (default),
     /// `--pages` is auto-elevated to `ceil(num/10)` up to a maximum of 5.
     #[arg(short = 'n', long = "num", value_name = "N")]
-    pub num_resultados: Option<u32>,
+    pub num_results: Option<u32>,
 
     /// Output format: `json`, `text`, `markdown` (`md`) or `auto`.
     /// `auto` uses `text` in a TTY and `json` in a pipe (and forces `json` when
@@ -152,12 +215,12 @@ pub struct ArgumentosCli {
         value_name = "FMT",
         default_value = "auto"
     )]
-    pub formato: String,
+    pub format: String,
 
     /// Writes output to the specified file instead of printing to stdout.
     /// Missing parent directories are created. On Unix, permissions 0o644 are applied.
     #[arg(short = 'o', long = "output", value_name = "PATH")]
-    pub arquivo_saida: Option<PathBuf>,
+    pub output_file: Option<PathBuf>,
 
     /// Per-query timeout in seconds (default: 15).
     #[arg(
@@ -166,232 +229,290 @@ pub struct ArgumentosCli {
         value_name = "SECS",
         default_value_t = 15
     )]
-    pub timeout_segundos: u64,
+    pub timeout_seconds: u64,
 
-    /// Language for DuckDuckGo's `kl` parameter (default: `pt`).
+    /// Language for `DuckDuckGo`'s `kl` parameter (default: `pt`).
     #[arg(short = 'l', long = "lang", value_name = "LANG", default_value = "pt")]
-    pub idioma: String,
+    pub language: String,
 
-    /// Country for DuckDuckGo's `kl` parameter (default: `br`).
+    /// Country for `DuckDuckGo`'s `kl` parameter (default: `br`).
     #[arg(short = 'c', long = "country", value_name = "CC", default_value = "br")]
-    pub pais: String,
+    pub country: String,
 
     /// Number of concurrent requests (default 5, maximum 20).
     #[arg(
         short = 'p',
         long = "parallel",
         value_name = "N",
-        default_value_t = PARALELISMO_PADRAO
+        default_value_t = DEFAULT_PARALLELISM
     )]
-    pub paralelismo: u32,
+    pub parallelism: u32,
 
     /// File containing additional queries (one per line). Empty lines are ignored.
     #[arg(long = "queries-file", value_name = "PATH")]
-    pub arquivo_queries: Option<PathBuf>,
+    pub queries_file: Option<PathBuf>,
 
     /// Number of pages to fetch per query (1..=5). Default 1.
     #[arg(long = "pages", value_name = "N", default_value_t = 1)]
-    pub paginas: u32,
+    pub pages: u32,
 
     /// Number of additional retries on 429/403/timeout (0..=10). Default 2.
     #[arg(long = "retries", value_name = "N", default_value_t = 2)]
     pub retries: u32,
 
     /// Preferred endpoint: `html` (default) or `lite` (forces the no-JavaScript endpoint).
-    #[arg(long = "endpoint", value_enum, default_value_t = EndpointCli::Html)]
-    pub endpoint: EndpointCli,
+    #[arg(long = "endpoint", value_enum, default_value_t = CliEndpoint::Html)]
+    pub endpoint: CliEndpoint,
 
     /// Time filter: `d` (day), `w` (week), `m` (month), `y` (year). Default: no filter.
     #[arg(long = "time-filter", value_enum)]
-    pub filtro_temporal: Option<FiltroTemporalCli>,
+    pub time_filter: Option<CliTimeFilter>,
 
     /// Safe-search: `off`, `moderate` (default) or `on`.
-    #[arg(long = "safe-search", value_enum, default_value_t = SafeSearchCli::Moderate)]
-    pub safe_search: SafeSearchCli,
+    #[arg(long = "safe-search", value_enum, default_value_t = CliSafeSearch::Moderate)]
+    pub safe_search: CliSafeSearch,
+
+    /// Pre-flight probe: sends one minimal request to the endpoint and reports
+    /// status + latency + Set-Cookie presence as JSON, then exits.
+    /// Useful for diagnosing whether `DuckDuckGo` is reachable from this IP/UA
+    /// before launching a real query.
+    #[arg(long = "probe")]
+    pub probe: bool,
+
+    /// Forces a specific browser identity profile from the 12-identity pool.
+    /// Default `auto` rotates adaptively on block (HTTP 202/403/429).
+    /// When set, the chosen identity is used for the whole session.
+    #[arg(long = "identity-profile", value_enum, default_value_t = CliIdentityProfile::Auto)]
+    pub identity_profile: CliIdentityProfile,
 
     /// Placeholder — streams results as they complete. Not implemented in iteration 2.
     #[arg(long = "stream")]
-    pub modo_stream: bool,
+    pub stream_mode: bool,
 
     /// Enables detailed logs on stderr (`tracing::debug` and `tracing::info`).
-    #[arg(short = 'v', long = "verbose", conflicts_with = "silencioso")]
-    pub verboso: bool,
+    #[arg(short = 'v', long = "verbose", conflicts_with = "quiet")]
+    pub verbose: bool,
 
     /// Suppresses all stderr logs, keeping only the main output on stdout.
-    #[arg(short = 'q', long = "quiet", conflicts_with = "verboso")]
-    pub silencioso: bool,
+    #[arg(short = 'q', long = "quiet", conflicts_with = "verbose")]
+    pub quiet: bool,
 
     /// Enables full text content extraction from each result URL (pure HTTP + readability).
     /// Makes one additional request per result, in parallel (limited by --parallel).
     #[arg(long = "fetch-content")]
-    pub buscar_conteudo: bool,
+    pub fetch_content: bool,
 
-    /// Maximum size (in characters) of the extracted content per page (1..=100_000).
-    /// Only effective with `--fetch-content`. Default 10_000.
+    /// Maximum size (in characters) of the extracted content per page (`1..=100_000`).
+    /// Only effective with `--fetch-content`. Default `10_000`.
     #[arg(
         long = "max-content-length",
         value_name = "N",
-        default_value_t = MAX_CONTENT_LENGTH_PADRAO
+        default_value_t = DEFAULT_MAX_CONTENT_LENGTH
     )]
-    pub max_tamanho_conteudo: usize,
+    pub max_content_length: usize,
 
     /// HTTP/HTTPS/SOCKS5 proxy URL (e.g., `http://user:pass@host:port`, `socks5://host:port`).
-    /// Takes precedence over the HTTP_PROXY/HTTPS_PROXY/ALL_PROXY environment variables.
-    #[arg(long = "proxy", value_name = "URL", conflicts_with = "sem_proxy")]
+    /// Takes precedence over the `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` environment variables.
+    #[arg(long = "proxy", value_name = "URL", conflicts_with = "no_proxy")]
     pub proxy: Option<String>,
 
-    /// Disables any proxy — ignores `--proxy` and the HTTP_PROXY/HTTPS_PROXY/ALL_PROXY env vars.
+    /// Disables any proxy — ignores `--proxy` and the `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` env vars.
     #[arg(long = "no-proxy", conflicts_with = "proxy")]
-    pub sem_proxy: bool,
+    pub no_proxy: bool,
 
     /// Global timeout for the entire execution in seconds (1..=3600). Default 60.
     /// Different from `--timeout`, which is per-request.
     #[arg(
         long = "global-timeout",
         value_name = "SECS",
-        default_value_t = GLOBAL_TIMEOUT_PADRAO
+        default_value_t = DEFAULT_GLOBAL_TIMEOUT
     )]
-    pub timeout_global_segundos: u64,
+    pub global_timeout_seconds: u64,
 
     /// Restricts UAs loaded from `user-agents.toml` to the current platform (linux/macos/windows).
     /// Only takes effect if the external TOML file is found; otherwise uses built-in defaults.
     #[arg(long = "match-platform-ua")]
-    pub corresponde_plataforma_ua: bool,
+    pub match_platform_ua: bool,
 
     /// Concurrent fetch limit PER HOST in `--fetch-content` mode (1..=10, default 2).
     /// Protects hosts from bursts — complements the global `--parallel` with a per-host gate.
     #[arg(
         long = "per-host-limit",
         value_name = "N",
-        default_value_t = PER_HOST_LIMIT_PADRAO
+        default_value_t = DEFAULT_PER_HOST_LIMIT
     )]
-    pub limite_por_host: u32,
+    pub per_host_limit: u32,
 
     /// Manual path to the Chrome/Chromium executable (`chrome` feature).
     /// Only useful with `--fetch-content` and the `chrome` feature compiled in;
     /// otherwise ignored with a stderr warning.
     #[arg(long = "chrome-path", value_name = "PATH")]
-    pub caminho_chrome: Option<PathBuf>,
+    pub chrome_path: Option<PathBuf>,
+
+    /// Disables colored output (respects `NO_COLOR` env var per no-color.org).
+    #[arg(long = "no-color")]
+    pub no_color: bool,
+
+    /// Seed for deterministic User-Agent selection (debugging reproducibility).
+    #[arg(long = "seed", value_name = "N")]
+    pub seed: Option<u64>,
+
+    /// Path to configuration directory (overrides default OS config path).
+    #[arg(long = "config", value_name = "PATH")]
+    pub config_path: Option<PathBuf>,
 }
 
-impl ArgumentosCli {
-    /// Validates that the parallelism degree is within the range `[1, PARALELISMO_MAXIMO]`.
-    pub fn validar_paralelismo(&self) -> Result<(), String> {
-        if self.paralelismo == 0 {
+impl CliArgs {
+    /// Validates that the parallelism degree is within the range `[1, MAX_PARALLELISM]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `--parallel` is zero or exceeds [`MAX_PARALLELISM`].
+    pub fn validate_parallelism(&self) -> Result<(), String> {
+        if self.parallelism == 0 {
             return Err(format!(
-                "--parallel deve ser pelo menos 1 (recebido {})",
-                self.paralelismo
+                "--parallel must be at least 1 (got {})",
+                self.parallelism
             ));
         }
-        if self.paralelismo > PARALELISMO_MAXIMO {
+        if self.parallelism > MAX_PARALLELISM {
             return Err(format!(
-                "--parallel não pode exceder {} (recebido {})",
-                PARALELISMO_MAXIMO, self.paralelismo
-            ));
-        }
-        Ok(())
-    }
-
-    /// Validates that the number of pages is within the range `[1, PAGINAS_MAXIMO]`.
-    pub fn validar_paginas(&self) -> Result<(), String> {
-        if self.paginas == 0 {
-            return Err(format!(
-                "--pages deve ser pelo menos 1 (recebido {})",
-                self.paginas
-            ));
-        }
-        if self.paginas > PAGINAS_MAXIMO {
-            return Err(format!(
-                "--pages não pode exceder {} (recebido {})",
-                PAGINAS_MAXIMO, self.paginas
+                "--parallel cannot exceed {} (got {})",
+                MAX_PARALLELISM, self.parallelism
             ));
         }
         Ok(())
     }
 
-    /// Validates that `--max-content-length` is within the range `[1, MAX_CONTENT_LENGTH_MAXIMO]`.
-    pub fn validar_max_tamanho_conteudo(&self) -> Result<(), String> {
-        if self.max_tamanho_conteudo == 0 {
-            return Err(format!(
-                "--max-content-length deve ser pelo menos 1 (recebido {})",
-                self.max_tamanho_conteudo
-            ));
+    /// Validates that the number of pages is within the range `[1, MAX_PAGES]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `--pages` is zero or exceeds [`MAX_PAGES`].
+    pub fn validate_pages(&self) -> Result<(), String> {
+        if self.pages == 0 {
+            return Err(format!("--pages must be at least 1 (got {})", self.pages));
         }
-        if self.max_tamanho_conteudo > MAX_CONTENT_LENGTH_MAXIMO {
+        if self.pages > MAX_PAGES {
             return Err(format!(
-                "--max-content-length não pode exceder {} (recebido {})",
-                MAX_CONTENT_LENGTH_MAXIMO, self.max_tamanho_conteudo
+                "--pages cannot exceed {} (got {})",
+                MAX_PAGES, self.pages
             ));
         }
         Ok(())
     }
 
-    /// Validates that `--global-timeout` is within the range `[1, GLOBAL_TIMEOUT_MAXIMO]`.
-    pub fn validar_global_timeout(&self) -> Result<(), String> {
-        if self.timeout_global_segundos == 0 {
+    /// Validates that `--max-content-length` is within the range `[1, MAX_CONTENT_LENGTH_LIMIT]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `--max-content-length` is zero or exceeds
+    /// [`MAX_CONTENT_LENGTH_LIMIT`].
+    pub fn validate_max_content_length(&self) -> Result<(), String> {
+        if self.max_content_length == 0 {
             return Err(format!(
-                "--global-timeout deve ser pelo menos 1 (recebido {})",
-                self.timeout_global_segundos
+                "--max-content-length must be at least 1 (got {})",
+                self.max_content_length
             ));
         }
-        if self.timeout_global_segundos > GLOBAL_TIMEOUT_MAXIMO {
+        if self.max_content_length > MAX_CONTENT_LENGTH_LIMIT {
             return Err(format!(
-                "--global-timeout não pode exceder {} segundos (recebido {})",
-                GLOBAL_TIMEOUT_MAXIMO, self.timeout_global_segundos
+                "--max-content-length cannot exceed {} (got {})",
+                MAX_CONTENT_LENGTH_LIMIT, self.max_content_length
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validates that `--global-timeout` is within the range `[1, MAX_GLOBAL_TIMEOUT]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `--global-timeout` is zero or exceeds
+    /// [`MAX_GLOBAL_TIMEOUT`].
+    pub fn validate_global_timeout(&self) -> Result<(), String> {
+        if self.global_timeout_seconds == 0 {
+            return Err(format!(
+                "--global-timeout must be at least 1 (got {})",
+                self.global_timeout_seconds
+            ));
+        }
+        if self.global_timeout_seconds > MAX_GLOBAL_TIMEOUT {
+            return Err(format!(
+                "--global-timeout cannot exceed {} seconds (got {})",
+                MAX_GLOBAL_TIMEOUT, self.global_timeout_seconds
             ));
         }
         Ok(())
     }
 
     /// Validates that `--proxy`, when provided, is a parseable URL with a supported scheme.
-    pub fn validar_proxy(&self) -> Result<(), String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `--proxy` is not a valid URL or uses an unsupported
+    /// scheme (only `http`, `https`, `socks5`, and `socks5h` are accepted).
+    pub fn validate_proxy(&self) -> Result<(), String> {
         let Some(url) = self.proxy.as_deref() else {
             return Ok(());
         };
-        let parseada = reqwest::Url::parse(url)
-            .map_err(|e| format!("URL de --proxy inválida ({url:?}): {e}"))?;
-        match parseada.scheme() {
+        let parsed =
+            reqwest::Url::parse(url).map_err(|e| format!("invalid --proxy URL ({url:?}): {e}"))?;
+        match parsed.scheme() {
             "http" | "https" | "socks5" | "socks5h" => Ok(()),
-            outro => Err(format!(
-                "scheme {outro:?} não suportado em --proxy (use http/https/socks5)"
+            other => Err(format!(
+                "scheme {other:?} not supported in --proxy (use http/https/socks5)"
             )),
         }
     }
 
-    /// Validates that the number of retries is within the range `[0, RETRIES_MAXIMO]`.
-    pub fn validar_retries(&self) -> Result<(), String> {
-        if self.retries > RETRIES_MAXIMO {
+    /// Validates that the number of retries is within the range `[0, MAX_RETRIES]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `--retries` exceeds [`MAX_RETRIES`].
+    pub fn validate_retries(&self) -> Result<(), String> {
+        if self.retries > MAX_RETRIES {
             return Err(format!(
-                "--retries não pode exceder {} (recebido {})",
-                RETRIES_MAXIMO, self.retries
+                "--retries cannot exceed {} (got {})",
+                MAX_RETRIES, self.retries
             ));
         }
         Ok(())
     }
 
-    /// Validates that `--per-host-limit` is within the range `[1, PER_HOST_LIMIT_MAXIMO]`.
-    pub fn validar_limite_por_host(&self) -> Result<(), String> {
-        if self.limite_por_host == 0 {
+    /// Validates that `--per-host-limit` is within the range `[1, MAX_PER_HOST_LIMIT]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `--per-host-limit` is zero or exceeds
+    /// [`MAX_PER_HOST_LIMIT`].
+    pub fn validate_per_host_limit(&self) -> Result<(), String> {
+        if self.per_host_limit == 0 {
             return Err(format!(
-                "--per-host-limit deve ser pelo menos 1 (recebido {})",
-                self.limite_por_host
+                "--per-host-limit must be at least 1 (got {})",
+                self.per_host_limit
             ));
         }
-        if self.limite_por_host > PER_HOST_LIMIT_MAXIMO {
+        if self.per_host_limit > MAX_PER_HOST_LIMIT {
             return Err(format!(
-                "--per-host-limit não pode exceder {} (recebido {})",
-                PER_HOST_LIMIT_MAXIMO, self.limite_por_host
+                "--per-host-limit cannot exceed {} (got {})",
+                MAX_PER_HOST_LIMIT, self.per_host_limit
             ));
         }
         Ok(())
     }
 
     /// Validates that `--timeout` is at least 1 second.
-    pub fn validar_timeout_segundos(&self) -> Result<(), String> {
-        if self.timeout_segundos == 0 {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if `--timeout` is zero.
+    pub fn validate_timeout_seconds(&self) -> Result<(), String> {
+        if self.timeout_seconds == 0 {
             return Err(format!(
-                "--timeout deve ser pelo menos 1 (recebido {})",
-                self.timeout_segundos
+                "--timeout must be at least 1 (got {})",
+                self.timeout_seconds
             ));
         }
         Ok(())
@@ -399,74 +520,72 @@ impl ArgumentosCli {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     use clap::CommandFactory;
 
-    /// Helper: parseia argumentos via raiz e extrai `ArgumentosCli` (fluxo default = Buscar).
+    /// Helper: parses arguments via root and extracts `CliArgs` (default flow = Buscar).
     /// Replicates the convenience behavior of tests prior to the introduction of the subcommand.
-    fn parse_buscar(argv: &[&str]) -> Result<ArgumentosCli, clap::Error> {
-        let raiz = ArgumentosRaiz::try_parse_from(argv)?;
-        match raiz.subcomando {
-            Some(Subcomando::Buscar(a)) => Ok(*a),
-            Some(Subcomando::InitConfig(_)) => {
-                // Em testes chamamos parse_buscar apenas com args de busca — se cair aqui,
-                // é bug do teste.
+    fn parse_buscar(argv: &[&str]) -> Result<CliArgs, clap::Error> {
+        let root = RootArgs::try_parse_from(argv)?;
+        match root.subcomando {
+            Some(Subcommand::Buscar(a)) => Ok(*a),
+            Some(Subcommand::InitConfig(_)) | Some(Subcommand::Completions(_)) => {
                 Err(clap::Error::raw(
                     clap::error::ErrorKind::InvalidSubcommand,
-                    "subcomando init-config retornado em contexto que esperava busca",
+                    "subcomando nao-busca retornado em contexto que esperava busca",
                 ))
             }
-            None => Ok(raiz.buscar),
+            None => Ok(root.buscar),
         }
     }
 
     #[test]
-    fn cli_passa_validacao_de_schema() {
+    fn cli_passes_schema_validation() {
         // `debug_assert` do clap valida a struct em tempo de chamada.
-        ArgumentosRaiz::command().debug_assert();
+        RootArgs::command().debug_assert();
     }
 
     #[test]
     fn parseia_query_simples() {
-        let argumentos = parse_buscar(&["bin", "rust async"]).expect("deve parsear");
-        assert_eq!(argumentos.queries, vec!["rust async".to_string()]);
-        // Default agora é "auto" (resolvido em runtime via TTY detection).
-        assert_eq!(argumentos.formato, "auto");
-        assert!(argumentos.arquivo_saida.is_none());
-        assert_eq!(argumentos.timeout_segundos, 15);
-        assert_eq!(argumentos.idioma, "pt");
-        assert_eq!(argumentos.pais, "br");
-        assert_eq!(argumentos.paralelismo, PARALELISMO_PADRAO);
-        assert_eq!(argumentos.paginas, 1);
-        assert_eq!(argumentos.retries, 2);
-        assert_eq!(argumentos.endpoint, EndpointCli::Html);
-        assert!(argumentos.filtro_temporal.is_none());
-        assert_eq!(argumentos.safe_search, SafeSearchCli::Moderate);
-        assert!(!argumentos.modo_stream);
-        assert!(argumentos.arquivo_queries.is_none());
-        assert!(!argumentos.verboso);
-        assert!(!argumentos.silencioso);
-        assert!(!argumentos.buscar_conteudo);
-        assert_eq!(argumentos.max_tamanho_conteudo, MAX_CONTENT_LENGTH_PADRAO);
-        assert!(argumentos.proxy.is_none());
-        assert!(!argumentos.sem_proxy);
-        assert_eq!(argumentos.timeout_global_segundos, GLOBAL_TIMEOUT_PADRAO);
-        assert!(!argumentos.corresponde_plataforma_ua);
+        let args = parse_buscar(&["bin", "rust async"]).expect("should parse");
+        assert_eq!(args.queries, vec!["rust async".to_string()]);
+        // Default is now "auto" (resolved at runtime via TTY detection).
+        assert_eq!(args.format, "auto");
+        assert!(args.output_file.is_none());
+        assert_eq!(args.timeout_seconds, 15);
+        assert_eq!(args.language, "pt");
+        assert_eq!(args.country, "br");
+        assert_eq!(args.parallelism, DEFAULT_PARALLELISM);
+        assert_eq!(args.pages, 1);
+        assert_eq!(args.retries, 2);
+        assert_eq!(args.endpoint, CliEndpoint::Html);
+        assert!(args.time_filter.is_none());
+        assert_eq!(args.safe_search, CliSafeSearch::Moderate);
+        assert!(!args.stream_mode);
+        assert!(args.queries_file.is_none());
+        assert!(!args.verbose);
+        assert!(!args.quiet);
+        assert!(!args.fetch_content);
+        assert_eq!(args.max_content_length, DEFAULT_MAX_CONTENT_LENGTH);
+        assert!(args.proxy.is_none());
+        assert!(!args.no_proxy);
+        assert_eq!(args.global_timeout_seconds, DEFAULT_GLOBAL_TIMEOUT);
+        assert!(!args.match_platform_ua);
     }
 
     #[test]
     fn parseia_fetch_content_e_max_content_length() {
-        let argumentos = parse_buscar(&[
+        let args = parse_buscar(&[
             "bin",
             "--fetch-content",
             "--max-content-length",
             "500",
             "rust",
         ])
-        .expect("deve parsear --fetch-content");
-        assert!(argumentos.buscar_conteudo);
-        assert_eq!(argumentos.max_tamanho_conteudo, 500);
+        .expect("should parse --fetch-content");
+        assert!(args.fetch_content);
+        assert_eq!(args.max_content_length, 500);
     }
 
     #[test]
@@ -477,75 +596,75 @@ mod testes {
             "http://user:pass@proxy.local:8080",
             "rust",
         ])
-        .expect("deve parsear --proxy");
+        .expect("should parse --proxy");
         assert_eq!(
             ok.proxy.as_deref(),
             Some("http://user:pass@proxy.local:8080")
         );
-        assert!(!ok.sem_proxy);
+        assert!(!ok.no_proxy);
 
-        let sem = parse_buscar(&["bin", "--no-proxy", "rust"]).expect("deve parsear --no-proxy");
-        assert!(sem.sem_proxy);
-        assert!(sem.proxy.is_none());
+        let no = parse_buscar(&["bin", "--no-proxy", "rust"]).expect("should parse --no-proxy");
+        assert!(no.no_proxy);
+        assert!(no.proxy.is_none());
 
-        let erro = parse_buscar(&["bin", "--proxy", "http://x", "--no-proxy", "rust"]);
-        assert!(erro.is_err(), "--proxy + --no-proxy deve conflitar");
+        let err = parse_buscar(&["bin", "--proxy", "http://x", "--no-proxy", "rust"]);
+        assert!(err.is_err(), "--proxy + --no-proxy deve conflitar");
     }
 
     #[test]
     fn parseia_global_timeout() {
-        let argumentos = parse_buscar(&["bin", "--global-timeout", "30", "rust"]).unwrap();
-        assert_eq!(argumentos.timeout_global_segundos, 30);
+        let args = parse_buscar(&["bin", "--global-timeout", "30", "rust"]).unwrap();
+        assert_eq!(args.global_timeout_seconds, 30);
     }
 
     #[test]
-    fn validar_max_tamanho_conteudo_faixa() {
-        let mut argumentos = parse_buscar(&["bin", "q"]).unwrap();
-        argumentos.max_tamanho_conteudo = 0;
-        assert!(argumentos.validar_max_tamanho_conteudo().is_err());
-        argumentos.max_tamanho_conteudo = MAX_CONTENT_LENGTH_MAXIMO + 1;
-        assert!(argumentos.validar_max_tamanho_conteudo().is_err());
-        argumentos.max_tamanho_conteudo = 5000;
-        assert!(argumentos.validar_max_tamanho_conteudo().is_ok());
+    fn validate_max_content_length_range() {
+        let mut args = parse_buscar(&["bin", "q"]).unwrap();
+        args.max_content_length = 0;
+        assert!(args.validate_max_content_length().is_err());
+        args.max_content_length = MAX_CONTENT_LENGTH_LIMIT + 1;
+        assert!(args.validate_max_content_length().is_err());
+        args.max_content_length = 5000;
+        assert!(args.validate_max_content_length().is_ok());
     }
 
     #[test]
-    fn validar_global_timeout_faixa() {
-        let mut argumentos = parse_buscar(&["bin", "q"]).unwrap();
-        argumentos.timeout_global_segundos = 0;
-        assert!(argumentos.validar_global_timeout().is_err());
-        argumentos.timeout_global_segundos = GLOBAL_TIMEOUT_MAXIMO + 1;
-        assert!(argumentos.validar_global_timeout().is_err());
-        argumentos.timeout_global_segundos = 120;
-        assert!(argumentos.validar_global_timeout().is_ok());
+    fn validate_global_timeout_range() {
+        let mut args = parse_buscar(&["bin", "q"]).unwrap();
+        args.global_timeout_seconds = 0;
+        assert!(args.validate_global_timeout().is_err());
+        args.global_timeout_seconds = MAX_GLOBAL_TIMEOUT + 1;
+        assert!(args.validate_global_timeout().is_err());
+        args.global_timeout_seconds = 120;
+        assert!(args.validate_global_timeout().is_ok());
     }
 
     #[test]
-    fn validar_proxy_aceita_schemes_suportados() {
-        let mut argumentos = parse_buscar(&["bin", "q"]).unwrap();
+    fn validate_proxy_accepts_supported_schemes() {
+        let mut args = parse_buscar(&["bin", "q"]).unwrap();
         for ok in [
             "http://proxy:8080",
             "https://user:pass@proxy:8443",
             "socks5://127.0.0.1:9050",
             "socks5h://host:1080",
         ] {
-            argumentos.proxy = Some(ok.to_string());
+            args.proxy = Some(ok.to_string());
             assert!(
-                argumentos.validar_proxy().is_ok(),
+                args.validate_proxy().is_ok(),
                 "proxy {ok:?} deveria ser aceito"
             );
         }
-        argumentos.proxy = Some("ftp://proxy".to_string());
-        assert!(argumentos.validar_proxy().is_err());
-        argumentos.proxy = Some("nao-eh-uma-url".to_string());
-        assert!(argumentos.validar_proxy().is_err());
-        argumentos.proxy = None;
-        assert!(argumentos.validar_proxy().is_ok());
+        args.proxy = Some("ftp://proxy".to_string());
+        assert!(args.validate_proxy().is_err());
+        args.proxy = Some("nao-eh-uma-url".to_string());
+        assert!(args.validate_proxy().is_err());
+        args.proxy = None;
+        assert!(args.validate_proxy().is_ok());
     }
 
     #[test]
-    fn parseia_flags_de_resiliencia_e_filtros() {
-        let argumentos = parse_buscar(&[
+    fn parses_resilience_and_filter_flags() {
+        let args = parse_buscar(&[
             "bin",
             "--pages",
             "3",
@@ -559,44 +678,44 @@ mod testes {
             "on",
             "rust",
         ])
-        .expect("deve parsear flags de resiliência");
-        assert_eq!(argumentos.paginas, 3);
-        assert_eq!(argumentos.retries, 5);
-        assert_eq!(argumentos.endpoint, EndpointCli::Lite);
-        assert_eq!(argumentos.filtro_temporal, Some(FiltroTemporalCli::W));
-        assert_eq!(argumentos.safe_search, SafeSearchCli::On);
+        .expect("should parse resilience flags");
+        assert_eq!(args.pages, 3);
+        assert_eq!(args.retries, 5);
+        assert_eq!(args.endpoint, CliEndpoint::Lite);
+        assert_eq!(args.time_filter, Some(CliTimeFilter::W));
+        assert_eq!(args.safe_search, CliSafeSearch::On);
     }
 
     #[test]
-    fn validar_paginas_aceita_faixa_e_rejeita_invalidos() {
-        let mut argumentos = parse_buscar(&["bin", "qualquer"]).unwrap();
+    fn validate_pages_accepts_range_and_rejects_invalid() {
+        let mut args = parse_buscar(&["bin", "qualquer"]).unwrap();
         for v in [1u32, 2, 5] {
-            argumentos.paginas = v;
-            assert!(argumentos.validar_paginas().is_ok(), "paginas {v}");
+            args.pages = v;
+            assert!(args.validate_pages().is_ok(), "pages {v}");
         }
-        argumentos.paginas = 0;
-        assert!(argumentos.validar_paginas().is_err());
-        argumentos.paginas = 6;
-        assert!(argumentos.validar_paginas().is_err());
+        args.pages = 0;
+        assert!(args.validate_pages().is_err());
+        args.pages = 6;
+        assert!(args.validate_pages().is_err());
     }
 
     #[test]
-    fn validar_retries_rejeita_acima_do_maximo() {
-        let mut argumentos = parse_buscar(&["bin", "qualquer"]).unwrap();
-        argumentos.retries = 0;
-        assert!(argumentos.validar_retries().is_ok());
-        argumentos.retries = 10;
-        assert!(argumentos.validar_retries().is_ok());
-        argumentos.retries = 11;
-        assert!(argumentos.validar_retries().is_err());
+    fn validate_retries_rejects_above_max() {
+        let mut args = parse_buscar(&["bin", "qualquer"]).unwrap();
+        args.retries = 0;
+        assert!(args.validate_retries().is_ok());
+        args.retries = 10;
+        assert!(args.validate_retries().is_ok());
+        args.retries = 11;
+        assert!(args.validate_retries().is_err());
     }
 
     #[test]
     fn parseia_multiplas_queries_posicionais() {
-        let argumentos = parse_buscar(&["bin", "rust async", "tokio runtime", "async channels"])
-            .expect("deve parsear múltiplas queries");
+        let args = parse_buscar(&["bin", "rust async", "tokio runtime", "async channels"])
+            .expect("should parse multiple queries");
         assert_eq!(
-            argumentos.queries,
+            args.queries,
             vec![
                 "rust async".to_string(),
                 "tokio runtime".to_string(),
@@ -607,7 +726,7 @@ mod testes {
 
     #[test]
     fn parseia_flags_customizadas() {
-        let argumentos = parse_buscar(&[
+        let args = parse_buscar(&[
             "bin",
             "--num",
             "10",
@@ -624,158 +743,153 @@ mod testes {
             "--verbose",
             "teste de busca",
         ])
-        .expect("deve parsear com flags");
-        assert_eq!(argumentos.queries, vec!["teste de busca".to_string()]);
-        assert_eq!(argumentos.num_resultados, Some(10));
-        assert_eq!(argumentos.timeout_segundos, 30);
-        assert_eq!(argumentos.idioma, "en");
-        assert_eq!(argumentos.pais, "us");
-        assert_eq!(argumentos.paralelismo, 8);
-        assert!(argumentos.verboso);
+        .expect("should parse with flags");
+        assert_eq!(args.queries, vec!["teste de busca".to_string()]);
+        assert_eq!(args.num_results, Some(10));
+        assert_eq!(args.timeout_seconds, 30);
+        assert_eq!(args.language, "en");
+        assert_eq!(args.country, "us");
+        assert_eq!(args.parallelism, 8);
+        assert!(args.verbose);
     }
 
     #[test]
     fn parseia_flag_output_curta_e_longa() {
-        let argumentos =
-            parse_buscar(&["bin", "-o", "/tmp/saida.json", "q"]).expect("deve parsear -o");
+        let args = parse_buscar(&["bin", "-o", "/tmp/saida.json", "q"]).expect("should parse -o");
         assert_eq!(
-            argumentos.arquivo_saida.as_deref(),
+            args.output_file.as_deref(),
             Some(std::path::Path::new("/tmp/saida.json"))
         );
 
-        let argumentos2 =
-            parse_buscar(&["bin", "--output", "/tmp/x.md", "--format", "markdown", "q"])
-                .expect("deve parsear --output");
+        let args2 = parse_buscar(&["bin", "--output", "/tmp/x.md", "--format", "markdown", "q"])
+            .expect("should parse --output");
         assert_eq!(
-            argumentos2.arquivo_saida.as_deref(),
+            args2.output_file.as_deref(),
             Some(std::path::Path::new("/tmp/x.md"))
         );
-        assert_eq!(argumentos2.formato, "markdown");
+        assert_eq!(args2.format, "markdown");
     }
 
     #[test]
     fn parseia_arquivo_queries_e_stream() {
-        let argumentos = parse_buscar(&["bin", "--queries-file", "queries.txt", "--stream"])
-            .expect("deve parsear --queries-file e --stream");
-        assert!(argumentos.modo_stream);
+        let args = parse_buscar(&["bin", "--queries-file", "queries.txt", "--stream"])
+            .expect("should parse --queries-file and --stream");
+        assert!(args.stream_mode);
         assert_eq!(
-            argumentos.arquivo_queries.as_deref(),
+            args.queries_file.as_deref(),
             Some(std::path::Path::new("queries.txt"))
         );
-        assert!(argumentos.queries.is_empty());
+        assert!(args.queries.is_empty());
     }
 
     #[test]
     fn verbose_e_quiet_sao_mutuamente_exclusivos() {
-        let resultado = parse_buscar(&["bin", "--verbose", "--quiet", "query qualquer"]);
-        assert!(
-            resultado.is_err(),
-            "verbose + quiet deve falhar a validação"
-        );
+        let result = parse_buscar(&["bin", "--verbose", "--quiet", "query qualquer"]);
+        assert!(result.is_err(), "verbose + quiet deve falhar a validação");
     }
 
     #[test]
-    fn validar_paralelismo_aceita_faixa_permitida() {
-        let mut argumentos = parse_buscar(&["bin", "qualquer"]).unwrap();
-        for valor in [1u32, 5, 10, PARALELISMO_MAXIMO] {
-            argumentos.paralelismo = valor;
+    fn validate_parallelism_accepts_allowed_range() {
+        let mut args = parse_buscar(&["bin", "qualquer"]).unwrap();
+        for value in [1u32, 5, 10, MAX_PARALLELISM] {
+            args.parallelism = value;
             assert!(
-                argumentos.validar_paralelismo().is_ok(),
-                "--parallel {valor} deveria ser aceito"
+                args.validate_parallelism().is_ok(),
+                "--parallel {value} deveria ser aceito"
             );
         }
     }
 
     #[test]
-    fn validar_paralelismo_rejeita_valores_invalidos() {
-        let mut argumentos = parse_buscar(&["bin", "qualquer"]).unwrap();
-        argumentos.paralelismo = 0;
-        assert!(argumentos.validar_paralelismo().is_err());
-        argumentos.paralelismo = PARALELISMO_MAXIMO + 1;
-        assert!(argumentos.validar_paralelismo().is_err());
-        argumentos.paralelismo = 100;
-        assert!(argumentos.validar_paralelismo().is_err());
+    fn validate_parallelism_rejects_invalid_values() {
+        let mut args = parse_buscar(&["bin", "qualquer"]).unwrap();
+        args.parallelism = 0;
+        assert!(args.validate_parallelism().is_err());
+        args.parallelism = MAX_PARALLELISM + 1;
+        assert!(args.validate_parallelism().is_err());
+        args.parallelism = 100;
+        assert!(args.validate_parallelism().is_err());
     }
 
     #[test]
-    fn parseia_subcomando_init_config_com_flags() {
-        let raiz = ArgumentosRaiz::try_parse_from(["bin", "init-config", "--force", "--dry-run"])
-            .expect("deve parsear init-config");
-        let Some(Subcomando::InitConfig(args)) = raiz.subcomando else {
+    fn parses_init_config_subcommand_with_flags() {
+        let root = RootArgs::try_parse_from(["bin", "init-config", "--force", "--dry-run"])
+            .expect("should parse init-config");
+        let Some(Subcommand::InitConfig(args)) = root.subcomando else {
             panic!("esperava subcomando InitConfig");
         };
-        assert!(args.forcar);
+        assert!(args.force);
         assert!(args.dry_run);
     }
 
     #[test]
-    fn parseia_subcomando_init_config_sem_flags() {
-        let raiz = ArgumentosRaiz::try_parse_from(["bin", "init-config"])
-            .expect("deve parsear init-config sem flags");
-        let Some(Subcomando::InitConfig(args)) = raiz.subcomando else {
+    fn parses_init_config_subcommand_without_flags() {
+        let root = RootArgs::try_parse_from(["bin", "init-config"])
+            .expect("should parse init-config without flags");
+        let Some(Subcommand::InitConfig(args)) = root.subcomando else {
             panic!("esperava subcomando InitConfig");
         };
-        assert!(!args.forcar);
+        assert!(!args.force);
         assert!(!args.dry_run);
     }
 
     #[test]
     fn parseia_subcomando_buscar_explicito() {
-        let raiz = ArgumentosRaiz::try_parse_from(["bin", "buscar", "rust"])
-            .expect("deve parsear subcomando buscar");
-        let Some(Subcomando::Buscar(args)) = raiz.subcomando else {
+        let root = RootArgs::try_parse_from(["bin", "buscar", "rust"])
+            .expect("should parse buscar subcommand");
+        let Some(Subcommand::Buscar(args)) = root.subcomando else {
             panic!("esperava subcomando Buscar");
         };
         assert_eq!(args.queries, vec!["rust".to_string()]);
     }
 
     #[test]
-    fn subcomando_buscar_continua_pequeno_quando_boxed() {
-        // Garantia de regressão: Subcomando::Buscar ainda é Box — clippy lint large_enum.
-        let tamanho_enum = std::mem::size_of::<Subcomando>();
-        let tamanho_init = std::mem::size_of::<ArgumentosInitConfig>();
-        // Enum ≤ max(variant + discriminant) — Buscar é Box (ptr size).
+    fn search_subcommand_stays_small_when_boxed() {
+        // Regression guarantee: Subcommand::Buscar is still Box — clippy lint large_enum.
+        let enum_size = std::mem::size_of::<Subcommand>();
+        let init_size = std::mem::size_of::<InitConfigArgs>();
+        // Enum <= max(variant + discriminant) — Buscar is Box (ptr size).
         assert!(
-            tamanho_enum <= tamanho_init.max(std::mem::size_of::<usize>()) * 4,
-            "Subcomando cresceu inesperadamente: {tamanho_enum} bytes"
+            enum_size <= init_size.max(std::mem::size_of::<usize>()) * 4,
+            "Subcommand grew unexpectedly: {enum_size} bytes"
         );
     }
 
     #[test]
-    fn parse_sem_subcomando_usa_buscar_flatten() {
-        let raiz = ArgumentosRaiz::try_parse_from(["bin", "rust async"])
-            .expect("deve parsear sem subcomando");
-        assert!(raiz.subcomando.is_none());
-        assert_eq!(raiz.buscar.queries, vec!["rust async".to_string()]);
+    fn parse_without_subcommand_uses_search_flatten() {
+        let root = RootArgs::try_parse_from(["bin", "rust async"])
+            .expect("should parse without subcommand");
+        assert!(root.subcomando.is_none());
+        assert_eq!(root.buscar.queries, vec!["rust async".to_string()]);
     }
 
     #[test]
     fn parseia_per_host_limit() {
-        let argumentos = parse_buscar(&["bin", "--per-host-limit", "5", "q"]).unwrap();
-        assert_eq!(argumentos.limite_por_host, 5);
+        let args = parse_buscar(&["bin", "--per-host-limit", "5", "q"]).unwrap();
+        assert_eq!(args.per_host_limit, 5);
         let default = parse_buscar(&["bin", "q"]).unwrap();
-        assert_eq!(default.limite_por_host, PER_HOST_LIMIT_PADRAO);
+        assert_eq!(default.per_host_limit, DEFAULT_PER_HOST_LIMIT);
     }
 
     #[test]
-    fn validar_limite_por_host_faixa() {
-        let mut argumentos = parse_buscar(&["bin", "q"]).unwrap();
-        argumentos.limite_por_host = 0;
-        assert!(argumentos.validar_limite_por_host().is_err());
-        argumentos.limite_por_host = PER_HOST_LIMIT_MAXIMO + 1;
-        assert!(argumentos.validar_limite_por_host().is_err());
-        argumentos.limite_por_host = 2;
-        assert!(argumentos.validar_limite_por_host().is_ok());
+    fn validate_per_host_limit_range() {
+        let mut args = parse_buscar(&["bin", "q"]).unwrap();
+        args.per_host_limit = 0;
+        assert!(args.validate_per_host_limit().is_err());
+        args.per_host_limit = MAX_PER_HOST_LIMIT + 1;
+        assert!(args.validate_per_host_limit().is_err());
+        args.per_host_limit = 2;
+        assert!(args.validate_per_host_limit().is_ok());
     }
 
     #[test]
-    fn validar_timeout_segundos_rejeita_zero() {
-        let mut argumentos = parse_buscar(&["bin", "q"]).unwrap();
-        argumentos.timeout_segundos = 0;
-        assert!(argumentos.validar_timeout_segundos().is_err());
-        argumentos.timeout_segundos = 1;
-        assert!(argumentos.validar_timeout_segundos().is_ok());
-        argumentos.timeout_segundos = 15;
-        assert!(argumentos.validar_timeout_segundos().is_ok());
+    fn validate_timeout_seconds_rejects_zero() {
+        let mut args = parse_buscar(&["bin", "q"]).unwrap();
+        args.timeout_seconds = 0;
+        assert!(args.validate_timeout_seconds().is_err());
+        args.timeout_seconds = 1;
+        assert!(args.validate_timeout_seconds().is_ok());
+        args.timeout_seconds = 15;
+        assert!(args.validate_timeout_seconds().is_ok());
     }
 }

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: I/O-bound + CPU (HTTP fetch + readability extraction)
 //! Full text content extraction from URLs (flag `--fetch-content`).
 //!
 //! Pure HTTP implementation (iteration 5). For each URL:
@@ -10,22 +12,72 @@
 //!    - Identifies main container (article → main → [role=main] → body).
 //!    - Extracts text from relevant blocks (p, h1-6, li, blockquote, pre, td).
 //!    - Cleans up (excessive whitespace, short lines).
-//!    - Truncates at `tamanho_max` respecting word boundaries.
+//!    - Truncates at `max_size` respecting word boundaries.
 //! 5. If clean text < 200 chars → returns empty string signalling that
 //!    Chrome is likely needed (iteration 6).
 //!
 //! Headless Chrome fallback will come in iteration 6 under feature `chrome`.
 
-use anyhow::Result;
+use crate::error::CliError;
 use reqwest::Client;
 use scraper::{Html, Selector};
+use std::net::IpAddr;
 use tokio_util::sync::CancellationToken;
 
 /// Threshold below which we consider content "insufficient" (Chrome fallback candidate).
-const LIMIAR_CONTEUDO_MINIMO: usize = 200;
+const MIN_CONTENT_THRESHOLD: usize = 200;
 
 /// Character threshold per line to discard very short lines (e.g. navigation boilerplate).
-const LIMIAR_LINHA_MINIMA: usize = 20;
+const MIN_LINE_LENGTH: usize = 20;
+
+/// Hard cap on HTTP response body size before allocation (5 MB).
+const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
+/// Validates that a URL is safe to fetch (SSRF protection).
+///
+/// Rejects non-HTTP schemes (`file://`, `ftp://`, `data:`, etc.) and
+/// hosts that resolve to private/loopback IP ranges (RFC 1918, RFC 4193).
+fn is_safe_url(url: &str) -> bool {
+    let parsed = match reqwest::Url::parse(url) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return false,
+    }
+
+    let host = match parsed.host_str() {
+        Some(h) => h,
+        None => return false,
+    };
+
+    if host == "localhost" {
+        return false;
+    }
+
+    let host_clean = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = host_clean.parse::<IpAddr>() {
+        return !is_private_ip(ip);
+    }
+
+    true
+}
+
+fn is_private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.octets()[0] == 169 && v4.octets()[1] == 254
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+        }
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+    }
+}
 
 /// Extracts the main text content from a URL via pure HTTP.
 ///
@@ -36,96 +88,159 @@ const LIMIAR_LINHA_MINIMA: usize = 20;
 ///
 /// The returned text may be empty if extraction produced no content > 200 chars —
 /// in that case the caller knows a Chrome fallback would be needed.
-pub async fn extrair_conteudo_http(
-    cliente: &Client,
+///
+/// # Errors
+///
+/// Returns an error if the HTTP request fails, the response body
+/// cannot be read, or the operation is cancelled via the token.
+///
+/// # Cancel safety
+///
+/// This function is cancel-safe. Each `.await` point races against
+/// the cancellation token via `tokio::select!`, so dropping the
+/// future does not leak resources.
+pub async fn extract_http_content(
+    client: &Client,
     url: &str,
-    tamanho_max: usize,
+    max_size: usize,
     token: &CancellationToken,
-) -> Result<Option<(String, u32)>> {
+) -> Result<Option<(String, u32)>, CliError> {
     if token.is_cancelled() {
-        anyhow::bail!("extração cancelada para {url:?}");
+        return Err(CliError::NetworkError {
+            message: format!("extraction cancelled for {url:?}"),
+        });
     }
 
-    tracing::debug!(url, "iniciando extração de conteúdo HTTP");
+    if std::env::var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF").is_err() && !is_safe_url(url) {
+        tracing::warn!(
+            url,
+            "URL rejected by SSRF filter — unsafe scheme or private host"
+        );
+        return Ok(None);
+    }
 
-    // Request com future racing contra cancelamento.
-    let resposta = tokio::select! {
+    tracing::debug!(url, "starting HTTP content extraction");
+
+    let response = tokio::select! {
         biased;
         _ = token.cancelled() => {
-            anyhow::bail!("extração cancelada durante request de {url:?}");
+            return Err(CliError::NetworkError {
+                message: format!("extraction cancelled during request for {url:?}"),
+            });
         }
-        resultado = cliente.get(url).send() => resultado?
+        res = client.get(url).send() => res.map_err(|e| CliError::HttpError {
+            message: format!("HTTP request failed for {url}: {e}"),
+            cause: Some(e.into()),
+        })?
     };
 
-    if !resposta.status().is_success() {
-        tracing::debug!(url, status = %resposta.status(), "status HTTP não-sucesso — descartando");
+    if !response.status().is_success() {
+        tracing::debug!(url, status = %response.status(), "non-success HTTP status — discarding");
         return Ok(None);
     }
 
     // Extrai charset do Content-Type ANTES de consumir o body.
-    let content_type = resposta
+    let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
 
-    if !eh_html(&content_type) {
-        tracing::debug!(url, content_type, "Content-Type não é HTML — descartando");
+    if !is_html(&content_type) {
+        tracing::debug!(url, content_type, "Content-Type is not HTML — discarding");
         return Ok(None);
     }
 
-    let charset = extrair_charset(&content_type);
+    let charset = extract_charset(&content_type);
+
+    if let Some(cl) = response.headers().get(reqwest::header::CONTENT_LENGTH) {
+        if let Ok(size_str) = cl.to_str() {
+            if let Ok(size) = size_str.parse::<u64>() {
+                if size > MAX_BODY_BYTES as u64 {
+                    tracing::warn!(
+                        url,
+                        content_length = size,
+                        limit = MAX_BODY_BYTES,
+                        "response body exceeds size limit — skipping"
+                    );
+                    return Ok(None);
+                }
+            }
+        }
+    }
+
     let bytes = tokio::select! {
         biased;
         _ = token.cancelled() => {
-            anyhow::bail!("extração cancelada durante leitura de body de {url:?}");
+            return Err(CliError::NetworkError {
+                message: format!("extraction cancelled during body read for {url:?}"),
+            });
         }
-        resultado = resposta.bytes() => resultado?
+        res = response.bytes() => res.map_err(|e| CliError::HttpError {
+            message: format!("failed to read response body for {url}: {e}"),
+            cause: Some(e.into()),
+        })?
     };
 
-    let tamanho_original = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
-    tracing::debug!(url, tamanho = bytes.len(), "body baixado");
-
-    // Decodifica para UTF-8 usando encoding_rs + fallback lossy.
-    let html_utf8 = decodificar_para_utf8(&bytes, charset.as_deref());
-
-    // Parse + readability rodam em blocking pool: scraper usa Rc<_> internamente
-    // (html5ever) e NÃO é Send. spawn_blocking move-nos para thread pool dedicada.
-    let tamanho_max_local = tamanho_max;
-    let texto_limpo =
-        tokio::task::spawn_blocking(move || aplicar_readability(&html_utf8, tamanho_max_local))
-            .await
-            .map_err(|erro| anyhow::anyhow!("task de readability panicou: {erro}"))?;
-
-    if texto_limpo.len() < LIMIAR_CONTEUDO_MINIMO {
-        tracing::debug!(
+    if bytes.len() > MAX_BODY_BYTES {
+        tracing::warn!(
             url,
-            len = texto_limpo.len(),
-            "conteúdo extraído abaixo do limiar — sinalizando possível necessidade de Chrome"
+            actual_size = bytes.len(),
+            limit = MAX_BODY_BYTES,
+            "downloaded body exceeds size limit — discarding"
         );
-        // Retorna string vazia + tamanho original para sinalização (iteração 6 fará fallback).
-        return Ok(Some((String::new(), tamanho_original)));
+        return Ok(None);
     }
 
-    tracing::debug!(url, tamanho_limpo = texto_limpo.len(), "extração concluída");
-    Ok(Some((texto_limpo, tamanho_original)))
+    let size_original = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
+    tracing::debug!(url, size = bytes.len(), "body downloaded");
+
+    // Decodifica para UTF-8 usando encoding_rs + fallback lossy.
+    let html_utf8 = decode_to_utf8(&bytes, charset.as_deref());
+
+    // Parse + readability run in the blocking pool: scraper uses Rc<_> internally
+    // (html5ever) and is NOT Send. spawn_blocking moves us to a dedicated thread pool.
+    // spawn_blocking concurrency is bounded indirectly: callers in
+    // content_fetch::enrich_with_content hold a global semaphore permit,
+    // so at most `parallelism` tasks reach this point concurrently.
+    let max_size_local = max_size;
+    let clean_text =
+        tokio::task::spawn_blocking(move || apply_readability(&html_utf8, max_size_local))
+            .await
+            .map_err(|err| CliError::NetworkError {
+                message: format!("readability task panicked: {err}"),
+            })?;
+
+    if clean_text.len() < MIN_CONTENT_THRESHOLD {
+        tracing::debug!(
+            url,
+            len = clean_text.len(),
+            "extracted content below threshold — signalling possible Chrome need"
+        );
+        // Return empty string + original size for signaling (iteration 6 will fallback).
+        return Ok(Some((String::new(), size_original)));
+    }
+
+    tracing::debug!(url, clean_size = clean_text.len(), "extraction complete");
+    Ok(Some((clean_text, size_original)))
 }
 
 /// Checks whether the Content-Type corresponds to HTML (flexible for `text/html; charset=...`).
-fn eh_html(content_type: &str) -> bool {
-    let lower = content_type.to_ascii_lowercase();
-    lower.starts_with("text/html") || lower.starts_with("application/xhtml+xml")
+fn is_html(content_type: &str) -> bool {
+    let b = content_type.as_bytes();
+    (b.len() >= 9 && b[..9].eq_ignore_ascii_case(b"text/html"))
+        || (b.len() >= 21 && b[..21].eq_ignore_ascii_case(b"application/xhtml+xml"))
 }
 
 /// Extrai o valor de `charset=` de um Content-Type (se presente).
-fn extrair_charset(content_type: &str) -> Option<String> {
-    for parte in content_type.split(';') {
-        let trimmed = parte.trim();
-        if let Some(valor) = trimmed.strip_prefix("charset=") {
-            let limpo = valor.trim_matches(|c: char| c == '"' || c == '\'');
-            if !limpo.is_empty() {
-                return Some(limpo.to_ascii_lowercase());
+fn extract_charset(content_type: &str) -> Option<String> {
+    for part in content_type.split(';') {
+        let trimmed = part.trim();
+        if let Some(value) = trimmed.strip_prefix("charset=") {
+            let clean = value.trim_matches(|c: char| c == '"' || c == '\'');
+            if !clean.is_empty() {
+                return Some(clean.to_ascii_lowercase());
             }
         }
     }
@@ -136,10 +251,13 @@ fn extrair_charset(content_type: &str) -> Option<String> {
 ///
 /// - If `charset` is UTF-8 or absent → `from_utf8_lossy` (fast path).
 /// - Otherwise → `Encoding::for_label().decode()` with WINDOWS-1252 fallback on unknown label.
-pub fn decodificar_para_utf8(bytes: &[u8], charset: Option<&str>) -> String {
+pub fn decode_to_utf8(bytes: &[u8], charset: Option<&str>) -> String {
     let label = charset.unwrap_or("utf-8");
     if label == "utf-8" || label == "utf8" || label.is_empty() {
-        return String::from_utf8_lossy(bytes).into_owned();
+        return match std::str::from_utf8(bytes) {
+            Ok(valido) => valido.to_string(),
+            Err(_) => String::from_utf8_lossy(bytes).into_owned(),
+        };
     }
 
     match encoding_rs::Encoding::for_label(label.as_bytes()) {
@@ -150,7 +268,7 @@ pub fn decodificar_para_utf8(bytes: &[u8], charset: Option<&str>) -> String {
         None => {
             tracing::debug!(
                 charset = label,
-                "label de charset desconhecido — fallback UTF-8 lossy"
+                "unknown charset label — fallback to UTF-8 lossy"
             );
             String::from_utf8_lossy(bytes).into_owned()
         }
@@ -159,66 +277,46 @@ pub fn decodificar_para_utf8(bytes: &[u8], charset: Option<&str>) -> String {
 
 /// Applies simplified readability in 5 steps over UTF-8 HTML.
 ///
-/// Returns clean text truncated at `tamanho_max` characters (respecting word boundaries).
+/// Returns clean text truncated at `max_size` characters (respecting word boundaries).
 /// Called from within `spawn_blocking` because `scraper::Html` is not `Send`.
-fn aplicar_readability(html: &str, tamanho_max: usize) -> String {
-    let documento = Html::parse_document(html);
+fn apply_readability(html: &str, max_size: usize) -> String {
+    let document = Html::parse_document(html);
 
-    // Passo 1: lista de seletores CSS que DEVEM ser IGNORADOS (chrome/navegação/scripts).
-    // scraper não suporta remoção in-place fácil, então ao invés coletamos SEMÂNTICA de
-    // "elementos válidos dentro do container principal ignorando descendentes de chrome".
-    // Estratégia: encontramos container principal, iteramos blocos de texto DESDE QUE
-    // nenhum ancestral seja elemento de chrome.
+    // Step 1: list of CSS selectors that MUST be IGNORED (chrome/navigation/scripts).
+    // scraper doesn't support easy in-place removal, so instead we collect SEMANTICS of
+    // "valid elements within the main container ignoring descendants of chrome".
+    // Strategy: find the main container, iterate text blocks PROVIDED THAT
+    // no ancestor is a chrome element.
 
-    // Passo 2: identifica container principal.
-    let seletores_container: [&str; 8] = [
-        "article",
-        "main",
-        "[role=\"main\"]",
-        ".post-content",
-        ".article-body",
-        ".entry-content",
-        "#content",
-        ".content",
-    ];
-
+    // Step 2: identify main container.
     let mut container_ref = None;
-    for sel_str in &seletores_container {
-        if let Ok(sel) = Selector::parse(sel_str) {
-            if let Some(primeiro) = documento.select(&sel).next() {
-                container_ref = Some(primeiro);
-                break;
-            }
+    for sel in cached_sel_containers() {
+        if let Some(first_match) = document.select(sel).next() {
+            container_ref = Some(first_match);
+            break;
         }
     }
 
     // Fallback: body inteiro.
     let container = match container_ref {
         Some(c) => c,
-        None => match Selector::parse("body")
-            .ok()
-            .and_then(|s| documento.select(&s).next())
-        {
+        None => match document.select(cached_sel_body()).next() {
             Some(b) => b,
             None => return String::new(),
         },
     };
 
-    // Passo 3: extrai texto de blocos relevantes dentro do container.
-    // Seletores de blocos que aceitamos como conteúdo.
-    let blocos = match Selector::parse("p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, td, th") {
-        Ok(s) => s,
-        Err(_) => return String::new(),
-    };
+    // Step 3: extract text from relevant blocks within the container.
+    let blocks = cached_sel_blocks();
 
-    // Seletores de elementos IGNORADOS — se algum ancestral for desse tipo, pulamos.
-    // `scraper` não nos dá iteração direta de ancestrais — simulamos checando tags pai.
-    // Estratégia simples: para cada bloco, sobe pela cadeia até o root e descarta se
-    // encontrar uma tag proibida.
-    let tags_proibidas: &[&str] = &[
+    // IGNORED element selectors — if any ancestor is of this type, we skip.
+    // `scraper` doesn't give us direct ancestor iteration — we simulate by checking parent tags.
+    // Simple strategy: for each block, walk up the chain to the root and discard if
+    // a forbidden tag is found.
+    let excluded_tags: &[&str] = &[
         "nav", "header", "footer", "aside", "script", "style", "noscript", "iframe", "svg", "form",
     ];
-    let classes_proibidas: &[&str] = &[
+    let excluded_classes: &[&str] = &[
         "sidebar",
         "nav",
         "menu",
@@ -228,51 +326,60 @@ fn aplicar_readability(html: &str, tamanho_max: usize) -> String {
         "advertisement",
         "social-share",
     ];
-    let roles_proibidas: &[&str] = &["navigation", "banner", "contentinfo"];
+    let excluded_roles: &[&str] = &["navigation", "banner", "contentinfo"];
 
-    let mut linhas: Vec<String> = Vec::new();
-    for bloco in container.select(&blocos) {
-        if ancestral_eh_chrome(bloco, tags_proibidas, classes_proibidas, roles_proibidas) {
+    let mut lines_vec: Vec<String> = Vec::with_capacity(64);
+    for block in container.select(blocks) {
+        if has_excluded_ancestor(block, excluded_tags, excluded_classes, excluded_roles) {
             continue;
         }
-        // Junta o texto descendente com espaços.
-        let texto: String = bloco
-            .text()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        if !texto.is_empty() {
-            linhas.push(texto);
+        let mut text = String::with_capacity(256);
+        let mut needs_space = false;
+        for fragment in block.text() {
+            for word in fragment.split_whitespace() {
+                if needs_space {
+                    text.push(' ');
+                }
+                text.push_str(word);
+                needs_space = true;
+            }
+        }
+        if !text.is_empty() {
+            lines_vec.push(text);
         }
     }
 
-    // Passo 4: limpeza — linhas curtas descartadas, normaliza espaços entre linhas.
-    let conteudo: String = linhas
-        .into_iter()
-        .filter(|l| l.chars().count() >= LIMIAR_LINHA_MINIMA)
-        .collect::<Vec<_>>()
-        .join("\n");
+    // Step 4: cleanup — short lines discarded, normalize whitespace between lines.
+    let mut content = String::with_capacity(lines_vec.len() * 100);
+    let mut is_first = true;
+    for l in lines_vec {
+        if l.chars().count() >= MIN_LINE_LENGTH {
+            if !is_first {
+                content.push('\n');
+            }
+            content.push_str(&l);
+            is_first = false;
+        }
+    }
 
-    // Passo 5: trunca em tamanho_max caracteres respeitando palavra.
-    truncar_em_palavra(&conteudo, tamanho_max)
+    // Step 5: truncate at max_size characters respecting word boundaries.
+    truncate_at_word(&content, max_size)
 }
 
 /// Checks whether an element (or any ancestor) belongs to the "chrome" categories.
 ///
 /// Uses tree traversal via `parent()` up to the root (Document).
-fn ancestral_eh_chrome(
-    elemento: scraper::ElementRef<'_>,
+fn has_excluded_ancestor(
+    element: scraper::ElementRef<'_>,
     tags: &[&str],
     classes: &[&str],
     roles: &[&str],
 ) -> bool {
-    // O próprio elemento já entrou no seletor de blocos (p/h1/etc), mas pode estar
-    // aninhado dentro de um nav/header. Subimos pela cadeia de pais.
-    let mut atual_no = elemento.parent();
-    while let Some(no) = atual_no {
-        if let Some(el) = scraper::ElementRef::wrap(no) {
+    // The element itself matched the block selector (p/h1/etc), but may be
+    // nested inside a nav/header. Walk up the parent chain.
+    let mut current_node = element.parent();
+    while let Some(node) = current_node {
+        if let Some(el) = scraper::ElementRef::wrap(node) {
             let nome = el.value().name();
             if tags.iter().any(|t| t.eq_ignore_ascii_case(nome)) {
                 return true;
@@ -281,7 +388,7 @@ fn ancestral_eh_chrome(
                 for c in class_attr.split_ascii_whitespace() {
                     if classes
                         .iter()
-                        .any(|proibida| c.eq_ignore_ascii_case(proibida))
+                        .any(|excluded| c.eq_ignore_ascii_case(excluded))
                     {
                         return true;
                     }
@@ -293,124 +400,156 @@ fn ancestral_eh_chrome(
                 }
             }
         }
-        atual_no = no.parent();
+        current_node = node.parent();
     }
     false
 }
 
-/// Truncates `texto` at `tamanho_max` characters respecting word boundaries.
+/// Truncates `text` at `max_size` characters respecting word boundaries.
 ///
 /// If the cut falls in the middle of a word, backs up to the last whitespace.
 /// If there is no whitespace, performs a hard cut at the nearest valid character boundary.
-fn truncar_em_palavra(texto: &str, tamanho_max: usize) -> String {
-    if tamanho_max == 0 {
+fn truncate_at_word(text: &str, max_size: usize) -> String {
+    if max_size == 0 {
         return String::new();
     }
-    let contado: usize = texto.chars().count();
-    if contado <= tamanho_max {
-        return texto.to_string();
+    let byte_pos = text.char_indices().nth(max_size).map(|(i, _)| i);
+    let Some(cut) = byte_pos else {
+        return text.to_string();
+    };
+    let prefix = &text[..cut];
+    if let Some(pos) = prefix.rfind(char::is_whitespace) {
+        return prefix[..pos].trim_end().to_string();
     }
+    prefix.to_string()
+}
 
-    // Pega os primeiros `tamanho_max` chars, depois recua até o último whitespace.
-    let prefixo: String = texto.chars().take(tamanho_max).collect();
-    if let Some(pos) = prefixo.rfind(char::is_whitespace) {
-        return prefixo[..pos].trim_end().to_string();
-    }
-    prefixo
+fn cached_sel_containers() -> &'static [Selector] {
+    use std::sync::OnceLock;
+    static C: OnceLock<Vec<Selector>> = OnceLock::new();
+    C.get_or_init(|| {
+        [
+            "article",
+            "main",
+            "[role=\"main\"]",
+            ".post-content",
+            ".article-body",
+            ".entry-content",
+            "#content",
+            ".content",
+        ]
+        .iter()
+        .filter_map(|s| Selector::parse(s).ok())
+        .collect()
+    })
+}
+
+fn cached_sel_body() -> &'static Selector {
+    use std::sync::OnceLock;
+    static C: OnceLock<Selector> = OnceLock::new();
+    C.get_or_init(|| Selector::parse("body").unwrap())
+}
+
+fn cached_sel_blocks() -> &'static Selector {
+    use std::sync::OnceLock;
+    static C: OnceLock<Selector> = OnceLock::new();
+    C.get_or_init(|| {
+        Selector::parse("p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, td, th").unwrap()
+    })
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn eh_html_aceita_text_html_e_variantes() {
-        assert!(eh_html("text/html"));
-        assert!(eh_html("text/html; charset=utf-8"));
-        assert!(eh_html("application/xhtml+xml"));
-        assert!(eh_html("TEXT/HTML"));
+    fn is_html_accepts_text_html_and_variants() {
+        assert!(is_html("text/html"));
+        assert!(is_html("text/html; charset=utf-8"));
+        assert!(is_html("application/xhtml+xml"));
+        assert!(is_html("TEXT/HTML"));
     }
 
     #[test]
-    fn eh_html_rejeita_nao_html() {
-        assert!(!eh_html("application/pdf"));
-        assert!(!eh_html("image/png"));
-        assert!(!eh_html("application/json"));
-        assert!(!eh_html(""));
+    fn is_html_rejects_non_html() {
+        assert!(!is_html("application/pdf"));
+        assert!(!is_html("image/png"));
+        assert!(!is_html("application/json"));
+        assert!(!is_html(""));
     }
 
     #[test]
-    fn extrair_charset_identifica_utf8() {
+    fn extract_charset_identifies_utf8() {
         assert_eq!(
-            extrair_charset("text/html; charset=UTF-8"),
+            extract_charset("text/html; charset=UTF-8"),
             Some("utf-8".to_string())
         );
         assert_eq!(
-            extrair_charset("text/html; charset=\"iso-8859-1\""),
+            extract_charset("text/html; charset=\"iso-8859-1\""),
             Some("iso-8859-1".to_string())
         );
     }
 
     #[test]
-    fn extrair_charset_ausente_retorna_none() {
-        assert_eq!(extrair_charset("text/html"), None);
-        assert_eq!(extrair_charset(""), None);
+    fn extract_charset_absent_returns_none() {
+        assert_eq!(extract_charset("text/html"), None);
+        assert_eq!(extract_charset(""), None);
     }
 
     #[test]
     fn decodificar_utf8_puro() {
         let bytes = "olá mundo".as_bytes();
-        let s = decodificar_para_utf8(bytes, None);
+        let s = decode_to_utf8(bytes, None);
         assert_eq!(s, "olá mundo");
-        let s2 = decodificar_para_utf8(bytes, Some("utf-8"));
+        let s2 = decode_to_utf8(bytes, Some("utf-8"));
         assert_eq!(s2, "olá mundo");
     }
 
     #[test]
-    fn decodificar_latin1_para_utf8() {
-        // 'á' em Latin-1 é byte 0xE1.
+    fn decode_latin1_to_utf8() {
+        // 'a-acute' (U+00E1) in Latin-1 is byte 0xE1.
         let bytes: &[u8] = &[0xE1, 0x6C, 0x6F];
-        let s = decodificar_para_utf8(bytes, Some("iso-8859-1"));
+        let s = decode_to_utf8(bytes, Some("iso-8859-1"));
         assert_eq!(s, "álo");
     }
 
     #[test]
-    fn decodificar_windows1252_para_utf8() {
-        // 'ç' em Windows-1252 é byte 0xE7.
+    fn decode_windows1252_to_utf8() {
+        // 'c-cedilla' (U+00E7) in Windows-1252 is byte 0xE7.
         let bytes: &[u8] = &[0xE7];
-        let s = decodificar_para_utf8(bytes, Some("windows-1252"));
+        let s = decode_to_utf8(bytes, Some("windows-1252"));
         assert_eq!(s, "ç");
     }
 
     #[test]
-    fn decodificar_charset_desconhecido_cai_em_utf8_lossy() {
+    fn decode_unknown_charset_falls_back_to_utf8_lossy() {
         let bytes = "teste".as_bytes();
-        let s = decodificar_para_utf8(bytes, Some("charset-que-nao-existe"));
+        let s = decode_to_utf8(bytes, Some("charset-que-nao-existe"));
         assert_eq!(s, "teste");
     }
 
     #[test]
-    fn truncar_em_palavra_preserva_fronteira() {
-        let texto = "uma frase qualquer com várias palavras";
-        let t = truncar_em_palavra(texto, 10);
+    fn truncate_at_word_preserves_boundary() {
+        let text = "uma frase qualquer com várias palavras";
+        let t = truncate_at_word(text, 10);
         assert!(t.len() <= 10);
         assert!(!t.ends_with(' '));
-        // Não deve cortar no meio de uma palavra.
+        // Must not cut in the middle of a word.
         assert!(
-            texto.starts_with(&t),
-            "truncado ({t:?}) deve ser prefixo do original"
+            text.starts_with(&t),
+            "truncated ({t:?}) must be a prefix of the original"
         );
     }
 
     #[test]
-    fn truncar_em_palavra_texto_curto_retorna_original() {
-        assert_eq!(truncar_em_palavra("oi", 100), "oi");
-        assert_eq!(truncar_em_palavra("", 100), "");
+    fn truncate_at_word_short_text_returns_original() {
+        assert_eq!(truncate_at_word("oi", 100), "oi");
+        assert_eq!(truncate_at_word("", 100), "");
     }
 
     #[test]
-    fn truncar_em_palavra_sem_whitespace_corta_hard() {
-        let t = truncar_em_palavra("palavraSemEspacoNenhum", 10);
+    fn truncate_at_word_no_whitespace_cuts_hard() {
+        let t = truncate_at_word("palavraSemEspacoNenhum", 10);
         assert_eq!(t.chars().count(), 10);
     }
 
@@ -425,16 +564,16 @@ mod testes {
             </article>
             <footer>Copyright</footer>
             </body></html>"#;
-        let texto = aplicar_readability(html, 1000);
-        assert!(texto.contains("primeiro parágrafo"));
-        assert!(texto.contains("Segundo parágrafo"));
-        // Navegação e footer devem ser omitidos.
-        assert!(!texto.contains("Menu"));
-        assert!(!texto.contains("Copyright"));
+        let text = apply_readability(html, 1000);
+        assert!(text.contains("primeiro parágrafo"));
+        assert!(text.contains("Segundo parágrafo"));
+        // Navigation and footer must be omitted.
+        assert!(!text.contains("Menu"));
+        assert!(!text.contains("Copyright"));
     }
 
     #[test]
-    fn readability_usa_main_quando_nao_ha_article() {
+    fn readability_uses_main_when_no_article() {
         let html = r#"<html><body>
             <header>Cabeçalho irrelevante</header>
             <main>
@@ -442,10 +581,10 @@ mod testes {
               <p>Outro parágrafo relevante com conteúdo suficiente para não ser descartado.</p>
             </main>
             </body></html>"#;
-        let texto = aplicar_readability(html, 1000);
-        assert!(texto.contains("Conteúdo principal"));
-        assert!(texto.contains("Outro parágrafo"));
-        assert!(!texto.contains("Cabeçalho"));
+        let text = apply_readability(html, 1000);
+        assert!(text.contains("Conteúdo principal"));
+        assert!(text.contains("Outro parágrafo"));
+        assert!(!text.contains("Cabeçalho"));
     }
 
     #[test]
@@ -458,33 +597,88 @@ mod testes {
               <p>Parágrafo legítimo dentro de article com conteúdo o bastante para passar o limiar.</p>
             </article>
             </body></html>"#;
-        let texto = aplicar_readability(html, 1000);
-        assert!(texto.contains("Parágrafo legítimo"));
-        assert!(!texto.contains("dentro da nav"));
-        assert!(!texto.contains("var x = 1"));
-        assert!(!texto.contains("color: red"));
+        let text = apply_readability(html, 1000);
+        assert!(text.contains("Parágrafo legítimo"));
+        assert!(!text.contains("dentro da nav"));
+        assert!(!text.contains("var x = 1"));
+        assert!(!text.contains("color: red"));
     }
 
     #[test]
-    fn readability_trunca_em_tamanho_max() {
-        let conteudo_longo = "Parágrafo um com pelo menos vinte caracteres aqui.\n".repeat(100);
-        let html = format!("<html><body><article><p>{conteudo_longo}</p></article></body></html>");
-        let texto = aplicar_readability(&html, 200);
-        assert!(texto.chars().count() <= 200);
+    fn readability_truncates_at_max_size() {
+        let long_content = "Parágrafo um com pelo menos vinte caracteres aqui.\n".repeat(100);
+        let html = format!("<html><body><article><p>{long_content}</p></article></body></html>");
+        let text = apply_readability(&html, 200);
+        assert!(text.chars().count() <= 200);
     }
 
     #[test]
-    fn readability_retorna_vazio_sem_conteudo_suficiente() {
+    fn readability_returns_empty_without_enough_content() {
         // Apenas nav e footer — nada no main/article.
         let html = r#"<html><body>
             <nav>Menu curto</nav>
             <footer>Rodapé breve.</footer>
             </body></html>"#;
-        let texto = aplicar_readability(html, 1000);
-        // Deve ser string vazia (ou muito curta), sinalizando fallback necessário.
+        let text = apply_readability(html, 1000);
+        // Should be an empty string (or very short), signaling that fallback is needed.
         assert!(
-            texto.len() < LIMIAR_CONTEUDO_MINIMO,
-            "sem conteúdo substantivo esperado, obtido: {texto:?}"
+            text.len() < MIN_CONTENT_THRESHOLD,
+            "sem conteúdo substantivo esperado, obtido: {text:?}"
         );
+    }
+
+    #[test]
+    fn ssrf_rejects_file_scheme() {
+        assert!(!is_safe_url("file:///etc/passwd"));
+    }
+
+    #[test]
+    fn ssrf_rejects_ftp_scheme() {
+        assert!(!is_safe_url("ftp://internal.corp/data"));
+    }
+
+    #[test]
+    fn ssrf_rejects_data_scheme() {
+        assert!(!is_safe_url("data:text/html,<h1>hi</h1>"));
+    }
+
+    #[test]
+    fn ssrf_rejects_loopback_ipv4() {
+        assert!(!is_safe_url("http://127.0.0.1/secret"));
+    }
+
+    #[test]
+    fn ssrf_rejects_private_range_10() {
+        assert!(!is_safe_url("http://10.0.0.1/internal"));
+    }
+
+    #[test]
+    fn ssrf_rejects_private_range_192() {
+        assert!(!is_safe_url("http://192.168.1.1/admin"));
+    }
+
+    #[test]
+    fn ssrf_rejects_link_local() {
+        assert!(!is_safe_url("http://169.254.169.254/metadata"));
+    }
+
+    #[test]
+    fn ssrf_rejects_localhost() {
+        assert!(!is_safe_url("http://localhost/admin"));
+    }
+
+    #[test]
+    fn ssrf_accepts_public_https() {
+        assert!(is_safe_url("https://www.example.com/page"));
+    }
+
+    #[test]
+    fn ssrf_accepts_public_http() {
+        assert!(is_safe_url("http://example.com/page"));
+    }
+
+    #[test]
+    fn ssrf_rejects_ipv6_loopback() {
+        assert!(!is_safe_url("http://[::1]/secret"));
     }
 }

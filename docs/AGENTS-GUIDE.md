@@ -202,6 +202,26 @@ case $exit_code in
 esac
 ```
 
+### v0.6.4 Adaptive Identity Pool (WS-26)
+- 12 identities (4 browser families × 3 platforms) rotate through a 5-level cascade on HTTP 202/403/429
+- Inspect `metadados.identidade_usada` (e.g. `chrome-linux-11111111aaaa0001`) to know which identity succeeded
+- Inspect `metadados.nivel_cascata` (0..=4) to know how exhausted the pool is
+- Use `--probe` for pre-flight health checks in CI before launching real queries
+
+```bash
+# v0.6.4 adaptive anti-bot pre-flight
+timeout 15 duckduckgo-search-cli --probe && \
+  timeout 30 duckduckgo-search-cli -q -n 10 -f json "query" | \
+  jaq -r '.resultados[] | "[\(.metadados.identidade_usada // "n/a")] \(.titulo) — \(.url)"'
+
+# Pin a specific identity for reproducible testing
+timeout 30 duckduckgo-search-cli -q -n 10 -f json \
+  --identity-profile chrome-linux "query"
+
+# Reproducible identity rotation
+timeout 30 duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
+```
+
 
 ## Integration Examples
 ### Claude Code (Anthropic)
@@ -298,6 +318,10 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - NEVER use `--stream` — it is a placeholder and is not implemented
 - NEVER inject custom `Sec-Fetch-*` headers — v0.6.0 handles them automatically
 - NEVER raise `--parallel` above 5 or `--per-host-limit` above 2
+- Use `duckduckgo-search-cli --probe` in CI before launching real queries (v0.6.4+)
+- Treat `.metadados.identidade_usada` as `Option<String>` — use `// "n/a"` fallback in `jaq` (v0.6.4+)
+- Treat `.metadados.nivel_cascata` as `Option<u32>` — use `// 0` fallback in `jaq` (v0.6.4+)
+- For reproducible testing use `--identity-profile <name>` not `--seed` alone (v0.6.4+)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` v0.6.x.
+Schema contract valid for `duckduckgo-search-cli` v0.6.4.

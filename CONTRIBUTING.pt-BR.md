@@ -7,7 +7,7 @@
 ## Início Rápido
 
 ```bash
-git clone https://github.com/comandoaguiar/duckduckgo-search-cli
+git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
 cd duckduckgo-search-cli
 cargo check-all    # gate 1 — compila
 cargo lint         # gate 2 — clippy -D warnings

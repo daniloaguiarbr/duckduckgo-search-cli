@@ -52,9 +52,38 @@ expression = "ISC AND MIT AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
 [bans]
-multiple-versions = "warn"
+multiple-versions = "deny"
 wildcards = "deny"
 highlight = "all"
+
+# skip-tree: suppress ALL duplicate-version warnings rooted at these crates.
+# Each entry skips the named crate AND every transitive dependency it pulls in
+# that would otherwise trigger a duplicate-version error.
+#
+# Root cause 1 — chromiumoxide 0.7
+#   Brings in the async-std 1.x ecosystem (async-tungstenite 0.27, async-std 1.13,
+#   async-channel 1.x, event-listener 2.x, syn 1.x, winreg 0.52 → windows-sys 0.48,
+#   socket2 0.5, cpufeatures 0.2, getrandom 0.2, hashbrown 0.12, …).
+#   No upstream fix available: chromiumoxide has not released 0.8+ migrating away
+#   from async-std. Review when chromiumoxide 0.8+ ships or is replaced.
+skip-tree = [
+    { crate = "chromiumoxide@0.7.0", reason = "async-std + winreg ecosystem duplicates; no upgrade path until chromiumoxide 0.8+" },
+
+    # Root cause 2 — console-subscriber 0.4.1
+    #   Pulls tonic 0.12.3 → tower 0.4.13 (while reqwest/axum already use tower 0.5).
+    #   Also brings hdrhistogram 7.5.4 → base64 0.21 (while the rest of the tree uses 0.22).
+    #   Review when tokio-console / console-subscriber releases a version depending on
+    #   tonic 0.13+ (which requires tower 0.5+) and hdrhistogram 8+ (base64 0.22).
+    { crate = "console-subscriber@0.4.1", reason = "tonic 0.12/tower 0.4/hdrhistogram/base64 0.21 duplicates; awaiting console-subscriber upgrade to tonic 0.13+" },
+
+    # Root cause 3 — scraper 0.20.0
+    #   Uses selectors 0.25 which depends on phf 0.10 / phf_codegen 0.10 / phf_generator 0.10 /
+    #   phf_shared 0.10 / siphasher 0.3 / heck 0.4 / indexmap 1.x / linux-raw-sys 0.4 /
+    #   rustix 0.38 and getrandom 0.2 (via rand 0.8 build-dep chain).
+    #   Also pulls r-efi 5.x (via getrandom 0.3 → ahash 0.8 → scraper).
+    #   Review when scraper 0.21+ migrates selectors to phf 0.11+ and rustix 0.47+.
+    { crate = "scraper@0.20.0", reason = "phf 0.10/siphasher 0.3/heck 0.4/indexmap 1.x/rustix 0.38/linux-raw-sys 0.4 duplicates; awaiting scraper 0.21+ upgrade" },
+]
 
 [sources]
 unknown-registry = "deny"

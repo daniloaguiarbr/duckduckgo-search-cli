@@ -5,11 +5,13 @@
 
 - Somente a versão minor mais recente de `duckduckgo-search-cli` recebe atualizações de segurança.
 - Versões antigas não recebem backport.
-- Versão 0.6.2 é a versão atual com suporte
+- Versão 0.6.4 é a versão atual com suporte
 
 | Versão | Suportada |
 | ------- | --------- |
-| 0.6.2   | Sim       |
+| 0.6.4   | Sim       |
+| 0.6.3   | Não       |
+| 0.6.2   | Não       |
 | 0.6.1   | Não       |
 | antigas | Não       |
 
@@ -18,7 +20,7 @@
 
 - NÃO abra uma issue pública no GitHub para vulnerabilidades de segurança.
 - Reporte de forma privada via GitHub Security Advisories:
-- Acesse `https://github.com/comandoaguiar/duckduckgo-search-cli/security/advisories/new`
+- Acesse `https://github.com/daniloaguiarbr/duckduckgo-search-cli/security/advisories/new`
 - Preencha o formulário de advisory com:
 - Uma descrição clara do problema
 - Passos para reprodução (exemplo mínimo preferido)

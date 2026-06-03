@@ -2,8 +2,16 @@
 
 - CLI Rust para busca DuckDuckGo — retorna resultados como JSON, Markdown ou texto
 - Instale com: `cargo install duckduckgo-search-cli`
-- Versão atual: 0.6.2
+- Versão atual: 0.6.4
 - Repositório: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## Novidades da v0.6.4
+- Pool adaptativo de identidades anti-bot (12 identidades, 4 famílias × 3 plataformas)
+- Cascata de rotação em 5 níveis quando DDG bloqueia (HTTP 202/403/429)
+- Novos campos JSON: `metadados.identidade_usada` e `metadados.nivel_cascata` (aditivos, nao-breaking)
+- Novas flags CLI: `--probe` (pre-flight health check) e `--identity-profile` (fixa perfil)
+- Flag `--seed` agora também controla rotação do pool de identidades (era só UA)
 
 
 ## Documentação Canônica
@@ -96,6 +104,9 @@ duckduckgo-search-cli -q -n 10 --lang pt --country br -f json "query"
 | `--proxy` | off | URL do proxy (socks5:// ou http://) |
 | `--no-proxy` | false | Desabilita todas as fontes de proxy |
 | `--endpoint` | auto | Endpoint: auto, lite |
+| `--probe` | off | Pre-flight health check (1 requisição mínima, relatório JSON) |
+| `--identity-profile` | auto | Fixa perfil de identidade do pool (chrome-win, chrome-mac, firefox-linux, safari-mac, edge-win) |
+| `--seed N` | aleatório | Seed determinístico para UA e identidade |
 
 
 ## Exit Codes

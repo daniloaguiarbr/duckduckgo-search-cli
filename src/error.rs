@@ -1,186 +1,221 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: declarative (error enum definition via thiserror)
 //! Structured error codes as defined in specification section 14.3.
 //!
-//! In the MVP we use `anyhow::Result<T>` throughout the application for ergonomic
-//! propagation with `?`, and this module only exposes the error code constants that appear
-//! in the `error` field of the JSON output when something goes wrong in a recoverable way.
+//! The typed [`CliError`] enum maps each failure mode to a specific exit
+//! code and JSON error code. Library consumers should match on the enum
+//! variants; binary callers can use [`CliError::exit_code`] directly.
 
 /// Error codes that may appear in the `error` field of the JSON output.
 /// Correspond to the values listed in section 14.3 of the blueprint.
-#[allow(dead_code)] // Variantes serão todas utilizadas ao longo das próximas iterações.
-pub mod codigos {
+pub mod codes {
+    /// HTTP-level failure (timeout, connection refused, non-2xx status).
     pub const HTTP_ERROR: &str = "http_error";
+    /// Persistent rate limiting (HTTP 429 after exhausting retries).
     pub const RATE_LIMITED: &str = "rate_limited";
+    /// Anti-bot blocking detected (HTTP 202 anomaly or persistent 403).
     pub const BLOCKED: &str = "blocked";
+    /// Zero organic results across all queries.
     pub const NO_RESULTS_FOUND: &str = "no_results_found";
+    /// Selector configuration file is invalid or unparseable.
     pub const SELECTOR_CONFIG_INVALID: &str = "selector_config_invalid";
+    /// Pagination token extraction failed.
     pub const PAGINATION_FAILED: &str = "pagination_failed";
+    /// Global timeout exceeded.
     pub const TIMEOUT: &str = "timeout";
+    /// Operation cancelled via SIGINT / Ctrl-C.
     pub const CANCELLED: &str = "cancelled";
+    /// Chrome/Chromium executable not found on the system.
     pub const CHROME_NOT_FOUND: &str = "chrome_not_found";
+    /// Low-level network error (DNS, TLS, connection reset).
     pub const NETWORK_ERROR: &str = "network_error";
+    /// Proxy configuration or connection failure.
     pub const PROXY_ERROR: &str = "proxy_error";
 }
 
 /// Exit codes defined in specification section 17.7.
-#[allow(dead_code)]
 pub mod exit_codes {
     /// At least one query returned results.
-    pub const SUCESSO: i32 = 0;
+    pub const SUCCESS: i32 = 0;
     /// Generic error (configuration failure, IO, etc.).
-    pub const ERRO_GENERICO: i32 = 1;
+    pub const GENERIC_ERROR: i32 = 1;
     /// Invalid configuration (incompatible CLI arguments).
-    pub const CONFIGURACAO_INVALIDA: i32 = 2;
+    pub const INVALID_CONFIG: i32 = 2;
     /// Rate limiting or blocking on all queries.
-    pub const RATE_LIMITED_OU_BLOQUEADO: i32 = 3;
+    pub const RATE_LIMITED_OR_BLOCKED: i32 = 3;
     /// Global timeout exceeded.
-    pub const TIMEOUT_GLOBAL: i32 = 4;
+    pub const GLOBAL_TIMEOUT: i32 = 4;
     /// Zero results on all queries.
-    pub const ZERO_RESULTADOS: i32 = 5;
+    pub const ZERO_RESULTS: i32 = 5;
 }
 
 /// Typed error enum for the CLI domain.
 ///
 /// Each variant maps to a specific exit code and JSON error code.
-/// Introduced incrementally — the codebase continues using `anyhow::Result`
-/// for propagation, and this enum is used for explicit typing where needed.
 #[derive(thiserror::Error, Debug)]
-pub enum ErroCliDdg {
-    #[error("erro HTTP: {mensagem}")]
-    ErroHttp {
-        mensagem: String,
+#[non_exhaustive]
+pub enum CliError {
+    /// HTTP-level failure with optional source chain.
+    #[error("HTTP error: {message}")]
+    HttpError {
+        /// Human-readable description of the HTTP failure.
+        message: String,
+        /// Underlying cause, when available.
         #[source]
-        causa: Option<anyhow::Error>,
+        cause: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
 
-    #[error("rate limiting detectado pelo DuckDuckGo")]
+    /// Persistent rate limiting after exhausting retries (HTTP 429).
+    #[error("rate limiting detected by DuckDuckGo")]
     RateLimited,
 
-    #[error("bloqueio anti-bot detectado (HTTP 202 anomaly)")]
-    Bloqueado,
+    /// Anti-bot blocking detected (HTTP 202 anomaly or persistent 403).
+    #[error("anti-bot blocking detected (HTTP 202 anomaly)")]
+    Blocked,
 
-    #[error("zero resultados em todas as queries")]
-    SemResultados,
+    /// Zero organic results across all queries.
+    #[error("zero results across all queries")]
+    NoResults,
 
-    #[error("configuração inválida: {mensagem}")]
-    ConfiguracaoInvalida { mensagem: String },
+    /// Invalid CLI configuration (incompatible arguments, bad values).
+    #[error("invalid configuration: {message}")]
+    InvalidConfig {
+        /// Description of the configuration problem.
+        message: String,
+    },
 
-    #[error("timeout global excedido ({segundos}s)")]
-    TimeoutGlobal { segundos: u64 },
+    /// Global timeout exceeded.
+    #[error("global timeout exceeded ({seconds}s)")]
+    GlobalTimeout {
+        /// Configured timeout in seconds.
+        seconds: u64,
+    },
 
-    #[error("operação cancelada via SIGINT")]
-    Cancelado,
+    /// Operation cancelled via SIGINT / Ctrl-C.
+    #[error("operation cancelled via SIGINT")]
+    Cancelled,
 
-    #[error("erro de proxy: {mensagem}")]
-    ErroProxy { mensagem: String },
+    /// Proxy configuration or connection failure.
+    #[error("proxy error: {message}")]
+    ProxyError {
+        /// Description of the proxy problem.
+        message: String,
+    },
 
-    #[error("erro de rede: {mensagem}")]
-    ErroRede { mensagem: String },
+    /// Low-level network error (DNS, TLS, connection reset).
+    #[error("network error: {message}")]
+    NetworkError {
+        /// Description of the network failure.
+        message: String,
+    },
 
-    #[error("pipe fechado pelo consumidor (BrokenPipe)")]
-    PipeBroken,
+    /// Consumer closed the pipe (SIGPIPE / `BrokenPipe`).
+    #[error("pipe closed by consumer (BrokenPipe)")]
+    BrokenPipe,
 
-    #[error("caminho de saída inválido: {mensagem}")]
-    ErroPath { mensagem: String },
+    /// Output path is invalid (path traversal, system directory).
+    #[error("invalid output path: {message}")]
+    PathError {
+        /// Description of why the path was rejected.
+        message: String,
+    },
 }
 
-impl ErroCliDdg {
+impl CliError {
     /// Returns the exit code corresponding to this error variant.
     pub fn exit_code(&self) -> i32 {
         match self {
-            Self::ErroHttp { .. } | Self::ErroRede { .. } => exit_codes::ERRO_GENERICO,
-            Self::ConfiguracaoInvalida { .. } | Self::ErroProxy { .. } | Self::ErroPath { .. } => {
-                exit_codes::CONFIGURACAO_INVALIDA
+            Self::HttpError { .. } | Self::NetworkError { .. } => exit_codes::GENERIC_ERROR,
+            Self::InvalidConfig { .. } | Self::ProxyError { .. } | Self::PathError { .. } => {
+                exit_codes::INVALID_CONFIG
             }
-            Self::RateLimited | Self::Bloqueado => exit_codes::RATE_LIMITED_OU_BLOQUEADO,
-            Self::TimeoutGlobal { .. } => exit_codes::TIMEOUT_GLOBAL,
-            Self::SemResultados => exit_codes::ZERO_RESULTADOS,
-            Self::Cancelado => exit_codes::ERRO_GENERICO,
-            Self::PipeBroken => exit_codes::SUCESSO,
+            Self::RateLimited | Self::Blocked => exit_codes::RATE_LIMITED_OR_BLOCKED,
+            Self::GlobalTimeout { .. } => exit_codes::GLOBAL_TIMEOUT,
+            Self::NoResults => exit_codes::ZERO_RESULTS,
+            Self::Cancelled => exit_codes::GENERIC_ERROR,
+            Self::BrokenPipe => exit_codes::SUCCESS,
         }
     }
 
     /// Returns the string error code for use in the `error` field of the JSON output.
-    pub fn codigo_erro(&self) -> &'static str {
+    pub fn error_code(&self) -> &'static str {
         match self {
-            Self::ErroHttp { .. } => codigos::HTTP_ERROR,
-            Self::RateLimited => codigos::RATE_LIMITED,
-            Self::Bloqueado => codigos::BLOCKED,
-            Self::SemResultados => codigos::NO_RESULTS_FOUND,
-            Self::ConfiguracaoInvalida { .. } => codigos::SELECTOR_CONFIG_INVALID,
-            Self::TimeoutGlobal { .. } => codigos::TIMEOUT,
-            Self::Cancelado => codigos::CANCELLED,
-            Self::ErroProxy { .. } => codigos::PROXY_ERROR,
-            Self::ErroRede { .. } => codigos::NETWORK_ERROR,
-            Self::PipeBroken => codigos::HTTP_ERROR, // BrokenPipe não tem código dedicado
-            Self::ErroPath { .. } => codigos::SELECTOR_CONFIG_INVALID, // reutiliza por ora
+            Self::HttpError { .. } => codes::HTTP_ERROR,
+            Self::RateLimited => codes::RATE_LIMITED,
+            Self::Blocked => codes::BLOCKED,
+            Self::NoResults => codes::NO_RESULTS_FOUND,
+            Self::InvalidConfig { .. } => codes::SELECTOR_CONFIG_INVALID,
+            Self::GlobalTimeout { .. } => codes::TIMEOUT,
+            Self::Cancelled => codes::CANCELLED,
+            Self::ProxyError { .. } => codes::PROXY_ERROR,
+            Self::NetworkError { .. } => codes::NETWORK_ERROR,
+            Self::BrokenPipe => codes::HTTP_ERROR,
+            Self::PathError { .. } => codes::SELECTOR_CONFIG_INVALID,
         }
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn codigos_erro_sao_strings_nao_vazias() {
-        assert!(!codigos::HTTP_ERROR.is_empty());
-        assert!(!codigos::BLOCKED.is_empty());
-        assert!(!codigos::NO_RESULTS_FOUND.is_empty());
+    fn error_codes_are_non_empty_strings() {
+        assert!(!codes::HTTP_ERROR.is_empty());
+        assert!(!codes::BLOCKED.is_empty());
+        assert!(!codes::NO_RESULTS_FOUND.is_empty());
     }
 
     #[test]
-    fn exit_codes_tem_valores_corretos() {
-        assert_eq!(exit_codes::SUCESSO, 0);
-        assert_eq!(exit_codes::ERRO_GENERICO, 1);
-        assert_eq!(exit_codes::CONFIGURACAO_INVALIDA, 2);
-        assert_eq!(exit_codes::RATE_LIMITED_OU_BLOQUEADO, 3);
-        assert_eq!(exit_codes::TIMEOUT_GLOBAL, 4);
-        assert_eq!(exit_codes::ZERO_RESULTADOS, 5);
+    fn exit_codes_have_correct_values() {
+        assert_eq!(exit_codes::SUCCESS, 0);
+        assert_eq!(exit_codes::GENERIC_ERROR, 1);
+        assert_eq!(exit_codes::INVALID_CONFIG, 2);
+        assert_eq!(exit_codes::RATE_LIMITED_OR_BLOCKED, 3);
+        assert_eq!(exit_codes::GLOBAL_TIMEOUT, 4);
+        assert_eq!(exit_codes::ZERO_RESULTS, 5);
     }
 
     #[test]
-    fn erro_cli_ddg_exit_codes_corretos() {
+    fn cli_error_exit_codes_are_correct() {
         assert_eq!(
-            ErroCliDdg::RateLimited.exit_code(),
-            exit_codes::RATE_LIMITED_OU_BLOQUEADO
+            CliError::RateLimited.exit_code(),
+            exit_codes::RATE_LIMITED_OR_BLOCKED
         );
         assert_eq!(
-            ErroCliDdg::Bloqueado.exit_code(),
-            exit_codes::RATE_LIMITED_OU_BLOQUEADO
+            CliError::Blocked.exit_code(),
+            exit_codes::RATE_LIMITED_OR_BLOCKED
+        );
+        assert_eq!(CliError::NoResults.exit_code(), exit_codes::ZERO_RESULTS);
+        assert_eq!(
+            CliError::GlobalTimeout { seconds: 60 }.exit_code(),
+            exit_codes::GLOBAL_TIMEOUT
         );
         assert_eq!(
-            ErroCliDdg::SemResultados.exit_code(),
-            exit_codes::ZERO_RESULTADOS
-        );
-        assert_eq!(
-            ErroCliDdg::TimeoutGlobal { segundos: 60 }.exit_code(),
-            exit_codes::TIMEOUT_GLOBAL
-        );
-        assert_eq!(
-            ErroCliDdg::ConfiguracaoInvalida {
-                mensagem: "teste".into()
+            CliError::InvalidConfig {
+                message: "test".into()
             }
             .exit_code(),
-            exit_codes::CONFIGURACAO_INVALIDA
+            exit_codes::INVALID_CONFIG
         );
-        assert_eq!(ErroCliDdg::PipeBroken.exit_code(), exit_codes::SUCESSO);
+        assert_eq!(CliError::BrokenPipe.exit_code(), exit_codes::SUCCESS);
     }
 
     #[test]
-    fn erro_cli_ddg_display_nao_vazio() {
-        let erro = ErroCliDdg::ErroHttp {
-            mensagem: "timeout".into(),
-            causa: None,
+    fn cli_error_display_is_not_empty() {
+        let err = CliError::HttpError {
+            message: "timeout".into(),
+            cause: None,
         };
-        let texto = format!("{erro}");
-        assert!(!texto.is_empty());
-        assert!(texto.contains("timeout"));
+        let text = format!("{err}");
+        assert!(!text.is_empty());
+        assert!(text.contains("timeout"));
     }
 
     #[test]
-    fn erro_cli_ddg_codigos_erro_string() {
-        assert_eq!(ErroCliDdg::RateLimited.codigo_erro(), "rate_limited");
-        assert_eq!(ErroCliDdg::Bloqueado.codigo_erro(), "blocked");
-        assert_eq!(ErroCliDdg::SemResultados.codigo_erro(), "no_results_found");
+    fn cli_error_codes_are_correct_strings() {
+        assert_eq!(CliError::RateLimited.error_code(), "rate_limited");
+        assert_eq!(CliError::Blocked.error_code(), "blocked");
+        assert_eq!(CliError::NoResults.error_code(), "no_results_found");
     }
 }

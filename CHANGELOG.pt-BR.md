@@ -7,28 +7,63 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 
-## [Não Publicado]
+## [0.6.4] - 2026-06-03
 ### Adicionado
-- `LICENSE-MIT` e `LICENSE-APACHE` — licença dupla conforme declaração SPDX em `Cargo.toml`
-- `.pre-commit-config.yaml` com três grupos de hooks: (1) hooks padrão pre-commit (espaços em branco, EOF, validação YAML/TOML, finais de linha mistos), (2) hooks Rust (`cargo fmt` + `cargo clippy -D warnings`), (3) hook local `commit-msg` bloqueando `Co-authored-by:` de agentes de IA
-- `.gitattributes` forçando LF em `.rs` / `.toml` / `.sh` / `.yml` / `.md` / HTML de fixture — previne corrupção silenciosa ao clonar no Windows com `core.autocrlf=true`
-- `.editorconfig` normalizando UTF-8, LF, remoção de espaços em branco e indentação por linguagem (Rust/TOML 4, YAML/JSON/MD 2, Makefile tab)
-- `.github/PULL_REQUEST_TEMPLATE.md` com checklist de 10 gates e restrições específicas do projeto
-- `.github/ISSUE_TEMPLATE/bug_report.yml` + `feature_request.yml` + `config.yml` — triagem estruturada com dropdown de plataforma
-- `Cross.toml` habilitando `cross build --target <t>` para targets ARM64/ARMv7 Linux
-- `CONTRIBUTING.md` com matriz de validação de 10 gates, padrões de código e processo de release
-- `.cargo/config.toml` expondo 8 aliases de desenvolvimento (`cargo check-all`, `cargo lint`, `cargo docs`, `cargo test-all`, `cargo cov`, `cargo cov-html`, `cargo publish-check`, `cargo pkg-list`)
-- Doctests na API pública: `pipeline::combinar_e_deduplicar_queries`, `fetch_conteudo::extrair_host` e `search::formatar_kl`
-- `SECURITY.md` documentando fluxo de divulgação privada via GitHub Security Advisories com SLA de 72h
-- `.github/dependabot.yml` habilitando atualizações automáticas semanais de dependências para ecossistemas `cargo` e `github-actions`
-- `rust-toolchain.toml` fixando `stable` com componentes `rustfmt` + `clippy` para builds reproduzíveis
-- `.github/workflows/release.yml` disparado por tags `v*.*.*` executando pipeline de release em 5 estágios
-- Job `msrv` em `ci.yml` extraindo `rust-version` do `Cargo.toml` e executando `cargo check` nessa toolchain
-- `.github/workflows/ci.yml` aplicando matriz de validação de 10 gates em Ubuntu, macOS e Windows
-- `deny.toml` com política de supply chain em quatro eixos (advisories/licenses/bans/sources)
-- 22 novos testes elevando cobertura de 77,4% para 86,4% (linhas)
+- **WS-26 — Rotação adaptativa de identidades anti-bot** (novo módulo `src/identity.rs`)
+  - Pool de 12 identidades (4 famílias de browser × 3 plataformas) para rotação adaptativa
+  - `IdentityProfile::shuffled_headers()` produz ordem de headers determinística via seed
+  - `IdentityPool::rotate_on_block()` implementa cascata de 5 níveis: mesma identidade → mesma família/plataforma diferente → família diferente/mesma plataforma → família+plataforma diferentes → aleatória
+  - Enums `BrowserFamily` e `Platform` com nomes canônicos em inglês
+  - 5 testes unitários cobrindo tamanho do pool, nível de cascata, determinismo, formato de headers, estabilidade da tag
+- **Novas flags CLI** (aditivas, sem breaking changes)
+  - `--probe` — verificação de saúde pré-voo (envia 1 requisição mínima, reporta status/latência/Set-Cookie como JSON)
+  - `--identity-profile` — fixa a sessão em uma identidade específica (`auto`, `chrome-win`, `chrome-mac`, `chrome-linux`, `edge-win`, `firefox-linux`, `safari-mac`). `auto` é o padrão.
+- **Novos campos JSON de metadados** (aditivos, `Option` + `skip_serializing_if = "Option::is_none"`)
+  - `metadados.identidade_usada` — tag textual da identidade que produziu a resposta
+  - `metadados.nivel_cascata` — nível de cascata atingido durante a requisição
 ### Alterado
-- Cobertura `parallel.rs` 50% → 81%; `pipeline.rs` 55% → 82%; `fetch_conteudo.rs` 68% → 85%; `output.rs` 70% → 87%
+- **Reversão de versão**: `0.7.0` (não publicado) → `0.6.4` para preservar o conjunto de features em desenvolvimento sob um número de patch estável
+- Todas as flags CLI, schemas JSON de saída e exit codes permanecem inalterados — mudanças estritamente aditivas
+### Testes
+- 5 novos testes unitários de identidade (313 testes totais passando, de 308)
+- Todos os 224 testes lib + 83 testes de integração + 6 doc tests passam
+- `cargo clippy --lib --bins -- -D warnings` limpo
+- `cargo fmt --check` limpo
+
+
+## [0.7.0] - 2026-06-01
+### Alterado
+- Internacionalização completa: ~600 identificadores renomeados PT→EN em 15 arquivos-fonte (campos de struct, variáveis locais, parâmetros, funções de produção, funções de teste)
+- Módulo `fetch_conteudo` renomeado para `content_fetch`
+- Arquivos de teste `integracao_*.rs` renomeados para `integration_*.rs`
+- `anyhow` removido e substituído por `CliError` tipado em 11 módulos — zero dependência de crate de erro externa
+- `output.rs`: todas as funções de formatação renomeadas (`formatar_*` → `format_*`, `escrever_*` → `write_*`)
+- `config_init.rs`: campos de struct renomeados com `#[serde(rename)]` para preservar compatibilidade JSON
+- `search.rs`: campos de `RetryResult` e `AggregatedSearchResult` renomeados PT→EN
+- `types.rs`: campos de `Config` `perfil_browser`/`corresponde_plataforma_ua`/`caminho_chrome` → `browser_profile`/`match_platform_ua`/`chrome_path`
+### Adicionado
+- Testes de concorrência Loom (`tests/loom_atomics.rs`) — valida visibilidade de `AtomicBool` entre threads
+- Benchmarks Criterion (`benches/extraction_bench.rs`) — baselines de performance de extração HTML
+- Doc comments para 70 itens públicos sem documentação — zero warnings de `missing_docs`
+- `.ingest-queue.sqlite` adicionado ao `.gitignore` e `Cargo.toml` exclude
+- `LICENSE-MIT` e `LICENSE-APACHE` — licença dupla conforme declaração SPDX em `Cargo.toml`
+- `.pre-commit-config.yaml` com três grupos de hooks
+- `.gitattributes` forçando LF em arquivos-fonte
+- `.editorconfig` normalizando UTF-8 e indentação
+- Templates GitHub (PR, bug report, feature request)
+- `Cross.toml`, `CONTRIBUTING.md`, aliases Cargo, doctests
+- `SECURITY.md`, `dependabot.yml`, `rust-toolchain.toml`
+- Workflows CI e release, job MSRV
+- `deny.toml` com política de supply chain
+- 22 novos testes elevando cobertura de 77,4% para 86,4%
+### Corrigido
+- RUSTSEC-2026-0097: `rand` 0.8.5 → 0.8.6
+- RUSTSEC-2026-0104: `rustls-webpki` 0.103.12 → 0.103.13
+### Segurança
+- `deny.toml`: adicionado `skip-tree` para 30 crates transitivas duplicadas (ecossistemas chromiumoxide, scraper, console-subscriber)
+### Limitações Conhecidas
+- Testes Loom requerem `RUSTFLAGS="--cfg loom"` que conflita com `hyper-util` — testes compilam mas não executam até o upstream resolver o conflito de cfg
+- Nomes de campos JSON permanecem em português brasileiro (`posicao`, `titulo`, `resultados`, etc.) — POR DESIGN desde v0.2.0
 
 
 ## [0.6.3] - 2026-04-17
@@ -60,8 +95,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 - `--timeout 0` agora retorna exit 2 (configuração inválida) em vez de executar busca com timeout zero e retornar exit 5
 - `--output /tmp/../../etc/passwd` agora retorna exit 2 (configuração inválida) em vez de exit 1 — validação de path traversal movida para `montar_configuracoes()`, antes do início do pipeline
 ### Adicionado
-- Método `validar_timeout_segundos()` em `ArgumentosCli` — rejeita valores 0 com mensagem de erro descritiva
-- Verificação antecipada de path traversal em `montar_configuracoes()` — chama `paths::validar_caminho_saida()` no momento de validação da configuração, não no momento de escrita
+- Método `validar_timeout_segundos()` em `CliArgs` — rejeita valores 0 com mensagem de erro descritiva
+- Verificação antecipada de path traversal em `montar_configuracoes()` — chama `paths::validate_output_path()` no momento de validação da configuração, não no momento de escrita
 - 2 testes E2E de regressão: `timeout_zero_retorna_exit_2` e `output_com_path_traversal_retorna_exit_2`
 - 1 teste unitário: `validar_timeout_segundos_rejeita_zero`
 
@@ -73,13 +108,13 @@ Leia este arquivo em [English](CHANGELOG.md).
 - `Accept-Language` com q-values RFC 7231 elimina fingerprint de UA genérico
 - Detecção de bloqueio silencioso com limiar de 5 KB previne resultados truncados
 ### Adicionado
-- Enum `FamiliaBrowser` — variantes `Chrome`, `Firefox`, `Edge`, `Safari`
-- Struct `PerfilBrowser` — encapsula família, versão e conjunto de headers por família
+- Enum `BrowserFamily` — variantes `Chrome`, `Firefox`, `Edge`, `Safari`
+- Struct `BrowserProfile` — encapsula família, versão e conjunto de headers por família
 - Headers `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site` por família em `http.rs`
 - Client Hints (`Sec-Ch-Ua`, `Sec-Ch-Ua-Mobile`, `Sec-Ch-Ua-Platform`) para Chrome e Edge
 - Detecção de anomalia HTTP 202 em `search.rs` com backoff exponencial automático
 - Detecção de bloqueio silencioso — resposta com menos de 5 000 bytes é tratada como bloqueio
-- `PerfilBrowser` propagado via `Configuracoes` para todos os módulos do pipeline
+- `BrowserProfile` propagado via `Config` para todos os módulos do pipeline
 - Headers de paginação com `Sec-Fetch-Site: same-origin` para imitar navegação real
 ### Alterado
 - `Accept-Language` atualizado para `pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7` conforme RFC 7231
@@ -101,7 +136,7 @@ Leia este arquivo em [English](CHANGELOG.md).
 ### Alterado
 - `thiserror = "2"` adicionado às dependências para erros de domínio estruturados
 - `src/main.rs` reduzido de 63 para 23 linhas — tratamento de sinais extraído para `signals.rs`
-- Escritas de arquivo em `src/output.rs` agora validam caminhos via `paths::validar_caminho_saida()` antes do I/O
+- Escritas de arquivo em `src/output.rs` agora validam caminhos via `paths::validate_output_path()` antes do I/O
 - `deny.toml` atualizado com exceção RUSTSEC-2026-0097 (rand 0.8 unsound com logger customizado — não aplicável)
 
 
@@ -175,7 +210,7 @@ Leia este arquivo em [English](CHANGELOG.md).
 
 ## [0.3.0] - 2026-04-14
 ### Alterado (BREAKING)
-- Campo `buscas_relacionadas` REMOVIDO de `SaidaBusca` e `SaidaBuscaMultipla.buscas[i]` — o endpoint `html.duckduckgo.com/html/` não expõe related searches no DOM atual; manter o campo sempre vazio era ruído
+- Campo `buscas_relacionadas` REMOVIDO de `SearchOutput` e `MultiSearchOutput.buscas[i]` — o endpoint `html.duckduckgo.com/html/` não expõe related searches no DOM atual; manter o campo sempre vazio era ruído
 - Pipelines que parseavam `.buscas_relacionadas` precisam de ajuste
 - Pool de User-Agents: removidos UAs de browsers de texto (`Lynx 2.9.0`, `w3m/0.5.3`, `Links 2.29`, `ELinks 0.16.1.1`) que faziam o DuckDuckGo retornar HTML degradado
 - Substituídos por 6 UAs modernos validados empiricamente contra o endpoint `/html/`: Chrome 146 (Win/Mac/Linux), Edge 145 Windows, Firefox 134 Linux, Safari 17.6 macOS
@@ -186,7 +221,7 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Título "Official site": o DuckDuckGo renderiza literalmente este texto como label para domínios verificados — o scraper agora detecta este caso e substitui pelo `url_exibicao`
 - O texto original é preservado no novo campo opcional `titulo_original` para auditoria
 ### Adicionado
-- Campo `titulo_original: Option<String>` em `ResultadoBusca` — presente apenas quando o título foi substituído por heurística
+- Campo `titulo_original: Option<String>` em `SearchResult` — presente apenas quando o título foi substituído por heurística
 - Serializado com `#[serde(skip_serializing_if = "Option::is_none")]` — não aparece no JSON quando ausente
 - Resultados patrocinados (`.result--ad`) excluídos do container default via seletor `.result:not(.result--ad)`
 ### Removido
@@ -258,7 +293,7 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Modo NDJSON `--stream` emite um resultado por linha conforme extraídos
 - Quatro formatos de saída: `json` (padrão), `text`, `markdown`, `auto` (TTY-aware)
 - Arquivos de configuração externos: `selectors.toml` e `user-agents.toml` no diretório XDG config, sobrescrevendo defaults embutidos
-- Subcomando `init-config` com `--force` e `--dry-run` para inicializar arquivos de configuração do usuário
+- Subcommand `init-config` com `--force` e `--dry-run` para inicializar arquivos de configuração do usuário
 - Exit codes: `0` sucesso, `1` runtime, `2` config, `3` bloqueio (anomalia HTTP 202), `4` timeout global, `5` zero resultados
 - Inicialização de console UTF-8 no Windows via `SetConsoleOutputCP(65001)`
 - Rustls-TLS em toda a CLI para builds cross-platform sem dependências adicionais

@@ -3,14 +3,13 @@
 
 ## Supported Versions
 - Only the latest release receives security updates
-- Version 0.6.3 is the current supported version
+- Version 0.6.4 is the current supported version
 
 | Version | Supported |
 |---|---|
-| 0.6.3 | yes |
-| 0.6.2 | no |
-| 0.6.1 | no |
-| < 0.6.1 | no |
+| 0.6.4 | yes |
+| 0.6.3 | no |
+| < 0.6.3 | no |
 
 
 ## Reporting a Vulnerability

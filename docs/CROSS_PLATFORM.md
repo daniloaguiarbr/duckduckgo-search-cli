@@ -1,5 +1,7 @@
 # Cross-Platform Guide
 
+> Current release: **v0.6.4** — adds the 12-identity adaptive anti-bot pool (WS-26) with `--probe`, `--identity-profile`, and `--seed` flags. Pre-built binaries for all five targets are attached to every GitHub Release.
+
 
 ## Support Matrix
 
@@ -172,7 +174,7 @@ cargo install duckduckgo-search-cli
 
 - Cargo fetches the crate from crates.io, compiles for the host architecture, and places the binary in `~/.cargo/bin`
 - Minimum Supported Rust Version (MSRV) is 1.75 — run `rustup update` if your toolchain is older
-- Verify the installation: `duckduckgo-search-cli --version`
+- Verify the installation: `duckduckgo-search-cli --version` (expect `0.6.4` for v0.6.4 release)
 ### Pre-built Binaries
 - Pre-built binaries for all five targets are attached to each GitHub Release
 - Each release includes a `SHA256SUMS.txt` file for integrity verification before execution
@@ -185,7 +187,7 @@ sha256sum --check SHA256SUMS.txt
 tar -xzf duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
 chmod +x duckduckgo-search-cli
 sudo mv duckduckgo-search-cli /usr/local/bin/
-duckduckgo-search-cli --version
+duckduckgo-search-cli --version   # expect 0.6.4
 ```
 
 - Report platform-specific issues at the GitHub repository issue tracker

@@ -202,6 +202,26 @@ case $codigo_saida in
 esac
 ```
 
+### Pool Adaptativo de Identidades v0.6.4 (WS-26)
+- 12 identidades (4 famílias de browser × 3 plataformas) rotacionam em cascata de 5 níveis em HTTP 202/403/429
+- Inspecione `metadados.identidade_usada` (ex. `chrome-linux-11111111aaaa0001`) para saber qual identidade teve sucesso
+- Inspecione `metadados.nivel_cascata` (0..=4) para saber o quão esgotado o pool está
+- Use `--probe` para verificações de saúde pré-voo em CI antes de lançar queries reais
+
+```bash
+# v0.6.4 anti-bot adaptativo pré-voo
+timeout 15 duckduckgo-search-cli --probe && \
+  timeout 30 duckduckgo-search-cli -q -n 10 -f json "query" | \
+  jaq -r '.resultados[] | "[\(.metadados.identidade_usada // "n/a")] \(.titulo) — \(.url)"'
+
+# Fixa uma identidade específica para testes reproduzíveis
+timeout 30 duckduckgo-search-cli -q -n 10 -f json \
+  --identity-profile chrome-linux "query"
+
+# Rotação de identidade reproduzível
+timeout 30 duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
+```
+
 
 ## Exemplos de Integração
 ### Claude Code (Anthropic)
@@ -284,20 +304,24 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 
 
 ## Checklist para Desenvolvedores de Agentes
-- Use `-q` em TODA invocação que canaliza stdout para um parser
-- Use `-f json` em TODOS os scripts — nunca dependa do formato padrão
-- Verifique o código de saída ANTES de processar stdout — exit diferente de zero significa saída parcial ou vazia
-- Defina `--global-timeout` como `timeout_externo - 10` em toda chamada de produção
+- Use `-q` em TODA invocação que faz pipe de stdout para um parser
+- Use `-f json` em TODO script — nunca confie no formato padrão
+- Verifique o exit code ANTES de processar stdout — não-zero significa saída parcial ou vazia
+- Defina `--global-timeout` como `outer_timeout - 10` em cada chamada de produção
 - Use `--per-host-limit 1` junto com `--parallel` para evitar bloqueios
-- Use `--retries 3` para resiliência em workflows de pesquisa de longa duração
-- Use `--fetch-content` somente quando o texto do snippet for insuficiente para a tarefa
-- Use `${PIPESTATUS[0]}` para detectar falha upstream da CLI em comandos com pipe
-- Use a variável de ambiente `HTTPS_PROXY` — NUNCA passe credenciais de proxy em argv
-- Use `--queries-file` para trabalho em lote — NUNCA loops de shell sobre consultas
-- Use `--output` para grandes conjuntos de resultados com 50 ou mais itens
-- NUNCA use `--stream` — é um placeholder e não está implementado
+- Use `--retries 3` para resiliência em workflows de pesquisa longos
+- Use `--fetch-content` apenas quando o snippet for insuficiente para a tarefa
+- Use `${PIPESTATUS[0]}` para detectar falha upstream em pipes
+- Use `HTTPS_PROXY` env var — NUNCA passe credenciais de proxy em argv
+- Use `--queries-file` para trabalho em lote — NUNCA loops de shell
+- Use `--output` para conjuntos grandes de resultados (50 ou mais)
+- NUNCA use `--stream` — é placeholder e não está implementado
 - NUNCA injete headers `Sec-Fetch-*` customizados — v0.6.0 os gerencia automaticamente
-- NUNCA aumente `--parallel` acima de 5 ou `--per-host-limit` acima de 2
+- NUNCA eleve `--parallel` acima de 5 ou `--per-host-limit` acima de 2
+- Use `duckduckgo-search-cli --probe` em CI antes de lançar queries reais (v0.6.4+)
+- Trate `.metadados.identidade_usada` como `Option<String>` — use `// "n/a"` como fallback no `jaq` (v0.6.4+)
+- Trate `.metadados.nivel_cascata` como `Option<u32>` — use `// 0` como fallback no `jaq` (v0.6.4+)
+- Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.4+)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` v0.6.x.
+Contrato de esquema válido para `duckduckgo-search-cli` v0.6.4.

@@ -30,8 +30,9 @@
 - Install: `cargo install duckduckgo-search-cli`
 - Defaults: `--num 15` (auto-paginates 2 pages), `-f auto` (JSON in pipes, text in TTY)
 - Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
+- v0.6.4 anti-bot flags: `--probe` (pre-flight health check), `--identity-profile` (pin a 12-identity pool profile), `--seed` (deterministic seed for UA + identity selection)
 - Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results
-- JSON schema (single query):
+- JSON schema (single query, v0.6.4):
   ```json
   {
     "query": "...", "motor": "duckduckgo", "endpoint": "html",
@@ -40,14 +41,20 @@
     "resultados": [
       {"posicao": 1, "titulo": "...", "url": "...", "snippet": "...", "url_exibicao": "...", "titulo_original": "..."}
     ],
-    "metadados": {"tempo_execucao_ms": 1234, "user_agent": "..."}
+    "metadados": {
+      "tempo_execucao_ms": 1234,
+      "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 ...",
+      "identidade_usada": "chrome-linux-11111111aaaa0001",
+      "nivel_cascata": 0
+    }
   }
   ```
 - Pipe safety: SIGPIPE restored to SIG_DFL on Unix — pipes terminate cleanly. BrokenPipe returns exit 0. Always check `${PIPESTATUS[0]}` after piped invocations.
 - Path safety (v0.5.0): `--output` validates paths BEFORE writing — rejects `..` components and system directories (`/etc`, `/usr`, `C:\Windows`). Agents skip manual path sanitization
 - Credential safety (v0.5.0): proxy credentials in `--proxy` URLs NEVER appear in error messages — automatic masking to `http://us***@host` format
 - Typed errors (v0.5.0): `ErroCliDdg` enum with 11 variants — deterministic `exit_code()` mapping for programmatic error handling
-- Anti-blocking (v0.6.0): `PerfilBrowser` injects per-family `Sec-Fetch-*`, Client Hints, and RFC 7231 `Accept-Language` — agents MUST NOT add duplicate headers; HTTP 202 anomaly detection and 5 KB silent-block detection run automatically
+- Anti-blocking (v0.6.0): `BrowserProfile` injects per-family `Sec-Fetch-*`, Client Hints, and RFC 7231 `Accept-Language` — agents MUST NOT add duplicate headers; HTTP 202 anomaly detection and 5 KB silent-block detection run automatically
+- Adaptive anti-bot (v0.6.4 / WS-26): 12-identity pool (4 browser families × 3 platforms) with 5-level cascade rotation. On HTTP 202/403/429, the pool rotates: same identity → same family/different platform → different family/same platform → different family+platform → random. Inspect `metadados.identidade_usada` and `metadados.nivel_cascata` for diagnostic visibility. Use `--probe` for pre-flight health checks in CI.
 - Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
 # ENGLISH SECTION
@@ -60,7 +67,7 @@
 ### Setup
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # expect 0.4.x
+duckduckgo-search-cli --version   # expect 0.6.4
 ```
 
 ### Snippet — Basic search (paste in chat)
@@ -72,13 +79,20 @@ duckduckgo-search-cli --version   # expect 0.4.x
 > "Create `/tmp/queries.txt` with these 5 search queries (one per line), then run:
 > `timeout 120 duckduckgo-search-cli --queries-file /tmp/queries.txt -q -f json --parallel 5 -o /tmp/research.json` and read the JSON file."
 
+### Snippet — v0.6.4 adaptive anti-bot (WS-26)
+- v0.6.4 adds an adaptive identity pool that rotates on detected blocks (HTTP 202/403/429). Use `--probe` for pre-flight health checks and inspect `metadados.identidade_usada` for diagnostic visibility.
+> "Before launching real queries, run `timeout 15 duckduckgo-search-cli --probe` to confirm DDG is reachable. If exit is 0, proceed: `timeout 30 duckduckgo-search-cli "QUERY" -q -f json --num 15 | jaq '.resultados[] | {titulo, url, identidade_usada: (.metadados.identidade_usada // "n/a")}'`. If you receive exit 3 (anti-bot block), wait 300+ seconds before retry — the cascade has already rotated up to 5 identities internally."
+
 ### System prompt rule (add to `CLAUDE.md`)
 - Add this rule so Claude Code uses the CLI automatically on every web-dependent task.
 > When you need fresh web context, ALWAYS use `duckduckgo-search-cli QUERY -q --num 15` instead of fabricating links or relying on training data. Parse JSON output with `jaq`.
+> ALWAYS run `duckduckgo-search-cli --probe` before launching real queries in long-running sessions to detect anti-bot blocks early (v0.6.4+).
+> When exit code 3 is returned, treat it as anti-bot cascade exhausted — wait 300+ seconds before retrying.
 
 ### Caveats
 - Sandbox may require `cargo install` approval on first run.
 - Use `--global-timeout 60` for autonomous / unattended runs.
+- The v0.6.4 identity pool rotates automatically — agents MUST NOT pass `--identity-profile` in CI unless reproducibility is required (use `--seed` instead for deterministic rotation).
 
 ## 2. OpenAI Codex
 - Codex agents invent URLs and lose accuracy on libraries released after training cutoff.

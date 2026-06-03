@@ -183,7 +183,7 @@ cargo install duckduckgo-search-cli
 
 - O Cargo busca a crate do crates.io, compila para a arquitetura do host e coloca o binário em `~/.cargo/bin`
 - A Versão Mínima Suportada do Rust (MSRV) é 1.75 — execute `rustup update` se seu toolchain for mais antigo
-- Verifique a instalação: `duckduckgo-search-cli --version`
+- Verifique a instalação: `duckduckgo-search-cli --version` (espere `0.6.4` para a release v0.6.4)
 ### Binários Pré-compilados
 - Binários pré-compilados para todos os cinco targets são anexados a cada GitHub Release
 - Cada release inclui um arquivo `SHA256SUMS.txt` para verificação de integridade antes da execução
@@ -196,7 +196,7 @@ sha256sum --check SHA256SUMS.txt
 tar -xzf duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
 chmod +x duckduckgo-search-cli
 sudo mv duckduckgo-search-cli /usr/local/bin/
-duckduckgo-search-cli --version
+duckduckgo-search-cli --version   # espere 0.6.4
 ```
 
 - Reporte problemas específicos de plataforma no rastreador de issues do repositório no GitHub

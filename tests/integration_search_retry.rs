@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Testes de integração focados em caminhos não cobertos de `search.rs`:
-//! - `executar_busca` (versão de compatibilidade single-query simples)
-//! - Cancelamento mid-retry em `executar_com_retry`
-//! - Caminhos de erro / borda de `buscar_com_paginacao`:
+//! - `execute_search` (versão de compatibilidade single-query simples)
+//! - Cancelamento mid-retry em `execute_with_retry`
+//! - Caminhos de erro / borda de `search_with_pagination`:
 //!   * tokens vqd ausentes → sem paginação possível
 //!   * página seguinte com status não-OK → para
 //!   * página seguinte com zero resultados → para
@@ -14,9 +15,9 @@
 //! ZERO chamadas HTTP reais — todos via `wiremock::MockServer`.
 
 use duckduckgo_search_cli::search::{
-    buscar_com_paginacao, executar_busca, executar_com_retry, MotivoFalhaRetry,
+    execute_search, execute_with_retry, search_with_pagination, RetryFailReason,
 };
-use duckduckgo_search_cli::types::{Configuracoes, Endpoint, FormatoSaida, SafeSearch};
+use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
 use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
@@ -32,50 +33,50 @@ fn env_lock() -> &'static TokioMutex<()> {
     LOCK.get_or_init(|| TokioMutex::new(()))
 }
 
-fn cliente_teste() -> Client {
+fn test_client() -> Client {
     Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent("Mozilla/5.0 (teste-search-retry)")
         .build()
-        .expect("cliente de teste")
+        .expect("test client")
 }
 
-fn configuracoes_base(endpoint: Endpoint, paginas: u32, retries: u32) -> Configuracoes {
-    Configuracoes {
+fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
+    Config {
         query: "rust".to_string(),
         queries: vec!["rust".to_string()],
-        num_resultados: None,
-        formato: FormatoSaida::Json,
-        timeout_segundos: 5,
-        idioma: "pt".to_string(),
-        pais: "br".to_string(),
-        modo_verboso: false,
-        modo_silencioso: true,
+        num_results: None,
+        format: OutputFormat::Json,
+        timeout_seconds: 5,
+        language: "pt".to_string(),
+        country: "br".to_string(),
+        verbose: false,
+        quiet: true,
         user_agent: "Mozilla/5.0 (teste)".to_string(),
-        perfil_browser: duckduckgo_search_cli::http::criar_perfil_browser("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
-        paralelismo: 1,
-        paginas,
+        browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
+        parallelism: 1,
+        pages,
         retries,
         endpoint,
-        filtro_temporal: None,
+        time_filter: None,
         safe_search: SafeSearch::Moderate,
-        modo_stream: false,
-        arquivo_saida: None,
-        buscar_conteudo: false,
-        max_tamanho_conteudo: 10_000,
+        stream_mode: false,
+        output_file: None,
+        fetch_content: false,
+        max_content_length: 10_000,
         proxy: None,
-        sem_proxy: false,
-        timeout_global_segundos: 60,
-        corresponde_plataforma_ua: false,
-        limite_por_host: 2,
-        caminho_chrome: None,
-        seletores: std::sync::Arc::new(
-            duckduckgo_search_cli::types::ConfiguracaoSeletores::default(),
+        no_proxy: false,
+        global_timeout_seconds: 60,
+        match_platform_ua: false,
+        per_host_limit: 2,
+        chrome_path: None,
+        selectors: std::sync::Arc::new(
+            duckduckgo_search_cli::types::SelectorConfig::default(),
         ),
     }
 }
 
-/// HTML com 3 resultados orgânicos — corpo acima de 5 000 bytes (limiar anti-bloqueio).
+/// HTML with 3 organic results — body above 5,000 bytes (anti-block threshold).
 fn html_3_resultados() -> String {
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
     let padding =
@@ -102,7 +103,7 @@ fn html_3_resultados() -> String {
     )
 }
 
-fn html_com_tokens_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&str]) -> String {
+fn html_with_tokens_and_results(vqd: &str, s: &str, dc: &str, titles: &[&str]) -> String {
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
@@ -112,7 +113,7 @@ fn html_com_tokens_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&str]) 
         r#"<form><input name="vqd" value="{vqd}"><input name="s" value="{s}"><input name="dc" value="{dc}"></form>"#
     ));
     html.push_str(r#"<div id="links">"#);
-    for t in titulos {
+    for t in titles {
         html.push_str(&format!(
             r#"<div class="result"><a class="result__a" href="//exemplo.com/{}">{}</a><a class="result__snippet">snippet de {}</a></div>"#,
             t.replace(' ', "-"),
@@ -124,8 +125,8 @@ fn html_com_tokens_e_resultados(vqd: &str, s: &str, dc: &str, titulos: &[&str]) 
     html
 }
 
-/// HTML SEM tokens vqd/s/dc — corpo acima de 5 000 bytes (limiar anti-bloqueio).
-fn html_sem_tokens_vqd() -> String {
+/// HTML WITHOUT vqd/s/dc tokens — body above 5,000 bytes (anti-block threshold).
+fn html_without_vqd_tokens() -> String {
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
@@ -147,34 +148,34 @@ fn html_sem_tokens_vqd() -> String {
     )
 }
 
-/// Guard para configurar env vars durante um teste e limpar ao sair.
-struct GuardaEnv {
-    chaves: Vec<&'static str>,
+/// Guard to set env vars during a test and clean up on drop.
+struct EnvGuard {
+    keys: Vec<&'static str>,
 }
-impl GuardaEnv {
-    fn set(chaves: &[(&'static str, String)]) -> Self {
-        let mut chs = Vec::new();
-        for (k, v) in chaves {
+impl EnvGuard {
+    fn set(pairs: &[(&'static str, String)]) -> Self {
+        let mut ks = Vec::new();
+        for (k, v) in pairs {
             std::env::set_var(k, v);
-            chs.push(*k);
+            ks.push(*k);
         }
-        GuardaEnv { chaves: chs }
+        EnvGuard { keys: ks }
     }
 }
-impl Drop for GuardaEnv {
+impl Drop for EnvGuard {
     fn drop(&mut self) {
-        for k in &self.chaves {
+        for k in &self.keys {
             std::env::remove_var(k);
         }
     }
 }
 
 // ===========================================================================
-// `executar_busca` — função standalone de compatibilidade (iteração 1).
+// `execute_search` — standalone compatibility function (iteration 1).
 // ===========================================================================
 
 #[tokio::test]
-async fn executar_busca_retorna_html_em_status_200() {
+async fn execute_search_returns_html_on_status_200() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
@@ -189,18 +190,18 @@ async fn executar_busca_retorna_html_em_status_200() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base)]);
+    let _env = EnvGuard::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base)]);
 
-    let cliente = cliente_teste();
-    let html = executar_busca(&cliente, "rust", "pt", "br")
+    let client = test_client();
+    let html = execute_search(&client, "rust", "pt", "br")
         .await
-        .expect("status 200 + body grande deve retornar Ok");
+        .expect("status 200 + large body should return Ok");
     assert!(html.contains("Resultado Um"));
     assert!(html.len() > 100);
 }
 
 #[tokio::test]
-async fn executar_busca_falha_com_status_500() {
+async fn execute_search_fails_with_status_500() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
@@ -211,24 +212,24 @@ async fn executar_busca_falha_com_status_500() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base)]);
+    let _env = EnvGuard::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base)]);
 
-    let cliente = cliente_teste();
-    let resultado = executar_busca(&cliente, "rust", "pt", "br").await;
-    let erro = resultado.expect_err("status 500 deve ser erro");
-    let msg = format!("{erro:#}");
+    let client = test_client();
+    let result = execute_search(&client, "rust", "pt", "br").await;
+    let err = result.expect_err("status 500 should be an error");
+    let msg = format!("{err:#}");
     assert!(
         msg.contains("500"),
-        "mensagem do erro deve citar o status 500: {msg}"
+        "error message should mention status 500: {msg}"
     );
 }
 
 #[tokio::test]
-async fn executar_busca_falha_com_body_pequeno() {
+async fn execute_search_fails_with_small_body() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    // Status 200, mas body com menos de 100 bytes → suspeita de bloqueio.
+    // Status 200, but body with fewer than 100 bytes → suspected block.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -240,28 +241,28 @@ async fn executar_busca_falha_com_body_pequeno() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base)]);
+    let _env = EnvGuard::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base)]);
 
-    let cliente = cliente_teste();
-    let resultado = executar_busca(&cliente, "rust", "pt", "br").await;
-    let erro = resultado.expect_err("body pequeno deve ser erro");
-    let msg = format!("{erro:#}");
+    let client = test_client();
+    let result = execute_search(&client, "rust", "pt", "br").await;
+    let err = result.expect_err("small body should be an error");
+    let msg = format!("{err:#}");
     assert!(
-        msg.to_lowercase().contains("pequeno") || msg.contains("bloqueio"),
-        "mensagem deve mencionar body pequeno / bloqueio: {msg}"
+        msg.contains("suspiciously small") || msg.contains("silent block"),
+        "message should mention small response / silent block: {msg}"
     );
 }
 
 // ===========================================================================
-// `executar_com_retry` — cancelamento, retry esgotado e caminhos de erro.
+// `execute_with_retry` — cancelamento, retry esgotado e caminhos de erro.
 // ===========================================================================
 
 #[tokio::test]
-async fn retry_aborta_quando_token_ja_cancelado() {
+async fn retry_aborts_when_token_already_cancelled() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    // Mock retorna 200, mas o cancelamento deve abortar antes mesmo da primeira tentativa.
+    // Mock returns 200, but cancellation must abort before the first attempt.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -272,124 +273,124 @@ async fn retry_aborta_quando_token_ja_cancelado() {
         .mount(&mock)
         .await;
 
-    let cliente = cliente_teste();
+    let client = test_client();
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
-    token.cancel(); // já cancelado antes mesmo de chamar.
+    let cancellation = CancellationToken::new();
+    cancellation.cancel(); // already cancelled before even calling.
 
     let url = format!("{}/", mock.uri());
-    let resultado = executar_com_retry(&cliente, &url, 3, &flag, &token).await;
+    let result = execute_with_retry(&client, &url, 3, &flag, &cancellation).await;
 
-    match resultado {
-        Err(MotivoFalhaRetry::Rede(msg)) => {
+    match result {
+        Err(RetryFailReason::Network(msg)) => {
             assert!(
                 msg.to_lowercase().contains("cancel"),
-                "mensagem de cancelamento esperada: {msg}"
+                "expected cancellation message: {msg}"
             );
         }
-        outro => panic!("esperava Err(Rede(\"cancel...\")), recebi {outro:?}"),
+        other => panic!("expected Err(Network(\"cancel...\")), got {other:?}"),
     }
 }
 
 #[tokio::test]
-async fn retry_429_esgotado_retorna_rate_limited() {
+async fn retry_429_exhausted_returns_rate_limited() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    // SEMPRE 429 — esgota retries e retorna RateLimited.
+    // Always 429 — exhausts retries and returns RateLimited.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(ResponseTemplate::new(429))
         .mount(&mock)
         .await;
 
-    let cliente = cliente_teste();
+    let client = test_client();
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    // 0 retries → 1 tentativa única → backoff não acionado.
+    // 0 retries → 1 single attempt → backoff not triggered.
     let url = format!("{}/", mock.uri());
-    let resultado = executar_com_retry(&cliente, &url, 0, &flag, &token).await;
-    match resultado {
-        Err(MotivoFalhaRetry::RateLimited) => {}
-        outro => panic!("esperava RateLimited, recebi {outro:?}"),
+    let result = execute_with_retry(&client, &url, 0, &flag, &cancellation).await;
+    match result {
+        Err(RetryFailReason::RateLimited) => {}
+        other => panic!("expected RateLimited, got {other:?}"),
     }
     assert!(
         flag.load(std::sync::atomic::Ordering::Relaxed),
-        "flag de rate limit deve ser ativada"
+        "rate limit flag must be set"
     );
 }
 
 #[tokio::test]
-async fn retry_status_4xx_nao_retentavel_retorna_http_erro() {
+async fn retry_4xx_non_retryable_returns_http_error() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    // 418 não é 200/403/429 → cai no caminho "outros 4xx/5xx → não retentamos".
+    // 418 is not 200/403/429 → falls into "other 4xx/5xx → do not retry" path.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(ResponseTemplate::new(418))
         .mount(&mock)
         .await;
 
-    let cliente = cliente_teste();
+    let client = test_client();
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
     let url = format!("{}/", mock.uri());
-    let resultado = executar_com_retry(&cliente, &url, 3, &flag, &token).await;
-    match resultado {
-        Err(MotivoFalhaRetry::HttpErro(418)) => {}
-        outro => panic!("esperava HttpErro(418), recebi {outro:?}"),
+    let result = execute_with_retry(&client, &url, 3, &flag, &cancellation).await;
+    match result {
+        Err(RetryFailReason::HttpError(418)) => {}
+        other => panic!("expected HttpError(418), got {other:?}"),
     }
 }
 
 // ===========================================================================
-// `buscar_com_paginacao` — caminhos de borda da paginação.
+// `search_with_pagination` — pagination edge cases.
 // ===========================================================================
 
 #[tokio::test]
-async fn paginacao_sem_tokens_vqd_emite_warning_e_retorna_apenas_pagina_1() {
+async fn pagination_without_vqd_tokens_warns_and_returns_page_1_only() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    // Página 1 com resultados mas SEM tokens vqd/s/dc → bloqueia paginação.
+    // Page 1 with results but WITHOUT vqd/s/dc tokens → blocks pagination.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_sem_tokens_vqd())
+                .set_body_string(html_without_vqd_tokens())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    // Pede 3 páginas, mas como não há tokens vqd, só virá a 1.
-    let cfg = configuracoes_base(Endpoint::Html, 3, 0);
+    let client = test_client();
+    // Requests 3 pages, but since there are no vqd tokens, only page 1 will come.
+    let config = base_config(Endpoint::Html, 3, 0);
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
-        .expect("primeira página deve ter sucesso");
-    assert_eq!(agregado.paginas_buscadas, 1);
-    assert_eq!(agregado.resultados.len(), 2);
+        .expect("first page should succeed");
+    assert_eq!(aggregated.pages_fetched, 1);
+    assert_eq!(aggregated.results.len(), 2);
 }
 
 #[tokio::test]
-async fn paginacao_truncada_por_num_resultados() {
+async fn pagination_truncated_by_num_results() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    // Página 1: 3 resultados + tokens.
-    let html_pg1 = html_com_tokens_e_resultados("vqd-trunc-1", "0", "30", &["A", "B", "C"]);
+    // Page 1: 3 results + tokens.
+    let html_pg1 = html_with_tokens_and_results("vqd-trunc-1", "0", "30", &["A", "B", "C"]);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -400,8 +401,8 @@ async fn paginacao_truncada_por_num_resultados() {
         .mount(&mock)
         .await;
 
-    // Página 2: 3 resultados → total acumulado = 6.
-    let html_pg2 = html_com_tokens_e_resultados("vqd-trunc-2", "30", "60", &["D", "E", "F"]);
+    // Page 2: 3 results → accumulated total = 6.
+    let html_pg2 = html_with_tokens_and_results("vqd-trunc-2", "30", "60", &["D", "E", "F"]);
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=vqd-trunc-1"))
@@ -414,33 +415,33 @@ async fn paginacao_truncada_por_num_resultados() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let mut cfg = configuracoes_base(Endpoint::Html, 2, 0);
-    cfg.num_resultados = Some(4); // truncar acumulado de 6 para 4.
+    let client = test_client();
+    let mut config = base_config(Endpoint::Html, 2, 0);
+    config.num_results = Some(4); // truncate accumulated 6 down to 4.
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
-        .expect("paginação ok");
+        .expect("pagination ok");
     assert_eq!(
-        agregado.resultados.len(),
+        aggregated.results.len(),
         4,
-        "resultados devem ser truncados a 4"
+        "results should be truncated to 4"
     );
 }
 
 #[tokio::test]
-async fn paginacao_para_quando_pagina_seguinte_retorna_status_nao_ok() {
+async fn pagination_stops_when_next_page_returns_non_ok_status() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    let html_pg1 = html_com_tokens_e_resultados("vqd-bad-1", "0", "30", &["A", "B"]);
+    let html_pg1 = html_with_tokens_and_results("vqd-bad-1", "0", "30", &["A", "B"]);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -451,7 +452,7 @@ async fn paginacao_para_quando_pagina_seguinte_retorna_status_nao_ok() {
         .mount(&mock)
         .await;
 
-    // Página 2 (POST) retorna 503 → paginação deve parar e devolver só a página 1.
+    // Page 2 (POST) returns 503 → pagination must stop and return only page 1.
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=vqd-bad-1"))
@@ -460,29 +461,29 @@ async fn paginacao_para_quando_pagina_seguinte_retorna_status_nao_ok() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 3, 0);
+    let client = test_client();
+    let config = base_config(Endpoint::Html, 3, 0);
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
-        .expect("primeira página ok mesmo com pg 2 falhando");
-    assert_eq!(agregado.paginas_buscadas, 1);
-    assert_eq!(agregado.resultados.len(), 2);
+        .expect("first page ok even with page 2 failing");
+    assert_eq!(aggregated.pages_fetched, 1);
+    assert_eq!(aggregated.results.len(), 2);
 }
 
 #[tokio::test]
-async fn paginacao_para_quando_pagina_seguinte_retorna_zero_resultados() {
+async fn pagination_stops_when_next_page_returns_zero_results() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    let html_pg1 = html_com_tokens_e_resultados("vqd-zero-1", "0", "30", &["X", "Y", "Z"]);
+    let html_pg1 = html_with_tokens_and_results("vqd-zero-1", "0", "30", &["X", "Y", "Z"]);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -493,46 +494,46 @@ async fn paginacao_para_quando_pagina_seguinte_retorna_zero_resultados() {
         .mount(&mock)
         .await;
 
-    // Página 2 retorna HTML > 100 bytes mas sem `.result` → zero resultados → para.
-    let html_vazio = r#"<html><head><title>nada</title></head><body><div id="links"><p>Sem resultados nesta página de teste, apenas texto suficiente para superar 100 bytes.</p></div></body></html>"#;
+    // Page 2 returns HTML > 100 bytes but without `.result` → zero results → stops.
+    let html_empty = r#"<html><head><title>nada</title></head><body><div id="links"><p>Sem resultados nesta página de teste, apenas texto suficiente para superar 100 bytes.</p></div></body></html>"#;
     Mock::given(method("POST"))
         .and(path("/"))
         .and(body_string_contains("vqd=vqd-zero-1"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_vazio)
+                .set_body_string(html_empty)
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 3, 0);
+    let client = test_client();
+    let config = base_config(Endpoint::Html, 3, 0);
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
         .expect("ok");
     assert_eq!(
-        agregado.paginas_buscadas, 1,
-        "paginas_buscadas fica em 1 porque pg 2 trouxe zero resultados"
+        aggregated.pages_fetched, 1,
+        "pages_fetched stays at 1 because page 2 returned zero results"
     );
-    assert_eq!(agregado.resultados.len(), 3);
+    assert_eq!(aggregated.results.len(), 3);
 }
 
 #[tokio::test]
-async fn paginacao_para_quando_pagina_seguinte_perde_tokens_vqd() {
+async fn pagination_stops_when_next_page_loses_vqd_tokens() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    let html_pg1 = html_com_tokens_e_resultados("vqd-lost-1", "0", "30", &["A", "B"]);
+    let html_pg1 = html_with_tokens_and_results("vqd-lost-1", "0", "30", &["A", "B"]);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -543,12 +544,12 @@ async fn paginacao_para_quando_pagina_seguinte_perde_tokens_vqd() {
         .mount(&mock)
         .await;
 
-    // Página 2: tem resultados MAS perdeu tokens vqd → paginação para após adicionar pg 2.
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // Page 2: has results BUT lost vqd tokens → pagination stops after adding page 2.
+    // Padding ensures body stays above SILENT_BLOCK_THRESHOLD (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
-    let html_pg2_sem_tokens = format!(
+    let html_pg2_no_tokens = format!(
         r#"<html><body>
     {padding}
     <div id="links">
@@ -568,43 +569,43 @@ async fn paginacao_para_quando_pagina_seguinte_perde_tokens_vqd() {
         .and(body_string_contains("vqd=vqd-lost-1"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_pg2_sem_tokens)
+                .set_body_string(html_pg2_no_tokens)
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 5, 0);
+    let client = test_client();
+    let config = base_config(Endpoint::Html, 5, 0);
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
         .expect("ok");
     assert_eq!(
-        agregado.paginas_buscadas, 2,
-        "pg 2 contou — mas a 3 não veio porque perdeu tokens"
+        aggregated.pages_fetched, 2,
+        "page 2 counted — but page 3 never arrived because tokens were lost"
     );
     assert_eq!(
-        agregado.resultados.len(),
+        aggregated.results.len(),
         4,
-        "2 da pg 1 + 2 da pg 2 = 4 resultados totais"
+        "2 from page 1 + 2 from page 2 = 4 total results"
     );
 }
 
 #[tokio::test]
-async fn paginacao_aborta_se_token_ja_cancelado_no_inicio_do_loop() {
+async fn pagination_aborts_if_token_already_cancelled_at_loop_start() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    let html_pg1 = html_com_tokens_e_resultados("vqd-cancel-1", "0", "30", &["A", "B"]);
+    let html_pg1 = html_with_tokens_and_results("vqd-cancel-1", "0", "30", &["A", "B"]);
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -615,7 +616,7 @@ async fn paginacao_aborta_se_token_ja_cancelado_no_inicio_do_loop() {
         .mount(&mock)
         .await;
 
-    // Mock POST que NUNCA deve ser chamado (cancelamento pré-loop deve abortar).
+    // POST Mock that should NEVER be called (pre-loop cancellation must abort).
     Mock::given(method("POST"))
         .and(path("/"))
         .respond_with(
@@ -627,36 +628,36 @@ async fn paginacao_aborta_se_token_ja_cancelado_no_inicio_do_loop() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 3, 0);
+    let client = test_client();
+    let config = base_config(Endpoint::Html, 3, 0);
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    // Spawn task que cancela após pequeno delay para simular cancelamento mid-execução.
-    // Como o loop tem múltiplas chances de checar `is_cancelled()`, isso garante que
-    // alguma das checagens dispare.
-    let token_clone = token.clone();
+    // Spawn task that cancels after a small delay to simulate mid-execution cancellation.
+    // Since the loop has multiple chances to check `is_cancelled()`, this ensures
+    // one of the checks fires.
+    let cancellation_clone = cancellation.clone();
     let handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        token_clone.cancel();
+        cancellation_clone.cancel();
     });
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
-        .expect("primeira página deve completar antes do cancelamento");
+        .expect("first page should complete before cancellation");
 
-    handle.await.expect("task de cancelamento ok");
+    handle.await.expect("cancellation task ok");
 
-    // O cancelamento deve abortar o loop antes de buscar todas as 3 páginas.
+    // Cancellation must abort the loop before fetching all 3 pages.
     assert!(
-        agregado.paginas_buscadas < 3,
-        "cancelamento deve abortar antes de completar 3 páginas (efetivamente: {})",
-        agregado.paginas_buscadas
+        aggregated.pages_fetched < 3,
+        "cancellation must abort before completing 3 pages (actual: {})",
+        aggregated.pages_fetched
     );
 }
 
@@ -666,25 +667,25 @@ async fn fallback_lite_falha_mantem_resultados_vazios() {
     let mock_html = MockServer::start().await;
     let mock_lite = MockServer::start().await;
 
-    // HTML retorna 200 mas com zero `.result` → dispara fallback Lite.
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // HTML returns 200 but with zero `.result` → triggers Lite fallback.
+    // Padding ensures body stays above SILENT_BLOCK_THRESHOLD (5,000 bytes).
     let padding_fb =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
-    let html_vazio = format!(
+    let html_empty = format!(
         r#"<html><head><title>vazio</title></head><body>{padding_fb}<div id="links"><p>Nenhum resultado encontrado para teste de fallback Lite.</p></div></body></html>"#
     );
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_vazio)
+                .set_body_string(html_empty)
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_html)
         .await;
 
-    // Lite também falha — retorna 503 persistente.
+    // Lite also fails — returns persistent 503.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(ResponseTemplate::new(503))
@@ -693,37 +694,37 @@ async fn fallback_lite_falha_mantem_resultados_vazios() {
 
     let base_html = format!("{}/", mock_html.uri());
     let base_lite = format!("{}/", mock_lite.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base_html),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base_lite),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let client = test_client();
+    let config = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    let agregado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
-        .expect("HTML 200 + Lite 503 deve retornar Ok com lista vazia");
+        .expect("HTML 200 + Lite 503 should return Ok with empty list");
     assert_eq!(
-        agregado.resultados.len(),
+        aggregated.results.len(),
         0,
-        "ambos endpoints sem resultados → vetor vazio"
+        "both endpoints without results → empty vec"
     );
     assert!(
-        !agregado.usou_fallback_lite,
-        "fallback Lite falhou → flag fica false"
+        !aggregated.used_fallback_lite,
+        "Lite fallback failed → flag stays false"
     );
-    assert_eq!(agregado.endpoint_efetivo, Endpoint::Html);
+    assert_eq!(aggregated.effective_endpoint, Endpoint::Html);
 }
 
 #[tokio::test]
-async fn primeira_pagina_blocked_por_body_pequeno_retorna_motivo_blocked() {
+async fn first_page_blocked_by_small_body_returns_blocked_reason() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
-    // Status 200 mas body MUITO pequeno → buscar_com_paginacao retorna Blocked.
+    // Status 200 but VERY small body → search_with_pagination returns Blocked.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -735,20 +736,20 @@ async fn primeira_pagina_blocked_por_body_pequeno_retorna_motivo_blocked() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = GuardaEnv::set(&[
+    let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
     ]);
 
-    let cliente = cliente_teste();
-    let cfg = configuracoes_base(Endpoint::Html, 1, 0);
+    let client = test_client();
+    let config = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
-    let token = CancellationToken::new();
+    let cancellation = CancellationToken::new();
 
-    let resultado = buscar_com_paginacao(&cliente, &cfg, "rust", &flag, &token).await;
-    match resultado {
-        Err(MotivoFalhaRetry::Blocked) => {}
-        Err(outro) => panic!("esperava Blocked, recebi outro motivo: {outro:?}"),
-        Ok(_) => panic!("esperava Blocked, recebi Ok"),
+    let result = search_with_pagination(&client, &config, "rust", &flag, &cancellation).await;
+    match result {
+        Err(RetryFailReason::Blocked) => {}
+        Err(other) => panic!("expected Blocked, got another reason: {other:?}"),
+        Ok(_) => panic!("expected Blocked, got Ok"),
     }
 }

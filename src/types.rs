@@ -1,96 +1,130 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: declarative (shared data types and serde configuration)
 //! Shared data types used across the application.
 //!
-//! All output structs (`SaidaBusca`, `SaidaBuscaMultipla`, `ResultadoBusca`,
-//! `MetadadosBusca`) serialize with field names in Brazilian Portuguese
-//! (snake_case), as per the INVIOLABLE invariant of blueprint v2: "Logs and field
-//! names in Brazilian Portuguese". Rust field names and external JSON names
-//! coincide — no active `serde(rename)`.
+//! Output structs (`SearchOutput`, `MultiSearchOutput`, `SearchResult`,
+//! `SearchMetadata`) serialize with JSON field names preserved via
+//! `#[serde(rename = "...")]` for backward compatibility.
 
-use crate::http::PerfilBrowser;
+use crate::http::BrowserProfile;
 use serde::{Deserialize, Serialize};
 
-/// Represents a single DuckDuckGo search result.
+/// Represents a single `DuckDuckGo` search result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResultadoBusca {
+pub struct SearchResult {
     /// Result position on the page (1-indexed, already after ad filtering).
-    pub posicao: u32,
+    #[serde(rename = "posicao")]
+    pub position: u32,
 
     /// Result title, extracted from the `.result__a` element.
-    pub titulo: String,
+    #[serde(rename = "titulo")]
+    pub title: String,
 
     /// Result URL, extracted from the `href` attribute of `.result__a`.
     pub url: String,
 
     /// Display URL (more user-friendly), extracted from `.result__url`.
+    #[serde(rename = "url_exibicao")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub url_exibicao: Option<String>,
+    pub display_url: Option<String>,
 
     /// Descriptive snippet for the result, extracted from `.result__snippet`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snippet: Option<String>,
 
-    /// Literal title text as rendered by DuckDuckGo, preserved for auditing
+    /// Literal title text as rendered by `DuckDuckGo`, preserved for auditing
     /// when substitution heuristics are applied (e.g., DDG returns "Official site"
-    /// for verified domains — we replace it with `url_exibicao` and keep the
+    /// for verified domains — we replace it with `display_url` and keep the
     /// original here). Absent when the title was not modified.
+    #[serde(rename = "titulo_original")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub titulo_original: Option<String>,
+    pub original_title: Option<String>,
 
     /// Full text content of the page (only with `--fetch-content`; not implemented in the MVP).
+    #[serde(rename = "conteudo")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub conteudo: Option<String>,
+    pub content: Option<String>,
 
     /// Size in characters of the extracted content (only with `--fetch-content`).
+    #[serde(rename = "tamanho_conteudo")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tamanho_conteudo: Option<u32>,
+    pub content_size: Option<u32>,
 
     /// Method used to extract content: `"http"` or `"chrome"` (only with `--fetch-content`).
+    #[serde(rename = "metodo_extracao_conteudo")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metodo_extracao_conteudo: Option<String>,
+    pub content_extraction_method: Option<String>,
 }
 
 /// Search execution metadata, useful for diagnostics and LLM integration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MetadadosBusca {
+pub struct SearchMetadata {
     /// Total execution time in milliseconds.
-    pub tempo_execucao_ms: u64,
+    #[serde(rename = "tempo_execucao_ms")]
+    pub execution_time_ms: u64,
 
     /// Blake3 hash (hex, first 16 characters) of the selector configuration used.
-    pub hash_seletores: String,
+    #[serde(rename = "hash_seletores")]
+    pub selectors_hash: String,
 
     /// Number of retries performed (0 in MVP — retry not yet implemented).
-    pub retentativas: u32,
+    #[serde(rename = "retentativas")]
+    pub retries: u32,
 
     /// Indicates whether the Lite endpoint was used as fallback (always `false` in MVP).
-    pub usou_endpoint_fallback: bool,
+    #[serde(rename = "usou_endpoint_fallback")]
+    pub used_fallback_endpoint: bool,
 
     /// Number of parallel content fetches started (0 in MVP).
-    pub fetches_simultaneos: u32,
+    #[serde(rename = "fetches_simultaneos")]
+    pub concurrent_fetches: u32,
 
     /// Successful content fetches (0 in MVP).
-    pub sucessos_fetch: u32,
+    #[serde(rename = "sucessos_fetch")]
+    pub fetch_successes: u32,
 
     /// Failed content fetches (0 in MVP).
-    pub falhas_fetch: u32,
+    #[serde(rename = "falhas_fetch")]
+    pub fetch_failures: u32,
 
     /// Indicates whether Chrome was used (always `false` in MVP).
-    pub usou_chrome: bool,
+    #[serde(rename = "usou_chrome")]
+    pub used_chrome: bool,
 
     /// User-Agent used during execution.
     pub user_agent: String,
 
+    /// Identity tag actually used for the request (WS-26).
+    ///
+    /// Format: `<family>-<platform>-<16hex>`. This field is additive — when
+    /// the WS-26 identity rotation is disabled (default in v0.6.4) it
+    /// contains a synthetic tag derived from the static UA. When rotation
+    /// is active, the tag reports the identity that was used for the
+    /// successful response (or the last attempt on failure).
+    #[serde(rename = "identidade_usada")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_used: Option<String>,
+
+    /// Cascade level reached during the request (0..=4). `None` when the
+    /// identity rotation was not active. See `IdentityPool::rotate_on_block`.
+    #[serde(rename = "nivel_cascata")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cascade_level: Option<u32>,
+
     /// Indicates whether a proxy was configured (always `false` in MVP).
-    pub usou_proxy: bool,
+    #[serde(rename = "usou_proxy")]
+    pub used_proxy: bool,
 }
 
 /// Complete output for a single-query search (serialized as JSON in the MVP).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaidaBusca {
+pub struct SearchOutput {
     /// Original search query submitted by the user.
     pub query: String,
 
     /// Search engine used — always `"duckduckgo"`.
-    pub motor: String,
+    #[serde(rename = "motor")]
+    pub engine: String,
 
     /// Endpoint used — `"html"` or `"lite"` (always `"html"` in MVP).
     pub endpoint: String,
@@ -99,47 +133,57 @@ pub struct SaidaBusca {
     pub timestamp: String,
 
     /// `kl` region code used (e.g., `"br-pt"`).
-    pub regiao: String,
+    #[serde(rename = "regiao")]
+    pub region: String,
 
     /// Count of results returned after ad filtering.
-    pub quantidade_resultados: u32,
+    #[serde(rename = "quantidade_resultados")]
+    pub result_count: u32,
 
     /// List of organic results.
-    pub resultados: Vec<ResultadoBusca>,
+    #[serde(rename = "resultados")]
+    pub results: Vec<SearchResult>,
 
     /// Number of pages fetched (always 1 in MVP).
-    pub paginas_buscadas: u32,
+    #[serde(rename = "paginas_buscadas")]
+    pub pages_fetched: u32,
 
     /// Structured error code if the search partially failed (None on full success).
+    #[serde(rename = "erro")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub erro: Option<String>,
+    pub error: Option<String>,
 
     /// Additional human-readable message (used for non-fatal warnings).
+    #[serde(rename = "mensagem")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mensagem: Option<String>,
+    pub message: Option<String>,
 
     /// Execution metadata.
-    pub metadados: MetadadosBusca,
+    #[serde(rename = "metadados")]
+    pub metadata: SearchMetadata,
 }
 
 /// Complete output for a multi-query execution (serialized as JSON).
 ///
-/// Per section 14.1 of the specification. Each inner `SaidaBusca` retains the
+/// Per section 14.1 of the specification. Each inner `SearchOutput` retains the
 /// single-query format (including per-query `error`), and the root-level fields
 /// aggregate metadata from the parallel execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaidaBuscaMultipla {
+pub struct MultiSearchOutput {
     /// Total number of queries executed (success + failure).
-    pub quantidade_queries: u32,
+    #[serde(rename = "quantidade_queries")]
+    pub query_count: u32,
 
     /// ISO-8601 (RFC 3339) timestamp of the start of the parallel execution.
     pub timestamp: String,
 
     /// Effective `--parallel` value used during execution (after validation/clamp).
-    pub paralelismo: u32,
+    #[serde(rename = "paralelismo")]
+    pub parallelism: u32,
 
     /// Result of each individual query, in the same order as the input queries.
-    pub buscas: Vec<SaidaBusca>,
+    #[serde(rename = "buscas")]
+    pub searches: Vec<SearchOutput>,
 }
 
 /// CSS selector configuration (loaded from selectors.toml or hardcoded defaults).
@@ -150,67 +194,90 @@ pub struct SaidaBuscaMultipla {
 /// full externalization via an external TOML file.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ConfiguracaoSeletores {
+pub struct SelectorConfig {
     /// Legacy group — retained for compatibility with existing serialization and tests.
-    pub html_endpoint: SeletoresHtml,
+    pub html_endpoint: HtmlSelectors,
 
     /// Selector group for the Lite endpoint.
     #[serde(default)]
-    pub lite_endpoint: SeletoresLite,
+    pub lite_endpoint: LiteSelectors,
 
     /// Selectors used to extract pagination data (form `s`).
     #[serde(default)]
-    pub pagination: SeletoresPaginacao,
+    pub pagination: PaginationSelectors,
 
     /// Selectors used to extract "related searches".
     #[serde(default)]
-    pub related_searches: SeletoresRelacionadas,
+    pub related_searches: RelatedSelectors,
 }
 
+/// CSS selectors for the full HTML endpoint (`html.duckduckgo.com`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SeletoresHtml {
+pub struct HtmlSelectors {
+    /// Outer container holding all organic results.
     pub results_container: String,
+    /// Individual result item (excludes ads).
     pub result_item: String,
+    /// Link element carrying the title and destination URL.
     pub title_and_url: String,
+    /// Element containing the result snippet/description.
     pub snippet: String,
+    /// Element showing the display URL below the title.
     pub display_url: String,
-    pub ads_filter: FiltroAnuncios,
+    /// Rules for filtering out sponsored/ad results.
+    pub ads_filter: AdFilter,
 }
 
+/// Patterns used to detect and filter out sponsored results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct FiltroAnuncios {
+pub struct AdFilter {
+    /// CSS classes that mark an element as an ad.
     pub ad_classes: Vec<String>,
+    /// HTML attributes indicating sponsored content.
     pub ad_attributes: Vec<String>,
+    /// URL substrings found in ad-tracking redirects.
     pub ad_url_patterns: Vec<String>,
 }
 
+/// CSS selectors for the lite endpoint (`lite.duckduckgo.com`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SeletoresLite {
+pub struct LiteSelectors {
+    /// Table element wrapping all results.
     pub results_table: String,
+    /// Anchor element linking to the result page.
     pub result_link: String,
+    /// Cell containing the result snippet text.
     pub result_snippet: String,
 }
 
+/// CSS selectors for extracting pagination tokens from the HTML form.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SeletoresPaginacao {
+pub struct PaginationSelectors {
+    /// Hidden input carrying the `vqd` token.
     pub vqd_input: String,
+    /// Hidden input carrying the `s` (start offset) value.
     pub s_input: String,
+    /// Hidden input carrying the `dc` (document count) value.
     pub dc_input: String,
+    /// Form element for the "next page" action.
     pub next_form: String,
 }
 
+/// CSS selectors for related-searches links (currently unused; DDG HTML does not expose them).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SeletoresRelacionadas {
+pub struct RelatedSelectors {
+    /// Container element for the related-searches block.
     pub container: String,
+    /// Anchor elements inside the related-searches block.
     pub links: String,
 }
 
-impl Default for SeletoresHtml {
+impl Default for HtmlSelectors {
     fn default() -> Self {
         Self {
             results_container: "#links".to_string(),
@@ -222,12 +289,12 @@ impl Default for SeletoresHtml {
             // titulo+url+snippet concatenados no campo snippet.
             snippet: ".result__snippet, a.result__snippet".to_string(),
             display_url: ".result__url, span.result__url".to_string(),
-            ads_filter: FiltroAnuncios::default(),
+            ads_filter: AdFilter::default(),
         }
     }
 }
 
-impl Default for FiltroAnuncios {
+impl Default for AdFilter {
     fn default() -> Self {
         Self {
             ad_classes: vec![".result--ad".to_string(), ".badge--ad".to_string()],
@@ -237,7 +304,7 @@ impl Default for FiltroAnuncios {
     }
 }
 
-impl Default for SeletoresLite {
+impl Default for LiteSelectors {
     fn default() -> Self {
         Self {
             results_table: "table, body table".to_string(),
@@ -247,7 +314,7 @@ impl Default for SeletoresLite {
     }
 }
 
-impl Default for SeletoresPaginacao {
+impl Default for PaginationSelectors {
     fn default() -> Self {
         Self {
             vqd_input: "input[name='vqd'], input[type='hidden'][name='vqd']".to_string(),
@@ -258,7 +325,7 @@ impl Default for SeletoresPaginacao {
     }
 }
 
-impl Default for SeletoresRelacionadas {
+impl Default for RelatedSelectors {
     fn default() -> Self {
         Self {
             container: ".result--more__btn, .result--sep".to_string(),
@@ -267,18 +334,21 @@ impl Default for SeletoresRelacionadas {
     }
 }
 
-/// DuckDuckGo endpoint chosen via `--endpoint`.
+/// `DuckDuckGo` endpoint chosen via `--endpoint`.
 ///
 /// - `Html` (default): `https://html.duckduckgo.com/html/` with `.result` in the DOM.
 /// - `Lite`: `https://lite.duckduckgo.com/lite/` with tabular layout (no JavaScript).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endpoint {
+    /// Full HTML endpoint with `.result` DOM structure.
     Html,
+    /// Lightweight endpoint with tabular layout (no JavaScript).
     Lite,
 }
 
 impl Endpoint {
-    pub fn como_str(&self) -> &'static str {
+    /// Returns the short string used in logs and metadata output.
+    pub fn as_str(&self) -> &'static str {
         match self {
             Endpoint::Html => "html",
             Endpoint::Lite => "lite",
@@ -286,45 +356,52 @@ impl Endpoint {
     }
 }
 
-/// DuckDuckGo `df` time filter.
+/// `DuckDuckGo` `df` time filter.
 ///
 /// Values accepted by the API: `d` (day), `w` (week), `m` (month), `y` (year).
 /// Absence of the parameter means "no time filter".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FiltroTemporal {
-    Dia,
-    Semana,
-    Mes,
-    Ano,
+pub enum TimeFilter {
+    /// Results from the last 24 hours.
+    Day,
+    /// Results from the last 7 days.
+    Week,
+    /// Results from the last 30 days.
+    Month,
+    /// Results from the last 365 days.
+    Year,
 }
 
-impl FiltroTemporal {
+impl TimeFilter {
     /// Returns the code accepted by the URL's `df` parameter.
-    pub fn como_parametro(&self) -> &'static str {
+    pub fn as_param(&self) -> &'static str {
         match self {
-            FiltroTemporal::Dia => "d",
-            FiltroTemporal::Semana => "w",
-            FiltroTemporal::Mes => "m",
-            FiltroTemporal::Ano => "y",
+            TimeFilter::Day => "d",
+            TimeFilter::Week => "w",
+            TimeFilter::Month => "m",
+            TimeFilter::Year => "y",
         }
     }
 }
 
-/// DuckDuckGo safe-search (`kp` parameter).
+/// `DuckDuckGo` safe-search (`kp` parameter).
 ///
 /// Accepted values: `-2` moderate (DDG default, sent as absence of the parameter),
 /// `-1` off (disables filters), `1` strict (filters adult content).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SafeSearch {
+    /// Disables all content filters (`kp=-1`).
     Off,
+    /// DDG default — moderate filtering (no `kp` parameter sent).
     Moderate,
+    /// Strict filtering of adult content (`kp=1`).
     Strict,
 }
 
 impl SafeSearch {
     /// Value for the `kp` parameter. `None` means "do not add the parameter"
     /// (equivalent to DDG's moderate default).
-    pub fn como_parametro(&self) -> Option<&'static str> {
+    pub fn as_param(&self) -> Option<&'static str> {
         match self {
             SafeSearch::Off => Some("-1"),
             SafeSearch::Moderate => None,
@@ -336,78 +413,90 @@ impl SafeSearch {
 /// Global settings derived from the CLI, passed through the pipeline.
 ///
 /// The `query` field remains as the "active query" in single-query executions
-/// (useful for the legacy flow in `pipeline::executar`). In multi-query mode, the
+/// (useful for the legacy flow in `pipeline::execute`). In multi-query mode, the
 /// pipeline iterates over `queries` and clones this struct for each task,
 /// overwriting `query` with the current iteration item.
 #[derive(Debug, Clone)]
-pub struct Configuracoes {
+pub struct Config {
     /// "Active" query — populated before calling the single-query flow.
     /// In multi-query mode starts equal to the first query and is overwritten per task.
     pub query: String,
     /// Full list of queries to execute. Always contains at least 1 item.
     pub queries: Vec<String>,
-    pub num_resultados: Option<u32>,
-    pub formato: FormatoSaida,
-    pub timeout_segundos: u64,
-    pub idioma: String,
-    pub pais: String,
-    pub modo_verboso: bool,
-    pub modo_silencioso: bool,
+    /// Desired number of results (maps to pagination logic).
+    pub num_results: Option<u32>,
+    /// Output format chosen via `--format`.
+    pub format: OutputFormat,
+    /// Per-request HTTP timeout in seconds.
+    pub timeout_seconds: u64,
+    /// Language code for DDG `kl` parameter (e.g. `"pt-br"`).
+    pub language: String,
+    /// Country code for DDG `kl` parameter (e.g. `"br"`).
+    pub country: String,
+    /// `--verbose` flag — enables detailed tracing output.
+    pub verbose: bool,
+    /// `--quiet` flag — suppresses non-essential stderr output.
+    pub quiet: bool,
+    /// Selected User-Agent string sent in HTTP headers.
     pub user_agent: String,
     /// Full browser profile — family, version and platform derived from `user_agent`.
-    /// Kept alongside the `user_agent` field (used in MetadadosBusca and JSON output).
-    pub perfil_browser: PerfilBrowser,
+    /// Kept alongside the `user_agent` field (used in `SearchMetadata` and JSON output).
+    pub browser_profile: BrowserProfile,
     /// Effective parallelism degree (1..=20). Informational only in single-query mode.
-    pub paralelismo: u32,
+    pub parallelism: u32,
     /// Number of pages to fetch per query (1..=5).
-    pub paginas: u32,
+    pub pages: u32,
     /// Number of retry attempts (0..=10). 0 = no retry; 2 is the default.
     pub retries: u32,
     /// Preferred endpoint (html by default; lite forces the no-JavaScript endpoint).
     pub endpoint: Endpoint,
     /// Optional time filter (`df`).
-    pub filtro_temporal: Option<FiltroTemporal>,
+    pub time_filter: Option<TimeFilter>,
     /// Safe-search (`kp`).
     pub safe_search: SafeSearch,
     /// `--stream` flag (placeholder — not implemented in this iteration).
-    pub modo_stream: bool,
+    pub stream_mode: bool,
     /// Optional path for writing output (instead of stdout).
-    pub arquivo_saida: Option<std::path::PathBuf>,
+    pub output_file: Option<std::path::PathBuf>,
     /// `--fetch-content` flag — enables text content extraction from result pages.
-    pub buscar_conteudo: bool,
+    pub fetch_content: bool,
     /// Value of `--max-content-length` — maximum content size in characters (1..=100000).
-    pub max_tamanho_conteudo: usize,
+    pub max_content_length: usize,
     /// HTTP/HTTPS/SOCKS5 proxy URL via `--proxy`. When `Some`, takes precedence over env vars.
     pub proxy: Option<String>,
     /// `--no-proxy` flag — disables any proxy (including env vars). Mutually exclusive with `proxy`.
-    pub sem_proxy: bool,
+    pub no_proxy: bool,
     /// Value of `--global-timeout` in seconds (global timeout for the entire execution).
-    pub timeout_global_segundos: u64,
+    pub global_timeout_seconds: u64,
     /// `--match-platform-ua` flag — restricts UAs from the external config to the current platform.
-    pub corresponde_plataforma_ua: bool,
+    pub match_platform_ua: bool,
     /// Per-host concurrent fetch limit in `--fetch-content` mode (1..=10, default 2).
-    pub limite_por_host: usize,
+    pub per_host_limit: usize,
     /// Optional manual path to Chrome/Chromium (`--chrome-path` flag, `chrome` feature).
     /// Without the `chrome` feature or `--fetch-content`, this value is ignored with a warning.
-    pub caminho_chrome: Option<std::path::PathBuf>,
+    pub chrome_path: Option<std::path::PathBuf>,
     /// CSS selector configuration (loaded from selectors.toml or built-in defaults).
     /// Wrapped in `Arc` for cheap cloning across concurrent tasks.
-    pub seletores: std::sync::Arc<ConfiguracaoSeletores>,
+    pub selectors: std::sync::Arc<SelectorConfig>,
 }
 
 /// Output formats supported by the CLI (only `Json` is supported in the MVP).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FormatoSaida {
+pub enum OutputFormat {
+    /// Structured JSON (default for pipes and LLM consumption).
     Json,
+    /// Human-readable plain text.
     Text,
+    /// Markdown with headers and links.
     Markdown,
+    /// Auto-detect: JSON when stdout is not a TTY, Text otherwise.
     Auto,
 }
 
-impl FormatoSaida {
+impl OutputFormat {
     /// Converts a `"json"|"text"|"markdown"|"auto"` string into the corresponding enum variant.
-    pub fn a_partir_de_str(valor: &str) -> Option<Self> {
-        match valor.to_ascii_lowercase().as_str() {
+    pub fn from_str_value(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
             "json" => Some(Self::Json),
             "text" => Some(Self::Text),
             "markdown" | "md" => Some(Self::Markdown),
@@ -418,12 +507,12 @@ impl FormatoSaida {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn configuracao_seletores_default_contem_result_container() {
-        let cfg = ConfiguracaoSeletores::default();
+    fn selector_config_default_has_result_container() {
+        let cfg = SelectorConfig::default();
         assert_eq!(cfg.html_endpoint.results_container, "#links");
         assert!(cfg
             .html_endpoint
@@ -433,58 +522,60 @@ mod testes {
     }
 
     #[test]
-    fn formato_saida_parseia_variantes_validas() {
+    fn output_format_parses_valid_variants() {
         assert_eq!(
-            FormatoSaida::a_partir_de_str("json"),
-            Some(FormatoSaida::Json)
+            OutputFormat::from_str_value("json"),
+            Some(OutputFormat::Json)
         );
         assert_eq!(
-            FormatoSaida::a_partir_de_str("TEXT"),
-            Some(FormatoSaida::Text)
+            OutputFormat::from_str_value("TEXT"),
+            Some(OutputFormat::Text)
         );
         assert_eq!(
-            FormatoSaida::a_partir_de_str("markdown"),
-            Some(FormatoSaida::Markdown)
+            OutputFormat::from_str_value("markdown"),
+            Some(OutputFormat::Markdown)
         );
         assert_eq!(
-            FormatoSaida::a_partir_de_str("md"),
-            Some(FormatoSaida::Markdown)
+            OutputFormat::from_str_value("md"),
+            Some(OutputFormat::Markdown)
         );
         assert_eq!(
-            FormatoSaida::a_partir_de_str("Auto"),
-            Some(FormatoSaida::Auto)
+            OutputFormat::from_str_value("Auto"),
+            Some(OutputFormat::Auto)
         );
-        assert_eq!(FormatoSaida::a_partir_de_str("xml"), None);
+        assert_eq!(OutputFormat::from_str_value("xml"), None);
     }
 
     #[test]
-    fn saida_busca_serializa_campos_em_portugues_no_json() {
-        let saida = SaidaBusca {
+    fn search_output_serializes_pt_json_keys() {
+        let output = SearchOutput {
             query: "teste".to_string(),
-            motor: "duckduckgo".to_string(),
+            engine: "duckduckgo".to_string(),
             endpoint: "html".to_string(),
             timestamp: "2026-04-14T00:00:00Z".to_string(),
-            regiao: "br-pt".to_string(),
-            quantidade_resultados: 0,
-            resultados: vec![],
-            paginas_buscadas: 1,
-            erro: None,
-            mensagem: None,
-            metadados: MetadadosBusca {
-                tempo_execucao_ms: 0,
-                hash_seletores: "abc123".to_string(),
-                retentativas: 0,
-                usou_endpoint_fallback: false,
-                fetches_simultaneos: 0,
-                sucessos_fetch: 0,
-                falhas_fetch: 0,
-                usou_chrome: false,
+            region: "br-pt".to_string(),
+            result_count: 0,
+            results: vec![],
+            pages_fetched: 1,
+            error: None,
+            message: None,
+            metadata: SearchMetadata {
+                execution_time_ms: 0,
+                selectors_hash: "abc123".to_string(),
+                retries: 0,
+                used_fallback_endpoint: false,
+                concurrent_fetches: 0,
+                fetch_successes: 0,
+                fetch_failures: 0,
+                used_chrome: false,
                 user_agent: "Mozilla/5.0".to_string(),
-                usou_proxy: false,
+                used_proxy: false,
+                identity_used: None,
+                cascade_level: None,
             },
         };
-        let json = serde_json::to_string(&saida).expect("serialização deve funcionar");
-        // Nomes de campo em PT devem aparecer no JSON (invariante INVIOLÁVEL do blueprint v2).
+        let json = serde_json::to_string(&output).expect("serialization should work");
+        // Portuguese JSON keys must be preserved (backward-compat invariant).
         assert!(json.contains("\"query\""));
         assert!(json.contains("\"quantidade_resultados\""));
         assert!(json.contains("\"tempo_execucao_ms\""));
@@ -492,7 +583,7 @@ mod testes {
         assert!(json.contains("\"metadados\""));
         // v0.3.0 BREAKING: campo `buscas_relacionadas` removido do schema.
         assert!(!json.contains("\"buscas_relacionadas\""));
-        // Nomes em inglês NÃO devem aparecer.
+        // English Rust field names must NOT leak into JSON output.
         assert!(!json.contains("\"results_count\""));
         assert!(!json.contains("\"results\":"));
         assert!(!json.contains("\"metadata\""));
@@ -500,19 +591,19 @@ mod testes {
     }
 
     #[test]
-    fn saida_busca_multipla_serializa_campos_em_portugues() {
-        let saida = SaidaBuscaMultipla {
-            quantidade_queries: 2,
+    fn multi_search_output_serializes_pt_json_keys() {
+        let output = MultiSearchOutput {
+            query_count: 2,
             timestamp: "2026-04-14T00:00:00Z".to_string(),
-            paralelismo: 5,
-            buscas: vec![],
+            parallelism: 5,
+            searches: vec![],
         };
-        let json = serde_json::to_string(&saida).expect("serialização deve funcionar");
-        // Nomes de campo em PT devem aparecer no JSON.
+        let json = serde_json::to_string(&output).expect("serialization should work");
+        // Portuguese JSON keys must be preserved.
         assert!(json.contains("\"quantidade_queries\":2"));
         assert!(json.contains("\"paralelismo\":5"));
         assert!(json.contains("\"buscas\":[]"));
-        // Nomes em inglês NÃO devem aparecer.
+        // English field names must NOT appear in JSON.
         assert!(!json.contains("\"queries_count\""));
         assert!(!json.contains("\"parallel\""));
         assert!(!json.contains("\"searches\""));

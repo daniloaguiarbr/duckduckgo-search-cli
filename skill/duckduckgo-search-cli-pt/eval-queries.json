@@ -138,5 +138,30 @@
     "expected_use": "extrair diretrizes éticas, padrões de rate limiting e ferramentas recomendadas para agentes de IA que fazem pesquisa web",
     "flags": ["-n", "10", "-f", "json"],
     "category": "research"
+  },
+  {
+    "id": "q21",
+    "query": "duckduckgo-search-cli verificação saúde pré-voo anti-bot",
+    "expected_use": "validar que a flag --probe da CLI retorna exit 0 e emite relatório de saúde em JSON. Inspecionar stdout para status, latency_ms e has_set_cookie",
+    "flags": [],
+    "expected_exit": 0,
+    "category": "v0.6.4-smoke-test"
+  },
+  {
+    "id": "q22",
+    "query": "rust pool identidades anti-bot 12 identidades rotação cascata",
+    "expected_use": "validar o pool adaptativo de identidades anti-bot v0.6.4. Executar com --seed 42 para rotação determinística. Inspecionar stdout JSON metadados.identidade_usada para tag família-plataforma-hex16 e metadados.nivel_cascata para nível de cascata (0..=4)",
+    "flags": ["-n", "10", "-f", "json", "--seed", "42"],
+    "expected_json_fields": ["metadados.identidade_usada", "metadados.nivel_cascata"],
+    "category": "v0.6.4-feature-test"
+  },
+  {
+    "id": "q23",
+    "query": "duckduckgo CLI identity-profile chrome-linux fixado",
+    "expected_use": "validar que --identity-profile chrome-linux fixa a sessão em uma identidade específica do pool de 12. Esperar que metadados.identidade_usada case com a tag chrome-linux e o seed determinístico 0x33333333cccc0003",
+    "flags": ["-n", "5", "-f", "json", "--identity-profile", "chrome-linux"],
+    "expected_json_fields": ["metadados.identidade_usada"],
+    "expected_value_contains": "chrome-linux",
+    "category": "v0.6.4-feature-test"
   }
 ]

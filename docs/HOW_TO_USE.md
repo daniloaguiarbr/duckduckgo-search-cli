@@ -249,3 +249,55 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - See `docs/AGENTS-GUIDE.md` for the full stdin/stdout contract and schema reference
 - See `docs/CROSS_PLATFORM.md` for Linux, macOS, Windows, and Docker setup guides
 - See `docs/AGENT_RULES.md` for 30+ MUST/NEVER rules for production agent use
+
+
+## v0.6.4 — Adaptive Anti-Bot Identity Pool (WS-26)
+
+### Problem
+DuckDuckGo's anti-bot heuristics classify a single User-Agent + IP + header-order combination after the first request. Reusing the same identity across all pagination calls and across multiple queries produces a single fingerprint that gets blocked with HTTP 202 (anomaly), HTTP 403, or HTTP 429.
+
+### Solution
+v0.6.4 introduces a 12-identity pool with 5-level cascade rotation:
+
+| Level | Strategy |
+|-------|----------|
+| 0     | Current identity (no rotation) |
+| 1     | Same family, different platform |
+| 2     | Different family, same platform |
+| 3     | Different family and platform + endpoint downgraded to lite |
+| 4     | Random identity + recommended 30-60s sleep before retry |
+
+### Usage
+
+#### Probe before launching a real query
+
+```bash
+duckduckgo-search-cli --probe
+```
+
+The probe sends one minimal request and reports status, latency, and Set-Cookie presence as JSON. Exit 0 means the endpoint is reachable from your IP/UA combination; exit 1 means the request failed.
+
+#### Pin a specific identity (deterministic for tests)
+
+```bash
+duckduckgo-search-cli -q -n 10 -f json --identity-profile chrome-linux "query"
+```
+
+Valid profiles: `auto` (default), `chrome-win`, `chrome-mac`, `chrome-linux`, `edge-win`, `firefox-linux`, `safari-mac`.
+
+#### Reproducible identity rotation (debugging anti-bot)
+
+```bash
+duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
+```
+
+Same seed produces the same sequence of identities across runs. Use this to reproduce anti-bot blocks for debugging.
+
+#### Inspect which identity produced a response
+
+```bash
+duckduckgo-search-cli -q -n 5 -f json "query" | jaq '.metadados.identidade_usada'
+# Output: "chrome-linux-11111111aaaa0001"
+```
+
+The `identidade_usada` field reports the identity that produced the successful response. The `nivel_cascata` field reports the cascade level reached (0-4).

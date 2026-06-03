@@ -19,8 +19,14 @@
 CLAUDE.md
 AGENTS.md
 ralph-loop.local.md
+/docs_prd/
 /docs_rules/
 projeto_duckduckgo-search-cli.md
+gaps.md
+graphrag.sqlite
+graphrag.sqlite-shm
+graphrag.sqlite-wal
+.ingest-queue.sqlite
 
 # IDE
 /.idea/

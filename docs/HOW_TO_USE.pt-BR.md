@@ -249,3 +249,55 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - Veja `docs/AGENTS-GUIDE.md` para o contrato completo stdin/stdout e referência de schema
 - Veja `docs/CROSS_PLATFORM.md` para guias de configuração em Linux, macOS, Windows e Docker
 - Veja `docs/AGENT_RULES.md` para 30+ regras DEVE/JAMAIS para uso em produção com agentes
+
+
+## v0.6.4 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
+
+### Problema
+As heurísticas anti-bot do DuckDuckGo classificam uma única combinação de User-Agent + IP + ordem de headers após a primeira requisição. Reutilizar a mesma identidade em todas as chamadas de paginação e em múltiplas queries produz uma única fingerprint que é bloqueada com HTTP 202 (anomalia), HTTP 403 ou HTTP 429.
+
+### Solução
+v0.6.4 introduz um pool de 12 identidades com rotação em cascata de 5 níveis:
+
+| Nível | Estratégia |
+|-------|------------|
+| 0     | Identidade atual (sem rotação) |
+| 1     | Mesma família, plataforma diferente |
+| 2     | Família diferente, mesma plataforma |
+| 3     | Família e plataforma diferentes + endpoint rebaixado para lite |
+| 4     | Identidade aleatória + sleep recomendado de 30-60s antes de retentar |
+
+### Uso
+
+#### Probe antes de lançar uma query real
+
+```bash
+duckduckgo-search-cli --probe
+```
+
+O probe envia uma requisição mínima e reporta status, latência e presença de Set-Cookie como JSON. Exit 0 significa que o endpoint está acessível da sua combinação IP/UA; exit 1 significa que a requisição falhou.
+
+#### Fixa uma identidade específica (determinístico para testes)
+
+```bash
+duckduckgo-search-cli -q -n 10 -f json --identity-profile chrome-linux "query"
+```
+
+Perfis válidos: `auto` (padrão), `chrome-win`, `chrome-mac`, `chrome-linux`, `edge-win`, `firefox-linux`, `safari-mac`.
+
+#### Rotação de identidade reproduzível (debug de anti-bot)
+
+```bash
+duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
+```
+
+A mesma seed produz a mesma sequência de identidades entre execuções. Use para reproduzir bloqueios anti-bot durante debug.
+
+#### Inspecionar qual identidade produziu uma resposta
+
+```bash
+duckduckgo-search-cli -q -n 5 -f json "query" | jaq '.metadados.identidade_usada'
+# Saída: "chrome-linux-11111111aaaa0001"
+```
+
+O campo `identidade_usada` reporta a identidade que produziu a resposta bem-sucedida. O campo `nivel_cascata` reporta o nível de cascata atingido (0-4).

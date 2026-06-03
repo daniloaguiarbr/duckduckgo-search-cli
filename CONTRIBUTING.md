@@ -7,7 +7,7 @@ Read this in [Português](CONTRIBUTING.pt-BR.md).
 
 ## Quick Start
 ### Setup em Cinco Comandos
-- Clone o repositório: `git clone https://github.com/comandoaguiar/duckduckgo-search-cli`
+- Clone o repositório: `git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli`
 - Acesse o diretório: `cd duckduckgo-search-cli`
 - Verifique compilação: `cargo check-all`
 - Execute clippy: `cargo lint`

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Workload: I/O-light (one-shot config file creation)
 //! Implements the `init-config` subcommand — copies TOMLs embedded in the binary
 //! to the user's configuration directory, allowing local editing without
 //! recompiling.
@@ -8,157 +10,181 @@
 //! Existing files are preserved unless `--force` is passed.
 //! In `--dry-run` mode, only reports planned actions without touching disk.
 
+use crate::error::CliError;
 use crate::platform;
-use crate::selectors::SELECTORS_TOML_PADRAO;
-use anyhow::{Context, Result};
+use crate::selectors::DEFAULT_SELECTORS_TOML;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 /// Embedded TOML with the default User-Agents. `config/user-agents.toml` is the
 /// source of truth during the build (`include_str!`).
-pub const USER_AGENTS_TOML_PADRAO: &str = include_str!("../config/user-agents.toml");
+pub const DEFAULT_USER_AGENTS_TOML: &str = include_str!("../config/user-agents.toml");
 
 /// Action applied to a file during initialization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "action")]
-pub enum AcaoArquivoConfig {
+pub enum ConfigFileAction {
     /// File did not exist — will be/was created.
-    Criado,
+    #[serde(rename = "criado")]
+    Created,
     /// File already existed and `--force` was not passed — no change.
-    Ignorado,
+    #[serde(rename = "ignorado")]
+    Skipped,
     /// File was overwritten (only with `--force`).
-    Sobrescrito,
+    #[serde(rename = "sobrescrito")]
+    Overwritten,
     /// `--dry-run` active: file would be created.
-    CriariaSeExecutasse,
+    #[serde(rename = "criaria_se_executasse")]
+    WouldCreate,
     /// `--dry-run` active: file would be overwritten.
-    SobrescreveriaSeExecutasse,
+    #[serde(rename = "sobrescreveria_se_executasse")]
+    WouldOverwrite,
     /// Write failure — contains a human-readable message.
-    Erro { mensagem: String },
+    #[serde(rename = "erro")]
+    Error {
+        /// Human-readable error description.
+        #[serde(rename = "mensagem")]
+        message: String,
+    },
 }
 
 /// Individual report for a processed file.
 #[derive(Debug, Clone, Serialize)]
-pub struct RelatorioArquivo {
+pub struct FileReport {
     /// Absolute path of the file.
-    pub caminho: PathBuf,
+    #[serde(rename = "caminho")]
+    pub path: PathBuf,
     /// Applied/planned action.
     #[serde(flatten)]
-    pub acao: AcaoArquivoConfig,
+    pub action_taken: ConfigFileAction,
 }
 
 /// Complete initialization report.
 #[derive(Debug, Clone, Serialize)]
-pub struct RelatorioInitConfig {
+pub struct InitConfigReport {
     /// `true` if `--dry-run` mode was active (no write I/O).
     pub dry_run: bool,
     /// `true` if `--force` mode was active (overwrites existing files).
     pub force: bool,
     /// Base directory used (XDG / Apple / APPDATA).
-    pub diretorio_base: Option<PathBuf>,
+    #[serde(rename = "diretorio_base")]
+    pub base_directory: Option<PathBuf>,
     /// Per-file actions — stable order.
-    pub arquivos: Vec<RelatorioArquivo>,
+    #[serde(rename = "arquivos")]
+    pub files: Vec<FileReport>,
 }
 
 /// Executes initialization with the provided flags.
 ///
-/// Always returns `Ok` — individual failures are stored in `AcaoArquivoConfig::Erro`.
+/// Always returns `Ok` — individual failures are stored in `ConfigFileAction::Error`.
 /// Returns `Err` only if no configuration directory can be determined.
-pub fn inicializar_config(forcar: bool, dry_run: bool) -> Result<RelatorioInitConfig> {
-    let diretorio_base = platform::diretorio_configuracao().context(
-        "não foi possível determinar o diretório de configuração (HOME/APPDATA ausentes?)",
-    )?;
+///
+/// # Errors
+///
+/// Returns an error if the OS configuration directory cannot be determined, or if
+/// creating the configuration directory on disk fails.
+pub fn initialize_config(force: bool, dry_run: bool) -> Result<InitConfigReport, CliError> {
+    let diretorio_base = platform::config_directory().ok_or_else(|| CliError::InvalidConfig {
+        message: "could not determine configuration directory (HOME/APPDATA missing?)".into(),
+    })?;
 
-    // Criação de diretório: apenas se não for dry-run.
     if !dry_run && !diretorio_base.exists() {
-        std::fs::create_dir_all(&diretorio_base).with_context(|| {
-            format!(
-                "falha ao criar diretório de configuração {}",
+        std::fs::create_dir_all(&diretorio_base).map_err(|e| CliError::PathError {
+            message: format!(
+                "failed to create config directory {}: {e}",
                 diretorio_base.display()
-            )
+            ),
         })?;
     }
 
     let arquivos = vec![
-        (diretorio_base.join("selectors.toml"), SELECTORS_TOML_PADRAO),
+        (
+            diretorio_base.join("selectors.toml"),
+            DEFAULT_SELECTORS_TOML,
+        ),
         (
             diretorio_base.join("user-agents.toml"),
-            USER_AGENTS_TOML_PADRAO,
+            DEFAULT_USER_AGENTS_TOML,
         ),
     ];
 
-    let mut relatorio_arquivos = Vec::with_capacity(arquivos.len());
+    let mut file_reports = Vec::with_capacity(arquivos.len());
 
-    for (caminho, conteudo) in arquivos {
-        let acao = processar_arquivo(&caminho, conteudo, forcar, dry_run);
-        relatorio_arquivos.push(RelatorioArquivo { caminho, acao });
+    for (path, content) in arquivos {
+        let action = process_file(&path, content, force, dry_run);
+        file_reports.push(FileReport {
+            path,
+            action_taken: action,
+        });
     }
 
-    Ok(RelatorioInitConfig {
+    Ok(InitConfigReport {
         dry_run,
-        force: forcar,
-        diretorio_base: Some(diretorio_base),
-        arquivos: relatorio_arquivos,
+        force,
+        base_directory: Some(diretorio_base),
+        files: file_reports,
     })
 }
 
 /// Processes ONE file — decides the correct action based on existence and flags.
-fn processar_arquivo(
-    caminho: &Path,
-    conteudo: &str,
-    forcar: bool,
-    dry_run: bool,
-) -> AcaoArquivoConfig {
-    let existe = caminho.exists();
+fn process_file(path: &Path, content: &str, force: bool, dry_run: bool) -> ConfigFileAction {
+    let exists = path.exists();
 
-    match (existe, forcar, dry_run) {
-        (true, false, _) => AcaoArquivoConfig::Ignorado,
-        (false, _, true) => AcaoArquivoConfig::CriariaSeExecutasse,
-        (true, true, true) => AcaoArquivoConfig::SobrescreveriaSeExecutasse,
-        (false, _, false) => match gravar_arquivo(caminho, conteudo) {
-            Ok(_) => AcaoArquivoConfig::Criado,
-            Err(erro) => AcaoArquivoConfig::Erro {
-                mensagem: format!("{erro:#}"),
+    match (exists, force, dry_run) {
+        (true, false, _) => ConfigFileAction::Skipped,
+        (false, _, true) => ConfigFileAction::WouldCreate,
+        (true, true, true) => ConfigFileAction::WouldOverwrite,
+        (false, _, false) => match write_file(path, content) {
+            Ok(_) => ConfigFileAction::Created,
+            Err(erro) => ConfigFileAction::Error {
+                message: format!("{erro:#}"),
             },
         },
-        (true, true, false) => match gravar_arquivo(caminho, conteudo) {
-            Ok(_) => AcaoArquivoConfig::Sobrescrito,
-            Err(erro) => AcaoArquivoConfig::Erro {
-                mensagem: format!("{erro:#}"),
+        (true, true, false) => match write_file(path, content) {
+            Ok(_) => ConfigFileAction::Overwritten,
+            Err(erro) => ConfigFileAction::Error {
+                message: format!("{erro:#}"),
             },
         },
     }
 }
 
-fn gravar_arquivo(caminho: &Path, conteudo: &str) -> Result<()> {
-    if let Some(pai) = caminho.parent() {
-        if !pai.as_os_str().is_empty() && !pai.exists() {
-            std::fs::create_dir_all(pai)
-                .with_context(|| format!("falha ao criar diretório {}", pai.display()))?;
+fn write_file(path: &Path, content: &str) -> Result<(), CliError> {
+    if let Some(parent_dir) = path.parent() {
+        if !parent_dir.as_os_str().is_empty() && !parent_dir.exists() {
+            std::fs::create_dir_all(parent_dir).map_err(|e| CliError::PathError {
+                message: format!("failed to create directory {}: {e}", parent_dir.display()),
+            })?;
         }
     }
-    std::fs::write(caminho, conteudo)
-        .with_context(|| format!("falha ao gravar {}", caminho.display()))?;
+    std::fs::write(path, content).map_err(|e| CliError::PathError {
+        message: format!("failed to write {}: {e}", path.display()),
+    })?;
 
     #[cfg(unix)]
-    aplicar_permissoes_600(caminho)?;
+    apply_permissions_600(path)?;
 
     Ok(())
 }
 
 #[cfg(unix)]
-fn aplicar_permissoes_600(caminho: &Path) -> Result<()> {
+fn apply_permissions_600(path: &Path) -> Result<(), CliError> {
     use std::os::unix::fs::PermissionsExt;
-    let permissoes = std::fs::Permissions::from_mode(0o600);
-    std::fs::set_permissions(caminho, permissoes)
-        .with_context(|| format!("falha ao aplicar permissões 0o600 em {}", caminho.display()))?;
+    let permissions = std::fs::Permissions::from_mode(0o600);
+    std::fs::set_permissions(path, permissions).map_err(|e| CliError::PathError {
+        message: format!(
+            "failed to apply 0o600 permissions on {}: {e}",
+            path.display()
+        ),
+    })?;
     Ok(())
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn preparar_diretorio(nome: &str) -> PathBuf {
+    fn prepare_directory(nome: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "ddgcli-init-{}-{}-{}",
             nome,
@@ -169,90 +195,90 @@ mod testes {
                 .unwrap_or(0)
         ));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("criar dir");
+        std::fs::create_dir_all(&dir).expect("create dir");
         dir
     }
 
     #[test]
-    fn user_agents_toml_padrao_nao_vazio() {
-        assert!(!USER_AGENTS_TOML_PADRAO.is_empty());
-        assert!(USER_AGENTS_TOML_PADRAO.contains("Mozilla"));
+    fn user_agents_toml_default_not_empty() {
+        assert!(!DEFAULT_USER_AGENTS_TOML.is_empty());
+        assert!(DEFAULT_USER_AGENTS_TOML.contains("Mozilla"));
     }
 
     #[test]
-    fn selectors_toml_padrao_nao_vazio() {
-        assert!(!SELECTORS_TOML_PADRAO.is_empty());
-        assert!(SELECTORS_TOML_PADRAO.contains("[html_endpoint]"));
+    fn selectors_toml_default_not_empty() {
+        assert!(!DEFAULT_SELECTORS_TOML.is_empty());
+        assert!(DEFAULT_SELECTORS_TOML.contains("[html_endpoint]"));
     }
 
     #[test]
-    fn processar_arquivo_criando_quando_nao_existe() {
-        let dir = preparar_diretorio("novo");
+    fn process_file_creates_when_not_exists() {
+        let dir = prepare_directory("novo");
         let caminho = dir.join("arq.toml");
-        let acao = processar_arquivo(&caminho, "x = 1", false, false);
-        assert_eq!(acao, AcaoArquivoConfig::Criado);
+        let acao = process_file(&caminho, "x = 1", false, false);
+        assert_eq!(acao, ConfigFileAction::Created);
         assert!(caminho.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn processar_arquivo_ignora_quando_existe_sem_force() {
-        let dir = preparar_diretorio("ignora");
+    fn process_file_skips_when_exists_without_force() {
+        let dir = prepare_directory("ignora");
         let caminho = dir.join("arq.toml");
-        std::fs::write(&caminho, "original").expect("preparar arquivo");
-        let acao = processar_arquivo(&caminho, "novo conteudo", false, false);
-        assert_eq!(acao, AcaoArquivoConfig::Ignorado);
-        let conteudo = std::fs::read_to_string(&caminho).expect("ler");
+        std::fs::write(&caminho, "original").expect("prepare file");
+        let acao = process_file(&caminho, "novo conteudo", false, false);
+        assert_eq!(acao, ConfigFileAction::Skipped);
+        let conteudo = std::fs::read_to_string(&caminho).expect("read");
         assert_eq!(conteudo, "original", "arquivo não deve ser sobrescrito");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn processar_arquivo_sobrescreve_quando_force_e_existe() {
-        let dir = preparar_diretorio("force");
+    fn process_file_overwrites_when_force_and_exists() {
+        let dir = prepare_directory("force");
         let caminho = dir.join("arq.toml");
-        std::fs::write(&caminho, "original").expect("preparar arquivo");
-        let acao = processar_arquivo(&caminho, "novo conteudo", true, false);
-        assert_eq!(acao, AcaoArquivoConfig::Sobrescrito);
-        let conteudo = std::fs::read_to_string(&caminho).expect("ler");
+        std::fs::write(&caminho, "original").expect("prepare file");
+        let acao = process_file(&caminho, "novo conteudo", true, false);
+        assert_eq!(acao, ConfigFileAction::Overwritten);
+        let conteudo = std::fs::read_to_string(&caminho).expect("read");
         assert_eq!(conteudo, "novo conteudo");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn processar_arquivo_dry_run_nao_grava() {
-        let dir = preparar_diretorio("dryrun");
+    fn process_file_dry_run_does_not_write() {
+        let dir = prepare_directory("dryrun");
         let caminho = dir.join("arq.toml");
-        let acao = processar_arquivo(&caminho, "x = 1", false, true);
-        assert_eq!(acao, AcaoArquivoConfig::CriariaSeExecutasse);
+        let acao = process_file(&caminho, "x = 1", false, true);
+        assert_eq!(acao, ConfigFileAction::WouldCreate);
         assert!(!caminho.exists(), "dry-run não deve criar arquivo");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn processar_arquivo_dry_run_force_sobre_existente() {
-        let dir = preparar_diretorio("dryforce");
+    fn process_file_dry_run_force_over_existing() {
+        let dir = prepare_directory("dryforce");
         let caminho = dir.join("arq.toml");
-        std::fs::write(&caminho, "original").expect("preparar arquivo");
-        let acao = processar_arquivo(&caminho, "novo conteudo", true, true);
-        assert_eq!(acao, AcaoArquivoConfig::SobrescreveriaSeExecutasse);
-        let conteudo = std::fs::read_to_string(&caminho).expect("ler");
+        std::fs::write(&caminho, "original").expect("prepare file");
+        let acao = process_file(&caminho, "novo conteudo", true, true);
+        assert_eq!(acao, ConfigFileAction::WouldOverwrite);
+        let conteudo = std::fs::read_to_string(&caminho).expect("read");
         assert_eq!(conteudo, "original", "dry-run não deve sobrescrever");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn relatorio_init_serializa_como_json_estavel() {
-        let rel = RelatorioInitConfig {
+    fn init_report_serializes_as_stable_json() {
+        let rel = InitConfigReport {
             dry_run: true,
             force: false,
-            diretorio_base: Some(PathBuf::from("/tmp/x")),
-            arquivos: vec![RelatorioArquivo {
-                caminho: PathBuf::from("/tmp/x/selectors.toml"),
-                acao: AcaoArquivoConfig::CriariaSeExecutasse,
+            base_directory: Some(PathBuf::from("/tmp/x")),
+            files: vec![FileReport {
+                path: PathBuf::from("/tmp/x/selectors.toml"),
+                action_taken: ConfigFileAction::WouldCreate,
             }],
         };
-        let json = serde_json::to_string(&rel).expect("serializar");
+        let json = serde_json::to_string(&rel).expect("serialize");
         assert!(json.contains("\"dry_run\":true"));
         assert!(json.contains("\"action\":\"criaria_se_executasse\""));
     }
