@@ -300,4 +300,54 @@ duckduckgo-search-cli -q -n 5 -f json "query" | jaq '.metadados.identidade_usada
 # Output: "chrome-linux-11111111aaaa0001"
 ```
 
+
+## v0.6.5 — Windows install fixed, CI green, circuit breaker, ProgressBar
+
+v0.6.5 is a quality release with no new CLI flags and no new JSON fields.
+It focuses on making the tool reliable across all three target platforms
+and on long-running crawls.
+
+### Windows now works out of the box (MP-26)
+
+`cargo install duckduckgo-search-cli` on Windows failed in v0.6.4 because
+the upstream `windows-sys 0.59+` changed the `HANDLE` type from `isize` to
+`*mut c_void`. v0.6.5 fixes this with:
+
+```rust
+// src/platform.rs:51-69 — type-safe HANDLE check
+let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+    if unsafe { GetConsoleMode(handle, &mut mode) } != 0 { ... }
+}
+```
+
+The cast `handle as isize` (which would have been UB) is removed entirely.
+
+### Circuit breaker protects long crawls (WS-12)
+
+When `--fetch-content --parallel` scrapes many pages from the same domain,
+3 consecutive failures on that host now open the circuit for 30 seconds.
+All requests to that host are short-circuited during the cooldown,
+preventing cascading failures that would block the entire crawl.
+
+You don't need to do anything — the breaker is automatic. But you can
+observe it in stderr if `--verbose` is set.
+
+### ProgressBar on stderr, not stdout (WS-25)
+
+`--fetch-content` now shows a progress bar on stderr. JSON output on stdout
+stays clean for pipes. The bar auto-hides in non-TTY contexts (CI, logs).
+
+### CI matrix green on all 3 SOs (CI-01)
+
+v0.6.4 was published with a broken CI on Linux, macOS, and Windows. v0.6.5
+restores the green matrix by fixing 6 latent clippy errors and adding
+per-platform smoke tests (`--version --help`) to the CI pipeline.
+
+### New lints block future FFI drift
+
+`improper_ctypes = "deny"` and `improper_ctypes_definitions = "deny"` are
+now active. These would have caught the v0.6.4 HANDLE issue at compile time
+if they had been active then.
+
 The `identidade_usada` field reports the identity that produced the successful response. The `nivel_cascata` field reports the cascade level reached (0-4).

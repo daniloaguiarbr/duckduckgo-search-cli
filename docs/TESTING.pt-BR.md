@@ -1,7 +1,38 @@
 # Testing Guide
 
-This guide covers test execution, categorization, and CI integration for
-`duckduckgo-search-cli`.
+Este guia cobre execução, categorização e integração CI para os testes
+de `duckduckgo-search-cli`.
+
+## Adições de Testes em v0.6.5
+
+A release v0.6.5 adicionou 11 testes, todos endereçando gaps anteriormente em aberto:
+
+- **WS-11** (5 testes) — invariantes property-based para o parser HTML em
+  `extraction.rs`. Valida que inputs vazios retornam `Vec` vazio, positions
+  são densos e 1-based, URLs são normalizados para paths absolutos, o parser
+  é determinístico, e HTML malformado não causa panic. Estes testes teriam
+  pego regressões da migração v0.6.3 → v0.6.4.
+- **WS-12** (4 testes) — circuit breaker per-host em `content_fetch.rs`.
+  Valida que o estado closed permite requisições, o threshold abre o breaker,
+  um único sucesso reseta o contador de falhas, e o estado half-open é
+  alcançável após a janela de cooldown.
+- **WS-23** (1 teste) — teste de integração wiremock para o header
+  `Retry-After` em respostas HTTP 429. Valida que o delay de backoff é
+  pelo menos `Retry-After` segundos, com 500ms de margem para overhead
+  do scheduler CI.
+- **322 testes existentes preservados** — as mudanças v0.6.5 são puramente
+  aditivas. Nenhum teste removido, nenhuma assinatura de teste alterada,
+  nenhuma fixture renomeada.
+
+### Gaps v0.6.5 fechados por estes testes
+- **MP-26** (Windows HANDLE) — validado por `cargo test --all-features`
+  no runner CI `windows-latest` (adicionado nesta release).
+- **CI-01** (6 erros de clippy) — `cargo clippy --all-targets --all-features -- -D warnings`
+  agora passa, o que é em si um "teste" de que nenhuma regressão de lint existe.
+- **WS-12** (circuit breaker) — coberto por 4 testes unitários em
+  `src/content_fetch.rs`.
+- **WS-23** (Retry-After) — coberto por 1 teste wiremock em
+  `tests/integration_wiremock.rs`.
 
 ## Why Categorized Tests
 

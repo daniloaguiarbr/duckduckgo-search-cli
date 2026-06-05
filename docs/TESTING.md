@@ -3,6 +3,36 @@
 This guide covers test execution, categorization, and CI integration for
 `duckduckgo-search-cli`.
 
+## v0.6.5 Test Additions
+
+The v0.6.5 release added 11 tests, all addressing previously open gaps:
+
+- **WS-11** (5 tests) — property-based invariants for the HTML parser in
+  `extraction.rs`. Validates that empty inputs yield empty `Vec`, positions
+  are dense and 1-based, URLs are normalized to absolute paths, the parser
+  is deterministic, and malformed HTML does not panic. These tests would
+  have caught the v0.6.3 → v0.6.4 migration regressions.
+- **WS-12** (4 tests) — per-host circuit breaker in `content_fetch.rs`.
+  Validates the closed-state allows requests, the threshold opens the
+  breaker, a single success resets the failure counter, and the half-open
+  state is reachable after the cooldown window.
+- **WS-23** (1 test) — wiremock integration test for the `Retry-After`
+  header on HTTP 429 responses. Validates the backoff delay is at least
+  `Retry-After` seconds, with a 500ms slack for CI scheduler overhead.
+- **Existing 322 tests preserved** — the v0.6.5 changes are purely additive.
+  No tests removed, no test signatures changed, no test fixtures renamed.
+
+### v0.6.5 gaps closed by these tests
+- **MP-26** (Windows HANDLE) — validated by `cargo test --all-features`
+  on `windows-latest` CI runner (added in this release).
+- **CI-01** (6 clippy errors) — `cargo clippy --all-targets --all-features -- -D warnings`
+  now passes, which is itself a "test" that no lint regression exists.
+- **WS-12** (circuit breaker) — covered by 4 unit tests in
+  `src/content_fetch.rs`.
+- **WS-23** (Retry-After) — covered by 1 wiremock test in
+  `tests/integration_wiremock.rs`.
+
+
 ## Why Categorized Tests
 
 The test suite is split into four categories to balance speed, isolation,

@@ -68,6 +68,17 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - JSON output integrates natively: `duckduckgo-search-cli -f json "query" | ConvertFrom-Json`
 - Exit codes surface in `$LASTEXITCODE` — branch on them with `if ($LASTEXITCODE -ne 0)`
 - Use `--output result.json` for file-based output when piping across processes in PowerShell
+### v0.6.5 — Windows HANDLE Cast Fix (MP-26)
+- **v0.6.4 was unbuildable on Windows.** `windows-sys 0.59+` changed the
+  `HANDLE` type from `isize` to `*mut c_void`, but the platform-init code
+  in `src/platform.rs` used `handle as isize` casts. `cargo install` on
+  Windows failed with 4 E0308 errors.
+- **v0.6.5 fixes this** by using `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
+  and passing the `HANDLE` directly to `GetConsoleMode` and `SetConsoleMode`
+  (whose modern signature accepts `HANDLE` by value, not `isize`).
+- **Re-enable CI Windows builds**: v0.6.4 CI silently failed on `windows-latest`.
+  v0.6.5 adds `--version` and `--help` smoke tests to the matrix so future
+  Windows regressions are caught before release.
 
 
 ## Docker and Containers

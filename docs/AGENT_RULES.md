@@ -918,4 +918,60 @@ New JSON metadata fields (both `Option`, use `//` fallback in `jaq`):
 - `identidade_usada` — identity tag that produced the response
 - `nivel_cascata` — cascade level (0..=4) reached during the request
 
+
+## v0.6.5 Quick Reference (Windows HANDLE fix + CI green + circuit breaker)
+
+v0.6.5 is a **quality release** focused on Windows portability and CI hygiene.
+All changes are internal — no new CLI flags, no new JSON fields.
+
+### MP-26 — Windows build now compiles
+- v0.6.4 broke on Windows because `windows-sys 0.59+` changed `HANDLE` from
+  `isize` to `*mut c_void`. The existing code used `handle as isize` casts
+  and `handle != 0` / `handle != usize::MAX` comparisons.
+- v0.6.5 uses `!handle.is_null() && handle != INVALID_HANDLE_VALUE` and
+  passes the `HANDLE` directly to Win32 APIs. Type-safe per the
+  `windows-sys 0.59+` ABI.
+- **Agent action**: Windows agents can now `cargo install duckduckgo-search-cli`
+  without manual patches.
+
+### CI-01 — CI matrix green on all 3 SOs
+- v0.6.4 was published with `validate` failing on Linux, macOS, and Windows
+  due to 6 latent clippy errors. v0.6.5 fixes them all and re-runs
+  `cargo clippy --all-targets --all-features -- -D warnings` in CI.
+- **Agent action**: ignore v0.6.4 entirely on CI runners. Pin to v0.6.5.
+
+### WS-12 — Per-host circuit breaker
+- New in v0.6.5: 3 consecutive failures on a host open the breaker for 30s.
+  All requests to that host are short-circuited during cooldown.
+- Applies to `--fetch-content --parallel` long crawls.
+- **Agent action**: when scraping many pages from the same domain, the
+  circuit breaker prevents cascading failures. No CLI flag required.
+
+### WS-11 — Property-based invariants for HTML parsers
+- 5 new invariants in `src/extraction.rs` validate parser behavior on
+  empty inputs, dense positions, absolute URLs, idempotence, and malformed
+  HTML tolerance.
+- **Agent action**: trust parser output more — it's now better tested.
+
+### WS-23 — Retry-After header respected
+- 429 responses with `Retry-After: N` now wait N seconds before retry.
+- **Agent action**: if you see `--global-timeout` increasing, this is why.
+
+### WS-25 — indicatif ProgressBar
+- `--fetch-content` shows a progress bar on stderr. Auto-hides in pipes.
+- **Agent action**: nothing — your JSON pipelines on stdout stay clean.
+
+### New lints (CI enforcement)
+- `improper_ctypes = "deny"` and `improper_ctypes_definitions = "deny"`
+  block future FFI type drift.
+- `missing_safety_doc` and `unsafe_op_in_unsafe_fn` promoted to `deny`.
+
+### CI smoke tests
+- Every platform runs `--version` and `--help` on the built binary
+  before the CI job is considered green.
+
+### Test count
+- 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
+- 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
+
 End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.6.x.

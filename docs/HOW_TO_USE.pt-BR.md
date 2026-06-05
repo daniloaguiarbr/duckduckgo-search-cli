@@ -297,7 +297,58 @@ A mesma seed produz a mesma sequência de identidades entre execuções. Use par
 
 ```bash
 duckduckgo-search-cli -q -n 5 -f json "query" | jaq '.metadados.identidade_usada'
-# Saída: "chrome-linux-11111111aaaa0001"
+# Output: "chrome-linux-11111111aaaa0001"
 ```
+
+
+## v0.6.5 — Instalação no Windows corrigida, CI verde, circuit breaker, ProgressBar
+
+v0.6.5 é uma release de qualidade sem novas flags CLI e sem novos campos JSON.
+Ela foca em tornar a ferramenta confiável nos três alvos de plataforma e em
+crawls longos.
+
+### Windows agora funciona out of the box (MP-26)
+
+`cargo install duckduckgo-search-cli` no Windows falhava em v0.6.4 porque
+o upstream `windows-sys 0.59+` mudou o tipo `HANDLE` de `isize` para
+`*mut c_void`. v0.6.5 corrige isto com:
+
+```rust
+// src/platform.rs:51-69 — verificação type-safe de HANDLE
+let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+    if unsafe { GetConsoleMode(handle, &mut mode) } != 0 { ... }
+}
+```
+
+O cast `handle as isize` (que seria UB) foi removido completamente.
+
+### Circuit breaker protege crawls longos (WS-12)
+
+Quando `--fetch-content --parallel` raspa muitas páginas do mesmo domínio,
+3 falhas consecutivas nesse host agora abrem o circuito por 30 segundos.
+Todas as requisições para esse host são curto-circuitadas durante o cooldown,
+prevenindo falhas em cascata que bloqueariam o crawl inteiro.
+
+Você não precisa fazer nada — o breaker é automático. Mas pode observá-lo
+no stderr se `--verbose` estiver ativo.
+
+### ProgressBar no stderr, não no stdout (WS-25)
+
+`--fetch-content` agora mostra uma barra de progresso no stderr. A saída JSON
+no stdout permanece limpa para pipes. A barra se esconde em contextos não-TTY
+(CI, logs).
+
+### Matrix CI verde em todos os 3 SOs (CI-01)
+
+v0.6.4 foi publicada com CI quebrado em Linux, macOS e Windows. v0.6.5
+restaura a matrix verde corrigindo 6 erros de clippy latentes e adicionando
+smoke tests por plataforma (`--version --help`) ao pipeline CI.
+
+### Novos lints bloqueiam drift FFI futuro
+
+`improper_ctypes = "deny"` e `improper_ctypes_definitions = "deny"` estão
+agora ativos. Eles teriam pego o problema de HANDLE da v0.6.4 em tempo de
+compilação se estivessem ativos então.
 
 O campo `identidade_usada` reporta a identidade que produziu a resposta bem-sucedida. O campo `nivel_cascata` reporta o nível de cascata atingido (0-4).

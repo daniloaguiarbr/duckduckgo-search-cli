@@ -8,10 +8,34 @@ instructions.
 
 ### What Changes
 - **No breaking changes** — v0.6.5 is fully backward-compatible with v0.6.4
-- Windows build was broken in v0.6.4 and is fixed in v0.6.5
-- CI now passes on all 3 SOs (Linux/macOS/Windows) — v0.6.4 had failing CI
-- New `--fetch-content` long crawls now show a ProgressBar on stderr (auto-hidden in pipes)
-- 5 new property tests in `extraction.rs`, 4 new circuit breaker tests, 1 new wiremock test
+- **Windows build fixed (MP-26)** — `cargo install duckduckgo-search-cli`
+  on Windows now succeeds. v0.6.4 was unbuildable due to
+  `windows-sys 0.59+` changing `HANDLE` from `isize` to `*mut c_void`.
+  v0.6.5 uses `!handle.is_null() && handle != INVALID_HANDLE_VALUE` and
+  passes the `HANDLE` directly to Win32 APIs.
+- **CI matrix restored (CI-01)** — v0.6.4 was published with `validate`
+  failing on Linux, macOS, and Windows due to 6 latent clippy errors
+  (3× `doc_markdown`, 1× `needless_return`, 2× `missing_debug_implementations`).
+  v0.6.5 fixes them all. CI now runs `cargo clippy --all-targets --all-features -- -D warnings`
+  on every push.
+- **New lints active** — `improper_ctypes`, `improper_ctypes_definitions`,
+  `missing_safety_doc`, and `unsafe_op_in_unsafe_fn` are now `deny` to
+  prevent future regressions of the v0.6.4 HANDLE issue.
+- **Per-host circuit breaker (WS-12)** — `--fetch-content --parallel` now
+  opens a 30s breaker on a host after 3 consecutive failures. No CLI flag.
+- **ProgressBar (WS-25)** — `--fetch-content` shows a progress bar on
+  stderr. Auto-hides in pipes. New transitive dep: `indicatif 0.18`.
+- **Property-based tests (WS-11)** — 5 invariants in `extraction.rs`
+  validate empty inputs, dense positions, absolute URLs, idempotence,
+  malformed HTML tolerance. Zero new dependencies.
+- **Retry-After header test (WS-23)** — wiremock test validates 429
+  responses respect `Retry-After: N` delay. Uses existing `wiremock 0.6`
+  dev-dependency.
+- **CI smoke tests** — every platform runs `--version` and `--help` on
+  the built binary before declaring green. New `cargo build --no-default-features`
+  job validates the minimal build.
+- **Test count** — 333 tests in v0.6.5 (was 322 in v0.6.4). 11 new tests
+  added (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
 ### Step-by-Step Migration
 
@@ -22,6 +46,16 @@ cargo install duckduckgo-search-cli --version 0.6.5 --force
 # Verify the new version
 duckduckgo-search-cli --version
 # duckduckgo-search-cli 0.6.5
+
+# Verify Windows console UTF-8 still works
+duckduckgo-search-cli "olá mundo" --num 5 -q -f json | jaq '.resultados[].titulo'
+
+# Try the new circuit breaker on a long crawl
+timeout 120 duckduckgo-search-cli \
+  --queries-file /tmp/long-queries.txt \
+  -q -f json --parallel 5 --per-host-limit 1 \
+  --fetch-content --max-content-length 5000 \
+  --global-timeout 100
 ```
 
 ### JSON Schema Changes
@@ -43,6 +77,7 @@ No schema changes. v0.6.5 preserves all v0.6.4 fields:
   `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`
 - v0.6.4 binaries that worked on Linux/macOS continue to work — no urgent upgrade required
 - v0.6.4 binaries that failed on Windows will succeed after upgrading to v0.6.5
+- The new `indicatif 0.18` transitive dependency is automatically installed
 
 ### Rollback
 

@@ -619,5 +619,66 @@ esac
 | 17 | Anti-bloqueio com perfis de browser v0.6.0 | `duckduckgo-search-cli`, `jaq`, `bash case`, `timeout` |
 | 18 | Pre-flight health check com `--probe` v0.6.4 | `duckduckgo-search-cli --probe`, `jaq`, `bash case` |
 | 19 | Pool de identidades adaptativo v0.6.4 | `duckduckgo-search-cli`, `jaq`, `--identity-profile`, `--seed` |
+| 20 | Circuit breaker per-host em crawl longo (v0.6.5) | `duckduckgo-search-cli --fetch-content`, `jaq`, `timeout` |
+| 21 | Install cross-platform (v0.6.5) com install único | `cargo install`, `timeout`, Windows PowerShell |
+
+
+## v0.6.5 — Novas Receitas
+
+### Receita 20 — Circuit breaker per-host em crawl longo (v0.6.5)
+
+**Problema**: Raspando 100 páginas do mesmo domínio. Após 3 falhas no host,
+o crawl fica travado tentando de novo em vez de mover para outros domínios.
+O job inteiro excede o timeout.
+
+**Solução**: O circuit breaker WS-12 da v0.6.5 abre automaticamente após 3
+falhas consecutivas em um host e bloqueia requisições para esse host por 30s.
+Nenhuma flag CLI necessária — o breaker é automático.
+
+```bash
+# Crawl longo: 100 páginas, 5 em paralelo, com circuit breaker
+timeout 600 duckduckgo-search-cli \
+  --queries-file /tmp/100-queries.txt \
+  -q -f json --parallel 5 --per-host-limit 1 \
+  --fetch-content --max-content-length 10000 \
+  --retries 2 --timeout 30 \
+  --global-timeout 580 > /tmp/long-crawl.json
+
+# Se um host falhar 3x, requisições para ele são curto-circuitadas por 30s.
+# Outros hosts continuam a ser raspados em paralelo.
+# Tempo total reduzido de "travado retentando" para "segue em frente".
+```
+
+O estado interno do breaker é por-invocação, então cada chamada
+`duckduckgo-search-cli` começa com um breaker fechado fresh. Para crawls
+longos persistentes, execute múltiplas invocações.
+
+
+### Receita 21 — Install cross-platform em 1 comando (v0.6.5)
+
+**Problema**: O README diz "suporta Linux, macOS, Windows" mas o binário
+v0.6.4 não compilava no Windows. Usuários no Windows estavam travados.
+
+**Solução**: v0.6.5 corrige o cast de HANDLE no Windows (MP-26). O mesmo
+comando `cargo install` agora funciona nos 3 SOs.
+
+```bash
+# Linux (qualquer distro incluindo Alpine, NixOS, Flatpak, Snap)
+cargo install duckduckgo-search-cli --version 0.6.5 --force
+
+# macOS (Apple Silicon ou Intel)
+cargo install duckduckgo-search-cli --version 0.6.5 --force
+
+# Windows (10 versão 1903+ ou 11; PowerShell 5.1+ ou 7+)
+cargo install duckduckgo-search-cli --version 0.6.5 --force
+# Binário fica em %USERPROFILE%\.cargo\bin\duckduckgo-search-cli.exe
+# Adicione esse diretório ao %PATH% se ainda não estiver
+
+# Verificar
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.6.5
+```
+
+Usuários Windows não precisam mais de Visual Studio Build Tools ou patches manuais.
 
 _Fim do Livro de Receitas._

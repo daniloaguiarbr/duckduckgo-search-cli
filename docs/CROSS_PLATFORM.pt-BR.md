@@ -73,10 +73,22 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - O `cmd.exe` legado se beneficia da mesma troca automática de página de código — sem necessidade de `chcp 65001` manual
 - Nenhuma ação do usuário é necessária — a codificação correta é definida programaticamente em cada invocação
 ### Uso no PowerShell
-- A sintaxe de pipeline padrão funciona sem modificação: `duckduckgo-search-cli "rust async" | Select-String "tokio"`
-- A saída JSON se integra nativamente: `duckduckgo-search-cli -f json "query" | ConvertFrom-Json`
-- Os exit codes aparecem em `$LASTEXITCODE` — ramifique com `if ($LASTEXITCODE -ne 0)`
-- Use `--output result.json` para saída baseada em arquivo ao fazer piping entre processos no PowerShell
+- Sintaxe de pipeline padrão funciona sem modificação: `duckduckgo-search-cli "rust async" | Select-String "tokio"`
+- Saída JSON integra nativamente: `duckduckgo-search-cli -f json "query" | ConvertFrom-Json`
+- Exit codes aparecem em `$LASTEXITCODE` — ramifique com `if ($LASTEXITCODE -ne 0)`
+- Use `--output result.json` para saída em arquivo ao fazer pipe entre processos no PowerShell
+### v0.6.5 — Correção de Cast HANDLE no Windows (MP-26)
+- **v0.6.4 era impossível de compilar no Windows.** `windows-sys 0.59+`
+  mudou o tipo `HANDLE` de `isize` para `*mut c_void`, mas o código de
+  inicialização de plataforma em `src/platform.rs` usava casts `handle as isize`.
+  `cargo install` no Windows falhava com 4 erros E0308.
+- **v0.6.5 corrige isto** usando `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
+  e passando o `HANDLE` diretamente para `GetConsoleMode` e `SetConsoleMode`
+  (cuja assinatura moderna aceita `HANDLE` por valor, não `isize`).
+- **Reabilita builds Windows no CI**: o CI da v0.6.4 falhava silenciosamente
+  em `windows-latest`. v0.6.5 adiciona smoke tests de `--version` e `--help`
+  na matrix para que regressões futuras no Windows sejam detectadas antes
+  da release.
 
 
 ## Docker e Containers
