@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] - 2026-06-05
+
+### Fixed
+- **docs.rs build failure (Build #3487310) caused by `#[doc(cfg(...))]` becoming unstable**
+  - Removed `#[cfg_attr(docsrs, doc(cfg(feature = "chrome")))]` from `src/lib.rs:70`
+  - Root cause: in Oct 2025 the Rust team merged `doc_auto_cfg` into `doc_cfg` (rust-lang/rust#43781),
+    making `#[doc(cfg(...))]` require `#![feature(doc_cfg)]` (nightly-only) on the crate root.
+    The build failed with `error[E0658]: #[doc(cfg)] is experimental` on nightly `1.98.0`.
+  - The feature gating itself is preserved: `#[cfg(feature = "chrome")]` still excludes
+    `pub mod browser` from default builds. The module-level docstring in `src/browser.rs`
+    already documents the feature requirement explicitly.
+  - `cargo doc --all-features` and `RUSTDOCFLAGS="--cfg docsrs" cargo doc --all-features`
+    both pass without warning or error.
+
 ## [0.6.5] - 2026-06-05
 
 ### Fixed

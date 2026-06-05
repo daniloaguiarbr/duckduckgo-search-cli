@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: orchestrator (config assembly, delegation to pipeline)
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.6.5")]
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.6.6")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -67,7 +67,10 @@ pub mod signals;
 pub mod types;
 
 // browser.rs only compiles with the `chrome` feature (zero overhead in the MVP).
-#[cfg_attr(docsrs, doc(cfg(feature = "chrome")))]
+// Module-level docstring in browser.rs documents the feature requirement.
+// The previous `#[cfg_attr(docsrs, doc(cfg(...)))]` was removed in v0.6.6 because
+// `doc(cfg)` is unstable and requires `#![feature(doc_cfg)]` since doc_auto_cfg
+// was merged into doc_cfg in Oct 2025 (see rust-lang/rust#43781).
 #[cfg(feature = "chrome")]
 pub mod browser;
 
