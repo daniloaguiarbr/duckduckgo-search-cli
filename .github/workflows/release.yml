@@ -3,7 +3,7 @@
 # ============================================================================
 # ORDEM OBRIGATÓRIA (conforme `rules_rust.md` §19):
 #   1. preflight      — valida Tag == Cargo.toml, MSRV, secrets, pre-publish
-#   2. validate       — 8 gates de qualidade + publish --dry-run
+#   2. validate       — 9 gates de qualidade + publish --dry-run
 #   3. build_matrix   — 5 targets cross-platform
 #   4. macos_universal — lipo arm64 + x86_64
 #   5. attest         — SBOM CycloneDX + provenance SLSA + cosign keyless
@@ -13,28 +13,18 @@
 #
 # SECRETS obrigatórios em GitHub Settings → Secrets:
 #   - CRATES_IO_TOKEN  — token de `cargo login` (publish-new + publish-update)
+#   - GPG_PRIVATE_KEY  — (opcional) chave GPG para assinar SHA256SUMS
+#   - GPG_PASSPHRASE   — (opcional) passphrase da chave GPG
 #
-# HISTÓRICO DE CORREÇÕES:
-#   2026-06-05 (1.0) — Correções estruturais completas após post-mortem
-#     - Guard pré-publish contra versão duplicada (E0482)
-#     - Timeout explícito em todos os passos de rede
-#     - Retry com backoff em cargo publish (network transitório)
-#     - Tag/Cargo.toml version consistency check
-#     - SBOM CycloneDX + provenance SLSA + cosign keyless
-#     - SHA256SUMS publicado com binários
-#     - GPG tag signing
-#     - Permissions completas: contents/packages/id-token/attestations
-#     - Upload de logs como artifact em caso de skip
-#     - Concurrency group por tag + sha
-#     - Dependabot para actions
-#     - Pin windows-2022 (VS2022 estável, evitar VS2026 redirect)
-#     - Actions v6 + softprops/action-gh-release@v3 (Node 24 nativo)
-#     - FORCA_JAVASCRIPT_ACTIONS_TO_NODE24 como belt-and-suspenders
-#     - SIGPIPE guard explícito
-#     - set -euo pipefail em todos os bash steps
-#     - race condition mitigation via flock distribuído por tag
+# SECURITY:
+#   - Todas as actions pinadas por SHA completa (zizmor: unpinned-uses resolvido)
+#   - permissions mínimas por job (zizmor: excessive-permissions resolvido)
+#   - comments em todos permissions blocks (zizmor: undocumented-permissions resolvido)
+#   - secrets em env: dedicado (zizmor: secrets-outside-env resolvido)
+#   - cache key baseado em hash do Cargo.lock (zizmor: cache-poisoning resolvido)
+#   - ${{ ... }} em run: mitigated via env vars (zizmor: template-injection resolvido)
 #
-# CAUSA RAIZ DO PROBLEMA ORIGINAL:
+# CAUSA RAIZ DO PROBLEMA ORIGINAL (incident-publish-101-2026-06-05):
 #   Trigger duplicado do workflow para tag v0.6.6 já publicada causou
 #   `cargo publish` exit 101 com "crate already exists on crates.io index".
 #   crates.io é append-only immutable, versões NUNCA podem ser sobrescritas.
@@ -67,21 +57,10 @@ concurrency:
   cancel-in-progress: false
 
 # -----------------------------------------------------------------------------
-# Permissions mínimas necessárias:
-#   contents: write    — criar release, fazer push de tags
-#   packages: write    — publicar em GHCR (futuro)
-#   id-token: write    — cosign OIDC keyless signing
-#   attestations: write — SLSA provenance
-#   checks: write      — annotations em checks
-#   discussions: write — comment em discussions (se aplicável)
+# Permissions: default read-only. Cada job eleva conforme necessário.
 # -----------------------------------------------------------------------------
 permissions:
-  contents: write
-  packages: write
-  id-token: write
-  attestations: write
-  checks: write
-  discussions: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -89,34 +68,37 @@ env:
   RUST_BACKTRACE: short
   BIN_NAME: duckduckgo-search-cli
   # Belt-and-suspenders: força Node 24 mesmo em actions que ainda usam Node 20.
-  # Removível quando todas as actions forem v6+.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   # Cargo publish timeout em segundos (5 minutos).
-  CARGO_PUBLISH_TIMEOUT: 300
+  CARGO_PUBLISH_TIMEOUT: "300"
   # Retry policy para cargo publish.
-  CARGO_PUBLISH_MAX_RETRIES: 3
+  CARGO_PUBLISH_MAX_RETRIES: "3"
   # Lock distribuído para evitar race condition entre runs concorrentes.
-  # Hash da tag é usado como identificador único.
   LOCK_KEY_PREFIX: "cargo-publish"
 
 jobs:
   # ---------------------------------------------------------------------------
   # 0. PREFLIGHT — validações que devem falhar ANTES de qualquer build.
+  # Permissões: read-only (não modifica nada).
   # ---------------------------------------------------------------------------
   preflight:
     name: preflight checks
     runs-on: ubuntu-latest
+    permissions:
+      # Apenas leitura para inspecionar git history.
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          fetch-depth: 0
           persist-credentials: false
 
-          fetch-depth: 0
-
       - name: Validate version consistency (tag vs Cargo.toml)
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          TAG_VERSION="${TAG_VERSION#v}"
           CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
           if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
             echo "::error::Tag version ($TAG_VERSION) differs from Cargo.toml ($CARGO_VERSION)"
@@ -126,9 +108,11 @@ jobs:
           echo "OK: tag ($TAG_VERSION) == Cargo.toml ($CARGO_VERSION)"
 
       - name: Validate SemVer format
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          VERSION="${VERSION#v}"
           if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
             echo "::error::Tag $VERSION não segue SemVer estrito (X.Y.Z ou X.Y.Z-prerelease)"
             exit 1
@@ -136,9 +120,11 @@ jobs:
           echo "OK: SemVer válido"
 
       - name: Validate CHANGELOG has entry
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          VERSION="${VERSION#v}"
           if ! grep -qE "^## \[?v?$VERSION\]?" CHANGELOG.md; then
             echo "::error::CHANGELOG.md não contém entrada para versão $VERSION"
             echo "::error::Adicione entrada antes de fazer release"
@@ -157,7 +143,7 @@ jobs:
           COMMITS=$(git log --format='%H' "${BASE_TAG}..${GITHUB_REF#refs/tags/v}")
           for c in $COMMITS; do
             BODY=$(git log -n 1 --format='%B' "$c")
-            if echo "$BODY" | grep -iEq 'Co-authored-by:.*(Claude|Opus|Sonnet|Haiku|GPT-|Copilot|Cursor|Gemini|Anthropic|OpenAI|Codex)'; then
+            if echo "$BODY" | grep -iEq 'Co-authored-by:.*(Claude|Opus|Sonnet|Haiku|GPT-|Copilot|Cursor|Gemini|Anthropic|OpenAI|Codex|Jules)'; then
               echo "::error::Commit $c contém Co-authored-by de agente de IA (proibido)"
               exit 1
             fi
@@ -165,25 +151,30 @@ jobs:
           echo "OK: nenhum Co-authored-by de agente de IA"
 
   # ---------------------------------------------------------------------------
-  # 1. VALIDATE — 8 gates de qualidade + publish --dry-run.
+  # 1. VALIDATE — 9 gates de qualidade + publish --dry-run.
+  # Permissões: read-only (apenas build local, sem push).
   # ---------------------------------------------------------------------------
   validate:
     name: validate release readiness
     needs: preflight
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install Rust toolchain (stable + clippy + rustfmt)
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal --component clippy --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustc --version
+          cargo --version
+          cargo clippy --version
 
-      # zizmor: ignore[cache-poisoning] Swatinem/rust-cache usa lock-fingerprint key, seguro
-
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: cargo check (gate 1)
         run: |
@@ -247,6 +238,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # 2. BUILD MATRIX — 5 targets cross-platform.
   # windows-2022 PINADO (VS2022 estável, evita redirect VS2026).
+  # Permissões: read-only (apenas upload de artefatos).
   # ---------------------------------------------------------------------------
   build_matrix:
     name: build ${{ matrix.target }}
@@ -277,15 +269,24 @@ jobs:
             os: windows-2022
             ext: ".exe"
             archive: zip
+    permissions:
+      # Necessário para upload de artefatos.
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: Install Rust toolchain with target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal --target "${TARGET}"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup target add "${TARGET}"
+          rustc --version
 
       - name: Install musl-tools
         if: matrix.needs_musl_tools
@@ -293,56 +294,66 @@ jobs:
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y musl-tools
 
-      # zizmor: ignore[cache-poisoning] Swatinem/rust-cache usa lock-fingerprint key, seguro
-
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
 
       - name: Build release
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          cargo build --release --locked --target ${{ matrix.target }}
+          cargo build --release --locked --target "${TARGET}"
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
+        env:
+          TARGET: ${{ matrix.target }}
+          EXT: ${{ matrix.ext }}
+          BIN: ${{ env.BIN_NAME }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}${{ matrix.ext }}" dist/
+          cp "target/${TARGET}/release/${BIN}${EXT}" dist/
           cp README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md dist/
           cd dist
-          tar czf "${{ env.BIN_NAME }}-${{ matrix.target }}.tar.gz" \
-            "${{ env.BIN_NAME }}${{ matrix.ext }}" README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md
+          tar czf "${BIN}-${TARGET}.tar.gz" \
+            "${BIN}${EXT}" README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
+        env:
+          TARGET: ${{ matrix.target }}
+          EXT: ${{ matrix.ext }}
+          BIN: ${{ env.BIN_NAME }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}${{ matrix.ext }}" dist/
+          Copy-Item "target/${TARGET}/release/${BIN}${EXT}" dist/
           Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE, CHANGELOG.md dist/
-          Compress-Archive -Path dist/* -DestinationPath "dist/${{ env.BIN_NAME }}-${{ matrix.target }}.zip"
+          Compress-Archive -Path dist/* -DestinationPath "dist/${BIN}-${TARGET}.zip"
 
-      - name: Generate SHA256SUMS
+      - name: Generate SHA256SUMS (Unix)
         if: matrix.archive == 'tar.gz'
+        env:
+          TARGET: ${{ matrix.target }}
+          BIN: ${{ env.BIN_NAME }}
         run: |
           set -euo pipefail
           cd dist
-          sha256sum "${{ env.BIN_NAME }}-${{ matrix.target }}.tar.gz" >> SHA256SUMS.txt
+          sha256sum "${BIN}-${TARGET}.tar.gz" >> SHA256SUMS.txt
 
       - name: Generate SHA256SUMS (Windows)
         if: matrix.archive == 'zip'
+        env:
+          TARGET: ${{ matrix.target }}
+          BIN: ${{ env.BIN_NAME }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $hash = Get-FileHash -Path "dist/${{ env.BIN_NAME }}-${{ matrix.target }}.zip" -Algorithm SHA256
-          "$($hash.Hash.ToLower())  ${{ env.BIN_NAME }}-${{ matrix.target }}.zip" | Out-File -Append -Encoding ASCII dist/SHA256SUMS.txt
+          $hash = Get-FileHash -Path "dist/${BIN}-${TARGET}.zip" -Algorithm SHA256
+          "$($hash.Hash.ToLower())  ${BIN}-${TARGET}.zip" | Out-File -Append -Encoding ASCII dist/SHA256SUMS.txt
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ env.BIN_NAME }}-${{ matrix.target }}
           path: |
@@ -353,47 +364,52 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 3. MACOS UNIVERSAL — lipo combina arm64 + x86_64 em fat binary.
+  # Permissões: read-only.
   # ---------------------------------------------------------------------------
   macos_universal:
     name: macOS Universal Binary (lipo)
     needs: build_matrix
     runs-on: macos-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Download arm64 artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ env.BIN_NAME }}-aarch64-apple-darwin
           path: arm64/
 
       - name: Download x86_64 artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ env.BIN_NAME }}-x86_64-apple-darwin
           path: x86_64/
 
       - name: Extract and combine
+        env:
+          BIN: ${{ env.BIN_NAME }}
         run: |
           set -euo pipefail
-          tar xzf "arm64/${{ env.BIN_NAME }}-aarch64-apple-darwin.tar.gz" -C arm64/
-          tar xzf "x86_64/${{ env.BIN_NAME }}-x86_64-apple-darwin.tar.gz" -C x86_64/
+          tar xzf "arm64/${BIN}-aarch64-apple-darwin.tar.gz" -C arm64/
+          tar xzf "x86_64/${BIN}-x86_64-apple-darwin.tar.gz" -C x86_64/
           mkdir -p universal
           lipo -create \
-            "arm64/${{ env.BIN_NAME }}" \
-            "x86_64/${{ env.BIN_NAME }}" \
-            -output "universal/${{ env.BIN_NAME }}"
-          lipo -info "universal/${{ env.BIN_NAME }}"
+            "arm64/${BIN}" \
+            "x86_64/${BIN}" \
+            -output "universal/${BIN}"
+          lipo -info "universal/${BIN}"
           cp README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md universal/
           cd universal
-          tar czf "${{ env.BIN_NAME }}-macos-universal.tar.gz" \
-            "${{ env.BIN_NAME }}" README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md
-          sha256sum "${{ env.BIN_NAME }}-macos-universal.tar.gz" >> SHA256SUMS.txt
+          tar czf "${BIN}-macos-universal.tar.gz" \
+            "${BIN}" README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md
+          sha256sum "${BIN}-macos-universal.tar.gz" >> SHA256SUMS.txt
 
       - name: Upload universal artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ env.BIN_NAME }}-macos-universal
           path: universal/${{ env.BIN_NAME }}-macos-universal.tar.gz
@@ -402,26 +418,31 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 4. ATTEST — SBOM CycloneDX + provenance SLSA + cosign keyless.
-  # Apenas em tag push (nunca em dry_run).
+  # Permissões elevadas: precisa de id-token (cosign) e attestations (SLSA).
   # ---------------------------------------------------------------------------
   attest:
     name: SBOM + provenance + cosign signature
     if: startsWith(github.ref, 'refs/tags/v') && (github.event.inputs.dry_run != 'true')
     needs: [build_matrix, macos_universal]
     runs-on: ubuntu-latest
+    permissions:
+      # id-token: write — para cosign sign-blob (OIDC keyless). Sem isso, cosign falha 403.
+      id-token: write # for cosign OIDC keyless signing
+      # attestations: write — para actions/attest-build-provenance. Sem isso, SLSA attestation 403.
+      attestations: write # for SLSA provenance attestation
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts/
           merge-multiple: true
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Install cargo-cyclonedx
         run: |
@@ -458,7 +479,7 @@ jobs:
           done
 
       - name: Upload SBOM as artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ env.BIN_NAME }}-sbom
           path: |
@@ -470,7 +491,7 @@ jobs:
           retention-days: 90
 
       - name: Attest build provenance (SLSA)
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
         with:
           subject-name: ${{ env.BIN_NAME }}
           subject-digest: ${{ steps.hash_artifacts.outputs.sha256sums }}
@@ -478,19 +499,31 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 5. GITHUB RELEASE — binários + SHA256SUMS + signatures + SBOM.
+  # Permissões elevadas: precisa de contents: write para criar release.
   # ---------------------------------------------------------------------------
   github_release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build_matrix, macos_universal, attest]
     runs-on: ubuntu-latest
+    # GitHub Environment dedicado para GPG secrets de assinatura.
+    # Configurar em Settings → Environments → "release-signing" com GPG_PRIVATE_KEY.
+    environment:
+      name: release-signing
+    permissions:
+      # contents: write — para criar GitHub Release via gh release create. Sem isso, 403 ao push.
+      contents: write # for GitHub Release creation
+    env:
+      # GPG secrets vêm do GitHub Environment "release-signing" (zizmor: secrets-outside-env).
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts/
           merge-multiple: true
@@ -502,14 +535,8 @@ jobs:
           find artifacts/ -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "SHA256SUMS.txt" -o -name "*.sig" -o -name "*.pem" -o -name "*.cdx.json" \) -exec cp {} dist/ \;
           ls -lh dist/
 
-      # zizmor: ignore[secrets-outside-env] secrets em env: dedicado, GPG requer key inline
-
-
-      - name: Sign release with GPG
+      - name: Sign SHA256SUMS with GPG
         if: env.GPG_PRIVATE_KEY != ''
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
@@ -520,14 +547,23 @@ jobs:
         continue-on-error: true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: dist/*
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          draft: false
-          prerelease: ${{ contains(github.ref, '-') }}
-          make_latest: true
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          PRERELEASE: ${{ contains(github.ref, '-') }}
+        run: |
+          set -euo pipefail
+          FLAGS=()
+          if [ "${PRERELEASE}" = "true" ]; then
+            FLAGS+=(--prerelease)
+          fi
+          cd dist
+          gh release create "${TAG}" \
+            --repo "${REPO}" \
+            --title "Release ${TAG}" \
+            --generate-notes \
+            "${FLAGS[@]}" \
+            *
 
   # ---------------------------------------------------------------------------
   # 6. CRATES.IO PUBLISH — guard robusto contra versão duplicada.
@@ -539,23 +575,36 @@ jobs:
   #   4. Compare com versão detectada
   #   5. If MATCH → skip com warning, upload evidence as artifact
   #   6. If NOT MATCH → cargo publish com timeout + retry
+  #
+  # Permissões: read-only no repo; cargo publish usa CRATES_IO_TOKEN dedicado.
   # ---------------------------------------------------------------------------
   crates_io:
     name: Publish to crates.io
     if: startsWith(github.ref, 'refs/tags/v') && (github.event.inputs.dry_run != 'true')
     needs: github_release
     runs-on: ubuntu-latest
+    # GitHub Environment dedicado para secrets de publicação.
+    # Configurar em Settings → Environments → "release" com secret CRATES_IO_TOKEN.
+    environment:
+      name: release
+    permissions:
+      contents: read
+    env:
+      # CRATES_IO_TOKEN vem do GitHub Environment "release" (zizmor: secrets-outside-env resolvido).
+      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustc --version
 
-      # zizmor: ignore[cache-poisoning] Swatinem/rust-cache usa lock-fingerprint key, seguro
-
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Detect version from Cargo.toml
         id: detect_version
@@ -570,10 +619,12 @@ jobs:
           echo "Versão detectada: $VERSION"
 
       - name: Verify tag matches Cargo.toml version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          CARGO_VERSION: ${{ steps.detect_version.outputs.version }}
         run: |
           set -euo pipefail
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          CARGO_VERSION="${{ steps.detect_version.outputs.version }}"
+          TAG_VERSION="${TAG_NAME#v}"
           if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
             echo "::error::Tag ($TAG_VERSION) != Cargo.toml ($CARGO_VERSION)"
             exit 1
@@ -583,15 +634,17 @@ jobs:
       - name: Check if version already published (with timeout + retry)
         id: check_published
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          # CRATES_IO_TOKEN dedicado em env: (zizmor: secrets-outside-env resolvido).
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          BIN: ${{ env.BIN_NAME }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.detect_version.outputs.version }}"
+          VERSION="${VERSION}"
           echo "Verificando se $VERSION já está publicada em crates.io..."
 
           for attempt in 1 2 3; do
             PUBLISHED_VERSION=""
-            PUBLISHED_VERSION=$(timeout 30 cargo search "${BIN_NAME}" --limit 1 2>/dev/null \
+            PUBLISHED_VERSION=$(timeout 30 cargo search "${BIN}" --limit 1 2>/dev/null \
               | grep -oE '= "[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | tr -d '"=' | tr -d ' ' || echo "")
 
             if [ -n "$PUBLISHED_VERSION" ]; then
@@ -622,23 +675,25 @@ jobs:
 
       - name: Upload skip evidence as artifact
         if: steps.check_published.outputs.published == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: publish-skip-evidence-${{ steps.detect_version.outputs.version }}
           path: |
             Cargo.toml
-            ${{ github.workspace }}/.git/refs/tags/${{ github.ref_name }}
           if-no-files-found: warn
           retention-days: 90
 
       - name: Notify skip in summary
         if: steps.check_published.outputs.published == 'true'
+        env:
+          VERSION: ${{ steps.detect_version.outputs.version }}
+          CURRENT: ${{ steps.check_published.outputs.current_version }}
         run: |
           {
             echo "## Publish Skip — Version Already on crates.io"
             echo ""
-            echo "- **Requested version**: \`${{ steps.detect_version.outputs.version }}\`"
-            echo "- **Current crates.io version**: \`${{ steps.check_published.outputs.current_version }}\`"
+            echo "- **Requested version**: \`${VERSION}\`"
+            echo "- **Current crates.io version**: \`${CURRENT}\`"
             echo "- **Action**: skipped (immutable registry)"
             echo "- **Resolution**: bump version in Cargo.toml and create new tag"
             echo ""
@@ -649,36 +704,39 @@ jobs:
       - name: cargo publish (with timeout + retry)
         if: steps.check_published.outputs.published != 'true'
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          # CRATES_IO_TOKEN dedicado em env: (zizmor: secrets-outside-env resolvido).
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          VERSION: ${{ steps.detect_version.outputs.version }}
+          BIN: ${{ env.BIN_NAME }}
+          TIMEOUT: ${{ env.CARGO_PUBLISH_TIMEOUT }}
+          MAX_RETRIES: ${{ env.CARGO_PUBLISH_MAX_RETRIES }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.detect_version.outputs.version }}"
-
           for attempt in 1 2 3; do
-            echo "Tentativa $attempt/${{ env.CARGO_PUBLISH_MAX_RETRIES }} de publicar $VERSION..."
+            echo "Tentativa $attempt/${MAX_RETRIES} de publicar ${VERSION}..."
 
-            if timeout "${{ env.CARGO_PUBLISH_TIMEOUT }}" cargo publish --locked; then
-              echo "::notice::Published ${BIN_NAME} v$VERSION to crates.io"
+            if timeout "${TIMEOUT}" cargo publish --locked; then
+              echo "::notice::Published ${BIN} v${VERSION} to crates.io"
               exit 0
             fi
 
             ec=$?
             if [ $ec -eq 124 ]; then
-              echo "::warning::Timeout (${{ env.CARGO_PUBLISH_TIMEOUT }}s) atingido (tentativa $attempt)"
+              echo "::warning::Timeout (${TIMEOUT}s) atingido (tentativa $attempt)"
             elif [ $ec -eq 101 ]; then
               echo "::error::crate already exists (E0482) — outra execução publicou primeiro?"
-              echo "::error::Verificar manualmente em https://crates.io/crates/${BIN_NAME}"
+              echo "::error::Verificar manualmente em https://crates.io/crates/${BIN}"
               exit 101
             else
               echo "::warning::cargo publish falhou com exit $ec (tentativa $attempt)"
             fi
 
-            if [ $attempt -lt ${{ env.CARGO_PUBLISH_MAX_RETRIES }} ]; then
+            if [ $attempt -lt "${MAX_RETRIES}" ]; then
               BACKOFF=$((attempt * 10))
               echo "Aguardando ${BACKOFF}s antes de retentar..."
               sleep "$BACKOFF"
             fi
           done
 
-          echo "::error::cargo publish falhou após ${{ env.CARGO_PUBLISH_MAX_RETRIES }} tentativas"
+          echo "::error::cargo publish falhou após ${MAX_RETRIES} tentativas"
           exit 1

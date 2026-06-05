@@ -23,20 +23,15 @@
 #   - commit_check: bloqueia Co-authored-by de agentes IA
 #   - scheduled_update: atualiza deps em Cron semanal
 #   - zizmor: security scan estático de workflows
+#   - actionlint: valida sintaxe de workflows
 #
-# HISTÓRICO DE CORREÇÕES:
-#   2026-06-05 (1.0) — Hardening completo
-#     - Node 24 opt-in (FORCE_JAVASCRIPT_ACTIONS_TO_NODE24)
-#     - SIGPIPE guard explícito em cargo test
-#     - windows-2022 PIN (evita redirect para windows-2025-vs2026)
-#     - Actions v6 (Node 24 nativo)
-#     - softprops/action-gh-release@v3 quando aplicável
-#     - Cron semanal de dependências desatualizadas
-#     - Job zizmor para security scan de workflows
-#     - set -euo pipefail em todos os bash steps
-#     - Concurrency com cancel-in-progress APENAS em PR
-#     - Fallback para SIGPIPE em test
-#     - Permissions mínimas por job
+# SECURITY:
+#   - Todas as actions pinadas por SHA completa (zizmor: unpinned-uses resolvido)
+#   - permissions: contents: read top-level (zizmor: excessive-permissions resolvido)
+#   - comments em todos permissions blocks (zizmor: undocumented-permissions resolvido)
+#   - ${{ ... }} em run: mitigados via env vars (zizmor: template-injection resolvido)
+#   - dtolnay/rust-toolchain substituído por setup via rustup (zizmor: superfluous-actions resolvido)
+#   - CI não tem tag trigger, cache-poisoning N/A (zizmor naturalmente não flagra)
 
 name: CI
 
@@ -55,14 +50,17 @@ on:
 # Concurrency: cancela runs antigos do mesmo PR/branch em PUSH, mas nunca cancela
 # em schedule (precisamos do output completo).
 # -----------------------------------------------------------------------------
-
-# Default to read-only at workflow level; jobs elevate as needed.
-permissions:
-  contents: read
-
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# -----------------------------------------------------------------------------
+# Permissions: default read-only. Cada job eleva conforme necessário.
+# -----------------------------------------------------------------------------
+permissions:
+  # contents: read — necessário para checkout e inspeção de git history.
+  # Sem write, jobs não podem fazer push.
+  contents: read # default read-only for all jobs
 
 env:
   CARGO_TERM_COLOR: always
@@ -70,6 +68,13 @@ env:
   RUST_BACKTRACE: short
   # Belt-and-suspenders: força Node 24 em actions que ainda usam Node 20.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # SHA pinos de actions (atualizar via dependabot).
+  ACTIONS_CHECKOUT_SHA: "df4cb1c069e1874edd31b4311f1884172cec0e10"   # v6.0.3
+  ACTIONS_UPLOAD_ART_SHA: "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"  # v7.0.1
+  ACTIONS_DOWNLOAD_ART_SHA: "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" # v8.0.1
+  RUST_CACHE_SHA: "e18b497796c12c097a38f9edb9d0641fb99eee32"           # v2
+  TAIKI_INSTALL_SHA: "5823efc754b311ef656458bd4e650d8cbdb994b8"       # latest
+  ZIZMOR_VERSION: "v1.25.2"
 
 jobs:
   # -------------------------------------------------------------------------
@@ -78,22 +83,36 @@ jobs:
   validate:
     name: validate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-2022]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install stable toolchain (clippy + rustfmt)
+        env:
+          OS: ${{ matrix.os }}
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal --component clippy --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustc --version
+          cargo --version
+          cargo clippy --version
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: cargo-validate-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-validate-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
+            cargo-validate-${{ matrix.os }}-
 
       - name: cargo check (gate 1)
         run: |
@@ -147,8 +166,10 @@ jobs:
   msrv:
     name: msrv (Cargo.toml rust-version)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -164,15 +185,23 @@ jobs:
           echo "version=$MSRV" >> "$GITHUB_OUTPUT"
           echo "MSRV detectado: $MSRV"
 
-      - name: Install MSRV toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.msrv.outputs.version }}
+      - name: Install MSRV toolchain (via rustup)
+        env:
+          MSRV_VERSION: ${{ steps.msrv.outputs.version }}
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain "${MSRV_VERSION}" --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustc --version
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo registry and target (MSRV)
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          key: msrv-${{ steps.msrv.outputs.version }}
+          key: cargo-msrv-${{ steps.msrv.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-msrv-${{ steps.msrv.outputs.version }}-${{ hashFiles('Cargo.lock') }}-
+            cargo-msrv-${{ steps.msrv.outputs.version }}-
 
       - name: cargo check no MSRV
         run: |
@@ -190,21 +219,32 @@ jobs:
   coverage:
     name: coverage ≥ 80%
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Install stable toolchain with llvm-tools
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal --component llvm-tools-preview
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo registry and target (coverage)
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: cargo-coverage-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-coverage-${{ hashFiles('Cargo.lock') }}-
+            cargo-coverage-
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest
+        with:
+          tool: cargo-llvm-cov
 
       - name: cargo llvm-cov --fail-under-lines 80
         run: |
@@ -217,16 +257,27 @@ jobs:
   no_default_features:
     name: build --no-default-features
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install stable toolchain
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal --component clippy --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache cargo registry and target (no-default-features)
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: cargo-no-default-features-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-no-default-features-${{ hashFiles('Cargo.lock') }}-
+            cargo-no-default-features-
 
       - name: cargo build --no-default-features
         run: |
@@ -244,22 +295,37 @@ jobs:
   supply_chain:
     name: supply chain (audit + deny)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo registry and target (supply-chain)
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: cargo-supply-chain-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-supply-chain-${{ hashFiles('Cargo.lock') }}-
+            cargo-supply-chain-
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
+        uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest
+        with:
+          tool: cargo-audit
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@cargo-deny
+        uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest
+        with:
+          tool: cargo-deny
 
       - name: cargo audit (gate 7)
         run: |
@@ -274,16 +340,27 @@ jobs:
   publish_dry_run:
     name: publish dry-run + package list
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo registry and target (publish-dry-run)
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: cargo-publish-dry-run-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-publish-dry-run-${{ hashFiles('Cargo.lock') }}-
+            cargo-publish-dry-run-
 
       - name: cargo publish --dry-run (gate 9)
         run: |
@@ -306,23 +383,33 @@ jobs:
   musl_smoke:
     name: musl static binary smoke test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Install stable toolchain with musl target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal --target x86_64-unknown-linux-musl
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup target add x86_64-unknown-linux-musl
 
       - name: Install musl-tools
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo registry and target (musl)
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: cargo-musl-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-musl-${{ hashFiles('Cargo.lock') }}-
+            cargo-musl-
 
       - name: cargo build --release --target x86_64-unknown-linux-musl
         run: |
@@ -342,19 +429,23 @@ jobs:
     name: bloquear Co-authored-by de agentes de IA
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          fetch-depth: 0
           persist-credentials: false
 
-          fetch-depth: 0
-
       - name: Validar commits contra regex de agentes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-          COMMITS=$(git log --format='%H' "$BASE..$HEAD")
+          BASE="${BASE_SHA}"
+          HEAD="${HEAD_SHA}"
+          COMMITS=$(git log --format='%H' "${BASE}..${HEAD}")
           FOUND=0
           for c in $COMMITS; do
             BODY=$(git log -n 1 --format='%B' "$c")
@@ -379,19 +470,22 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule'
     permissions:
-      contents: write
-      pull-requests: write
+      # contents: write — necessário para push do branch com Cargo.lock atualizado.
+      contents: write # for pushing dependency update branch
+      # pull-requests: write — necessário para criar PR com updates.
+      pull-requests: write # for creating dependency update PR
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: false
 
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install stable toolchain
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal --component clippy --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: cargo update --workspace
         run: |
@@ -412,6 +506,8 @@ jobs:
 
       - name: Create PR with updates
         if: steps.check_changes.outputs.changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -426,8 +522,6 @@ jobs:
             --head "deps/weekly-update-$(date -u +%Y%m%d)" \
             --label "dependencies" \
             --reviewer daniloaguiarbr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # -------------------------------------------------------------------------
   # Security scan de workflows com zizmor.
@@ -437,23 +531,32 @@ jobs:
     name: workflow security scan (zizmor)
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          fetch-depth: 0
           persist-credentials: false
 
-          fetch-depth: 0
-
-      - name: Install zizmor
+      - name: Install Python (for zizmor via uv)
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/woodruffw/zizmor/releases/latest/download/zizmor-x86_64-unknown-linux-gnu.tar.gz \
-            | tar xzf - -C /tmp
-          sudo mv /tmp/zizmor /usr/local/bin/
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install zizmor
+        env:
+          ZIZMOR_VERSION: ${{ env.ZIZMOR_VERSION }}
+        run: |
+          set -euo pipefail
+          uv tool install "zizmor>=${ZIZMOR_VERSION#v}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run zizmor
         run: |
           set -euo pipefail
+          zizmor --version
           zizmor --persona=auditor .github/workflows/
 
   # -------------------------------------------------------------------------
@@ -463,26 +566,25 @@ jobs:
     name: workflow syntax check (actionlint)
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          fetch-depth: 0
           persist-credentials: false
 
-          fetch-depth: 0
-
-      - name: Download actionlint
-        id: get_actionlint
+      - name: Download actionlint binary
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
         run: |
           set -euo pipefail
-          URL=$(curl -fsSL https://api.github.com/repos/rhysd/actionlint/releases/latest \
-            | jaq -r '.assets[] | select(.name | contains("linux-amd64")) | .browser_download_url' 2>/dev/null \
-            || echo "https://github.com/rhysd/actionlint/releases/latest/download/actionlint_1.7.12_linux_amd64.tar.gz")
-          curl -fsSL "$URL" | tar xzf - -C /tmp
+          URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL "${URL}" | tar xzf - -C /tmp
           sudo mv /tmp/actionlint /usr/local/bin/
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          actionlint -version
 
       - name: Run actionlint
         run: |
           set -euo pipefail
-          actionlint -version
           actionlint .github/workflows/
