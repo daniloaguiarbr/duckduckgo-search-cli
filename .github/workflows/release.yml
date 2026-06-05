@@ -96,6 +96,7 @@ jobs:
       - name: Validate version consistency (tag vs Cargo.toml)
         env:
           TAG_VERSION: ${{ github.ref_name }}
+        shell: bash
         run: |
           set -euo pipefail
           TAG_VERSION="${TAG_VERSION#v}"
@@ -110,6 +111,7 @@ jobs:
       - name: Validate SemVer format
         env:
           VERSION: ${{ github.ref_name }}
+        shell: bash
         run: |
           set -euo pipefail
           VERSION="${VERSION#v}"
@@ -122,6 +124,7 @@ jobs:
       - name: Validate CHANGELOG has entry
         env:
           VERSION: ${{ github.ref_name }}
+        shell: bash
         run: |
           set -euo pipefail
           VERSION="${VERSION#v}"
@@ -133,6 +136,7 @@ jobs:
           echo "OK: CHANGELOG.md contém entrada para $VERSION"
 
       - name: Check no Co-authored-by from AI agents in recent commits
+        shell: bash
         run: |
           set -euo pipefail
           BASE_TAG=$(git describe --tags --abbrev=0 "${GITHUB_REF#refs/tags/v}^" 2>/dev/null || echo "")
@@ -166,6 +170,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain (stable + clippy + rustfmt)
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -177,16 +182,19 @@ jobs:
 
 
       - name: cargo check (gate 1)
+        shell: bash
         run: |
           set -euo pipefail
           cargo check --all-targets --all-features --locked
 
       - name: cargo clippy -D warnings (gate 2)
+        shell: bash
         run: |
           set -euo pipefail
           cargo clippy --all-targets --all-features --locked -- -D warnings
 
       - name: cargo fmt --check (gate 3)
+        shell: bash
         run: |
           set -euo pipefail
           cargo fmt --all --check
@@ -194,11 +202,13 @@ jobs:
       - name: cargo doc -D warnings (gate 4)
         env:
           RUSTDOCFLAGS: "-D warnings"
+        shell: bash
         run: |
           set -euo pipefail
           cargo doc --no-deps --all-features --locked
 
       - name: cargo test (gate 5) — SIGPIPE tolerant
+        shell: bash
         run: |
           set -eo pipefail
           cargo test --all-features --locked || {
@@ -211,21 +221,25 @@ jobs:
           }
 
       - name: cargo audit (gate 6)
+        shell: bash
         run: |
           set -euo pipefail
           cargo audit --deny yanked
 
       - name: cargo deny check (gate 7)
+        shell: bash
         run: |
           set -euo pipefail
           cargo deny check advisories licenses bans sources
 
       - name: cargo publish --dry-run (gate 8)
+        shell: bash
         run: |
           set -euo pipefail
           cargo publish --dry-run --locked
 
       - name: cargo package --list — sem arquivos sensíveis (gate 9)
+        shell: bash
         run: |
           set -euo pipefail
           LIST=$(cargo package --list 2>&1)
@@ -280,6 +294,7 @@ jobs:
       - name: Install Rust toolchain with target
         env:
           TARGET: ${{ matrix.target }}
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -290,6 +305,7 @@ jobs:
 
       - name: Install musl-tools
         if: matrix.needs_musl_tools
+        shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y musl-tools
@@ -298,6 +314,7 @@ jobs:
       - name: Build release
         env:
           TARGET: ${{ matrix.target }}
+        shell: bash
         run: |
           set -euo pipefail
           cargo build --release --locked --target "${TARGET}"
@@ -308,6 +325,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           EXT: ${{ matrix.ext }}
           BIN: ${{ env.BIN_NAME }}
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -336,6 +354,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           BIN: ${{ env.BIN_NAME }}
+        shell: bash
         run: |
           set -euo pipefail
           cd dist
@@ -392,6 +411,7 @@ jobs:
       - name: Extract and combine
         env:
           BIN: ${{ env.BIN_NAME }}
+        shell: bash
         run: |
           set -euo pipefail
           tar xzf "arm64/${BIN}-aarch64-apple-darwin.tar.gz" -C arm64/
@@ -445,11 +465,13 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Install cargo-cyclonedx
+        shell: bash
         run: |
           set -euo pipefail
           cargo install cargo-cyclonedx --locked
 
       - name: Generate SBOM CycloneDX
+        shell: bash
         run: |
           set -euo pipefail
           cargo cyclonedx --format json --output-filename sbom.cdx.json
@@ -457,6 +479,7 @@ jobs:
 
       - name: Hash all release artifacts for signing
         id: hash_artifacts
+        shell: bash
         run: |
           set -euo pipefail
           cd artifacts
@@ -466,6 +489,7 @@ jobs:
       - name: Sign artifacts with cosign (keyless OIDC)
         env:
           COSIGN_EXPERIMENTAL: "1"
+        shell: bash
         run: |
           set -euo pipefail
           cd artifacts
@@ -529,6 +553,7 @@ jobs:
           merge-multiple: true
 
       - name: Flatten artifacts for release
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -537,6 +562,7 @@ jobs:
 
       - name: Sign SHA256SUMS with GPG
         if: env.GPG_PRIVATE_KEY != ''
+        shell: bash
         run: |
           set -euo pipefail
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
@@ -551,6 +577,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
           PRERELEASE: ${{ contains(github.ref, '-') }}
+        shell: bash
         run: |
           set -euo pipefail
           FLAGS=()
@@ -598,6 +625,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -608,6 +636,7 @@ jobs:
 
       - name: Detect version from Cargo.toml
         id: detect_version
+        shell: bash
         run: |
           set -euo pipefail
           VERSION=$(grep '^version' Cargo.toml | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
@@ -622,6 +651,7 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
           CARGO_VERSION: ${{ steps.detect_version.outputs.version }}
+        shell: bash
         run: |
           set -euo pipefail
           TAG_VERSION="${TAG_NAME#v}"
@@ -637,6 +667,7 @@ jobs:
           # CRATES_IO_TOKEN dedicado em env: (zizmor: secrets-outside-env resolvido).
           CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
           BIN: ${{ env.BIN_NAME }}
+        shell: bash
         run: |
           set -euo pipefail
           VERSION="${VERSION}"
@@ -688,6 +719,7 @@ jobs:
         env:
           VERSION: ${{ steps.detect_version.outputs.version }}
           CURRENT: ${{ steps.check_published.outputs.current_version }}
+        shell: bash
         run: |
           {
             echo "## Publish Skip — Version Already on crates.io"
@@ -710,6 +742,7 @@ jobs:
           BIN: ${{ env.BIN_NAME }}
           TIMEOUT: ${{ env.CARGO_PUBLISH_TIMEOUT }}
           MAX_RETRIES: ${{ env.CARGO_PUBLISH_MAX_RETRIES }}
+        shell: bash
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do

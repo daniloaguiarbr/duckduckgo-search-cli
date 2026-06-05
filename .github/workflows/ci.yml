@@ -97,6 +97,7 @@ jobs:
       - name: Install stable toolchain (clippy + rustfmt)
         env:
           OS: ${{ matrix.os }}
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -112,16 +113,19 @@ jobs:
           key: cargo-validate-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
 
       - name: cargo check (gate 1)
+        shell: bash
         run: |
           set -euo pipefail
           cargo check --all-targets --all-features --locked
 
       - name: cargo clippy -D warnings (gate 2)
+        shell: bash
         run: |
           set -euo pipefail
           cargo clippy --all-targets --all-features --locked -- -D warnings
 
       - name: cargo fmt --check (gate 3)
+        shell: bash
         run: |
           set -euo pipefail
           cargo fmt --all --check
@@ -129,11 +133,13 @@ jobs:
       - name: cargo doc -D warnings (gate 4)
         env:
           RUSTDOCFLAGS: "-D warnings"
+        shell: bash
         run: |
           set -euo pipefail
           cargo doc --no-deps --all-features --locked
 
       - name: cargo test (gate 5) — SIGPIPE tolerant
+        shell: bash
         run: |
           set -eo pipefail
           cargo test --all-features --locked || {
@@ -172,6 +178,7 @@ jobs:
 
       - name: Extract rust-version from Cargo.toml
         id: msrv
+        shell: bash
         run: |
           set -euo pipefail
           MSRV=$(grep -E '^rust-version\s*=' Cargo.toml | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
@@ -185,6 +192,7 @@ jobs:
       - name: Install MSRV toolchain (via rustup)
         env:
           MSRV_VERSION: ${{ steps.msrv.outputs.version }}
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -198,11 +206,13 @@ jobs:
           key: cargo-msrv-${{ steps.msrv.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
 
       - name: cargo check no MSRV
+        shell: bash
         run: |
           set -euo pipefail
           cargo check --all-targets --all-features --locked
 
       - name: cargo build no MSRV (--no-default-features)
+        shell: bash
         run: |
           set -euo pipefail
           cargo build --no-default-features --locked
@@ -221,6 +231,7 @@ jobs:
           persist-credentials: false
 
       - name: Install stable toolchain with llvm-tools
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -238,6 +249,7 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: cargo llvm-cov --fail-under-lines 80
+        shell: bash
         run: |
           set -euo pipefail
           cargo llvm-cov --all-features --locked --fail-under-lines 80
@@ -256,6 +268,7 @@ jobs:
           persist-credentials: false
 
       - name: Install stable toolchain
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -268,11 +281,13 @@ jobs:
           key: cargo-no-default-features-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
 
       - name: cargo build --no-default-features
+        shell: bash
         run: |
           set -euo pipefail
           cargo build --no-default-features --locked
 
       - name: cargo check --no-default-features
+        shell: bash
         run: |
           set -euo pipefail
           cargo check --all-targets --no-default-features --locked
@@ -291,6 +306,7 @@ jobs:
           persist-credentials: false
 
       - name: Install stable toolchain
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -313,11 +329,13 @@ jobs:
           tool: cargo-deny
 
       - name: cargo audit (gate 7)
+        shell: bash
         run: |
           set -euo pipefail
           cargo audit --deny yanked
 
       - name: cargo deny check (gate 8)
+        shell: bash
         run: |
           set -euo pipefail
           cargo deny check advisories licenses bans sources
@@ -333,6 +351,7 @@ jobs:
           persist-credentials: false
 
       - name: Install stable toolchain
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -345,11 +364,13 @@ jobs:
           key: cargo-publish-dry-run-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
 
       - name: cargo publish --dry-run (gate 9)
+        shell: bash
         run: |
           set -euo pipefail
           cargo publish --dry-run --locked
 
       - name: cargo package --list — sem arquivos sensíveis (gate 10)
+        shell: bash
         run: |
           set -euo pipefail
           LIST=$(cargo package --list 2>&1)
@@ -373,6 +394,7 @@ jobs:
           persist-credentials: false
 
       - name: Install stable toolchain with musl target
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -381,6 +403,7 @@ jobs:
           rustup target add x86_64-unknown-linux-musl
 
       - name: Install musl-tools
+        shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y musl-tools
@@ -391,11 +414,13 @@ jobs:
           key: cargo-musl-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
 
       - name: cargo build --release --target x86_64-unknown-linux-musl
+        shell: bash
         run: |
           set -euo pipefail
           cargo build --release --target x86_64-unknown-linux-musl --locked
 
       - name: Binary smoke test (--version, --help)
+        shell: bash
         run: |
           set -euo pipefail
           ./target/x86_64-unknown-linux-musl/release/duckduckgo-search-cli --version
@@ -420,6 +445,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
         run: |
           set -euo pipefail
           BASE="${BASE_SHA}"
@@ -460,6 +486,7 @@ jobs:
           persist-credentials: false
 
       - name: Install stable toolchain
+        shell: bash
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
@@ -467,12 +494,14 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: cargo update --workspace
+        shell: bash
         run: |
           set -euo pipefail
           cargo update --workspace --locked false || cargo update --workspace
 
       - name: Check for changes
         id: check_changes
+        shell: bash
         run: |
           set -euo pipefail
           if git diff --quiet Cargo.lock; then
@@ -487,6 +516,7 @@ jobs:
         if: steps.check_changes.outputs.changes == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -519,6 +549,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Python (for zizmor via uv)
+        shell: bash
         run: |
           set -euo pipefail
           curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -527,12 +558,14 @@ jobs:
       - name: Install zizmor
         env:
           ZIZMOR_VERSION: ${{ env.ZIZMOR_VERSION }}
+        shell: bash
         run: |
           set -euo pipefail
           uv tool install "zizmor>=${ZIZMOR_VERSION#v}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run zizmor
+        shell: bash
         run: |
           set -euo pipefail
           zizmor --version
@@ -556,6 +589,7 @@ jobs:
       - name: Download actionlint binary
         env:
           ACTIONLINT_VERSION: "1.7.12"
+        shell: bash
         run: |
           set -euo pipefail
           URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
@@ -564,6 +598,7 @@ jobs:
           actionlint -version
 
       - name: Run actionlint
+        shell: bash
         run: |
           set -euo pipefail
           actionlint .github/workflows/
