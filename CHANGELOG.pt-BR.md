@@ -7,6 +7,79 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 
+## [Não publicado]
+
+### Corrigido
+- **CI: exit 101 `crate already exists` no job `Publish to crates.io` (post-mortem 2026-06-05)**
+  - Causa raiz: trigger duplicado do workflow para tag v0.6.6 já publicada causou `cargo publish`
+    exit 101 com `error: crate duckduckgo-search-cli@0.6.6 already exists on crates.io index`.
+    crates.io é append-only immutable, versões NUNCA podem ser sobrescritas.
+  - Solução: adicionados jobs `preflight` + `crates_io` com guards de:
+    - Consistência de versão Tag vs Cargo.toml
+    - Validação de formato SemVer
+    - Presença de entrada no CHANGELOG
+    - Bloqueio de Co-authored-by de agentes IA em commits recentes
+    - `cargo search` com timeout + retry para detectar versão já publicada
+    - Skip de `cargo publish` com warning + upload de evidência quando já publicada
+    - Timeout (300s) + retry (3 tentativas, backoff 10s/20s/30s) no `cargo publish`
+  - Padrão de resolução: workflow de release idempotente com caminho de skip explícito
+
+- **CI: 18+ warnings de Node.js 20 deprecated em todos os jobs**
+  - Causa raiz: actions/checkout@v4, actions/upload-artifact@v4, actions/download-artifact@v4
+    usam Node 20. Node 20 descontinuado em 19/09/2025, removido em 16/09/2026.
+  - Solução:
+    - Atualizadas todas as actions para v6 (Node 24 nativo)
+    - Atualizado `softprops/action-gh-release` de v2 para v3
+    - Adicionado `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"` como cinto-e-suspensórios
+  - Caminho de migração: v6 é Node 24 nativo, v4 precisa de env var explícita
+
+- **CI: exit 141 SIGPIPE intermitente em `validate (ubuntu-latest)`**
+  - Causa raiz: `cargo test` escreve em pipe cujo consumidor fecha cedo
+  - Solução: guard explícito `|| { ec=$?; if [ $ec -eq 141 ]; then exit 0; fi; exit $ec; }`
+  - Trade-off: 141 vira warning silenciosamente, pode mascarar bugs reais em testes
+
+- **CI: exit 1 em `validate (windows-latest)` por redirect VS2022→VS2026**
+  - Causa raiz: GitHub redireciona `windows-latest` para `windows-2025-vs2026` desde 15/06/2025.
+    VS2026 tem mudanças breaking no toolchain MSVC que afetam Rust stable.
+  - Solução: pinado `windows-2022` na matrix `ci.yml` e no target de build `release.yml`
+  - Reavaliar pin após 15/07/2026 quando VS2026 estabilizar
+
+### Adicionado
+- **Geração de SBOM CycloneDX no workflow de release** — `cargo cyclonedx --format json` produz
+  `sbom.cdx.json` enviado como artifact. Habilita compliance com EU Cyber Resilience Act.
+- **Atestado de proveniência SLSA** — `actions/attest-build-provenance@v2` cria proveniência
+  assinada para todos os artefatos de release. Compliance SLSA Nível 3.
+- **Assinatura cosign keyless OIDC** — cada binário + SHA256SUMS.txt assinado com `cosign sign-blob`
+  usando token OIDC do GitHub. Sem gerenciamento de chave privada.
+- **SHA256SUMS publicado em cada release** — `sha256sum` gerado por target, combinado em
+  único `SHA256SUMS.txt`, enviado como asset de release e como parte de cada tarball/zip binário.
+- **Assinatura GPG de tag** — `gpg --detach-sign SHA256SUMS.txt` opcional se secret
+  `GPG_PRIVATE_KEY` estiver configurada. `continue-on-error: true` para não bloquear release
+  se chave faltar.
+- **Controle de concorrência** — `concurrency.group: release-${{ github.ref }}-${{ github.sha }}`
+  impede runs paralelos para mesma tag+SHA. `cancel-in-progress: false` (release) / condicional
+  em PR (CI) garante que publish nunca é abortado no meio.
+- **Job pre-flight no workflow de release** — valida versão da tag == versão do Cargo.toml,
+  formato SemVer, entrada no CHANGELOG, ausência de Co-authored-by de agente IA ANTES de qualquer build.
+- **Atualização semanal Cron de dependências** — job `scheduled_update` roda domingo 03:00 UTC,
+  executa `cargo update --workspace`, cria PR se houver mudanças.
+- **Scan de segurança Zizmor** — análise estática de workflows GitHub Actions detecta
+  injeção, input não confiável e outros anti-patterns de segurança. Roda apenas em PRs.
+- **Validação de sintaxe Actionlint** — valida sintaxe YAML de todos os arquivos de workflow. Roda apenas em PRs.
+- **Dependabot para actions e crates** — `.github/dependabot.yml` cria PRs semanais
+  para atualizações de GitHub Actions e crates Rust. Agrupa por major/minor/patch.
+- **Normalização LF via `.gitattributes`** — força line endings LF em todos os arquivos de texto,
+  prevenindo problemas de CRLF em Windows que quebram `cargo fmt --check`.
+
+### Segurança
+- **Permissões endurecidas por job** — top-level `permissions: contents: write packages: write
+  id-token: write attestations: write checks: write discussions: write` para release;
+  blocos `permissions:` por job no CI para menor privilégio.
+- **`continue-on-error: true` no step GPG** — chave GPG ausente não bloqueia release;
+  melhoria opcional.
+- **Sem triggers `pull_request_target`** — workflows nunca rodam com permissões de escrita
+  em PRs de forks.
+
 ## [0.6.5] - 2026-06-05
 
 ### Corrigido

@@ -27,6 +27,11 @@ graphrag.sqlite
 graphrag.sqlite-shm
 graphrag.sqlite-wal
 .ingest-queue.sqlite
+.ingest-queue.sqlite-shm
+.ingest-queue.sqlite-wal
+.enrich-queue.sqlite
+.enrich-queue.sqlite-shm
+.enrich-queue.sqlite-wal
 
 # IDE
 /.idea/

@@ -1,38 +1,40 @@
-# .gitattributes — normalização de line endings cross-platform.
-#
-# Motivação: esta CLI claim universal cross-platform (Linux/macOS/Windows).
-# Sem isto, um `git clone` no Windows com `core.autocrlf=true` converteria
-# `\n` para `\r\n` em arquivos que esperam LF puro (fixtures HTML, scripts shell,
-# configs YAML/TOML), quebrando testes ou execução.
+# Git attributes — força line endings LF em todos os arquivos de texto.
+# Resolve problema de CRLF em Windows que pode quebrar `cargo fmt --check`.
 
-# Default: git normaliza entre text e binary baseado no conteúdo detectado.
-* text=auto
+# Padrão para todos os arquivos: LF (Unix-style).
+*               text=auto eol=lf
 
-# Código Rust: sempre LF no repositório (rustfmt assume LF).
-*.rs text eol=lf
-*.toml text eol=lf
+# Forçar LF explicitamente em linguagens de programação.
+*.rs            text eol=lf
+*.toml          text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+*.json          text eol=lf
+*.md            text eol=lf
+*.sh            text eol=lf
+*.bash          text eol=lf
+*.py            text eol=lf
+*.js            text eol=lf
+*.ts            text eol=lf
+*.lock          text eol=lf
+Cargo.lock      text eol=lf
 
-# Scripts shell: DEVEM ser LF sempre — CRLF quebra a shebang `#!/usr/bin/env bash`.
-*.sh text eol=lf
+# Arquivos binários não devem ter line ending conversion.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.pdf           binary
+*.zip           binary
+*.tar.gz        binary
+*.tar           binary
+*.exe           binary
+*.dll           binary
+*.so            binary
+*.dylib         binary
+*.a             binary
 
-# YAML (workflows GitHub Actions, dependabot, issue templates): LF obrigatório.
-*.yml text eol=lf
-*.yaml text eol=lf
-
-# Markdown: LF (consistência com GitHub).
-*.md text eol=lf
-
-# Fixtures HTML/JSON de teste: LF (alguns parsers de conteúdo são sensíveis).
-*.html text eol=lf
-*.json text eol=lf
-
-# Arquivos explicitamente binários — nunca deixar git converter.
-*.png binary
-*.jpg binary
-*.ico binary
-*.woff binary
-*.woff2 binary
-
-# Arquivos gerados ou de terceiros — excluir de estatísticas de linguagem do GitHub.
-Cargo.lock linguist-generated=true
-target/** linguist-generated=true
+# Git LFS para arquivos grandes (se aplicável no futuro).
+# *.psd          filter=lfs diff=lfs merge=lfs -text
+# *.zip          filter=lfs diff=lfs merge=lfs -text

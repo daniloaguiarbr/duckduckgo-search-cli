@@ -1,56 +1,98 @@
-# Dependabot — atualizações automáticas de segurança e versão.
-#
-# Dois ecossistemas vigiados:
-#   1. `cargo` — deps Rust transitivas + diretas (semanal).
-#   2. `github-actions` — versões de actions do CI (semanal).
-#
-# Estratégia:
-#   - `interval: weekly` (segunda-feira UTC) para evitar ruído diário.
-#   - `open-pull-requests-limit: 5` para limitar churn.
-#   - `commit-message.prefix` padroniza scope semântico para changelog automático.
-#   - `groups` agrupa atualizações patch/minor de dev-deps para reduzir PRs.
+# Dependabot configuration — auto-update de GitHub Actions e Rust crates.
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
 
 version: 2
-updates:
-  - package-ecosystem: "cargo"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "05:00"
-      timezone: "America/Sao_Paulo"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "deps"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "rust"
-    groups:
-      dev-deps:
-        dependency-type: "development"
-        update-types:
-          - "minor"
-          - "patch"
-      tokio-ecosystem:
-        patterns:
-          - "tokio*"
-          - "futures*"
-      tracing-ecosystem:
-        patterns:
-          - "tracing*"
 
+# -----------------------------------------------------------------------------
+# Updates de GitHub Actions.
+# Cria PRs semanais para manter actions atualizadas.
+# -----------------------------------------------------------------------------
+updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-      time: "05:00"
+      time: "04:00"
       timezone: "America/Sao_Paulo"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
+    groups:
+      actions-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      actions-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+      actions-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
     commit-message:
       prefix: "ci"
+      prefix-development: "ci(draft)"
       include: "scope"
     labels:
       - "dependencies"
-      - "github-actions"
+      - "ci"
+    # Ignora updates automáticos de actions que têm breaking changes conhecidos
+    # e requerem intervenção manual.
+    ignore:
+      - dependency-name: "softprops/action-gh-release"
+        # Manter v3 — mudanças de v2→v3 são breaking e já foram aplicadas
+        versions:
+          - ">= 4"
+      - dependency-name: "dtolnay/rust-toolchain"
+        # Master/main podem ter bugs; pinamos em stable
+        update-types:
+          - "version-update:semver-major"
+    # Permite até 5 PRs abertos simultaneamente
+    target-branch: "main"
+
+  # -----------------------------------------------------------------------------
+  # Updates de Rust crates via cargo.
+  # Cria PRs semanais com atualizações de Cargo.toml e Cargo.lock.
+  # -----------------------------------------------------------------------------
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "04:00"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 10
+    groups:
+      rust-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      rust-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+      rust-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps(draft)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "rust"
+    ignore:
+      # chromiumoxide e scraper têm duplicatas em cargo deny bans.
+      # Não atualizar até resolver LAT-23.
+      - dependency-name: "chromiumoxide"
+      - dependency-name: "scraper"
+    target-branch: "main"
+    # Reabrir PRs fechados que ainda têm updates disponíveis
+    rebase-strategy: "auto"
