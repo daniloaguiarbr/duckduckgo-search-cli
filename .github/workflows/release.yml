@@ -582,11 +582,12 @@ jobs:
         continue-on-error: true
 
       - name: Create GitHub Release
-        # softprops/action-gh-release@v3 é a forma estável e testada de criar
-        # GitHub Releases. zizmor reporta superfluous-actions (info, não error)
-        # porque a CLI `gh release create` está disponível — mas softprops tem
-        # retry, error handling e upload paralelo testados em produção.
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        # softprops/action-gh-release v2.6.2 (último da linha Node 20).
+        # v3.0.0 requer Node 24 e está causando runner_id=0 / job cancel
+        # no runner ubuntu-latest do GitHub Actions. v2.6.2 é estável.
+        # zizmor reporta superfluous-actions (info, não bloqueante) porque
+        # `gh release create` é CLI; trade-off aceito.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/*
           generate_release_notes: true
