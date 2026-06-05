@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "duckduckgo-search-cli"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "assert_cmd",
  "blake3",

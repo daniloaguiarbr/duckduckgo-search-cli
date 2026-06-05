@@ -6,6 +6,10 @@
 /logs/
 *.log
 
+# SBOM local gerado por `cargo cyclonedx` em testes locais
+# (nao deve ser commitado; o CI gera `sbom.cdx.json` no runner)
+duckduckgo-search-cli.cdx.json
+
 # Secrets
 *.pem
 *.key

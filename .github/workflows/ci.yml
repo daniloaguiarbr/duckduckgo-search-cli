@@ -601,4 +601,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          actionlint .github/workflows/
+          # actionlint v1.x NAO aceita diretorio como argumento.
+          # Auto-descoberta: actionlint varre .github/workflows/ recursivamente
+          # quando executado sem argumentos OU com glob explicito.
+          # Ver https://github.com/rhysd/actionlint (Usage section).
+          actionlint

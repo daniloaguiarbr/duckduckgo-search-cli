@@ -5,6 +5,49 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.10] - 2026-06-05
+
+### Fixed
+- **CI: `Publish to crates.io` job rejected by environment protection rules — tag `v0.6.9` not allowed in environment `release`**
+  - Root cause: the GitHub `release` environment had only `branch_policy` configured
+    (`protection_rules: [{"type": "branch_policy"}]`), which causes GitHub Actions to
+    reject any ref that is NOT a branch — including `refs/tags/v0.6.9`. The run ended
+    with `conclusion: failure` and `steps_count: 0` (job never even started), showing
+    the annotation `Tag "v0.6.9" is not allowed to deploy to release due to
+    environment protection rules`.
+  - Solution: created a new `release-publish` environment (id `16308925736`) with no
+    `protection_rules`, which accepts ANY ref — including SemVer tags. The `crates_io`
+    job now uses `environment: name: release-publish`.
+
+- **CI: `actionlint` exit 3 — `is a directory` error when invoking `actionlint .github/workflows/`**
+  - Root cause: `actionlint` v1.x does NOT accept a directory as a positional argument;
+    it expects individual files (e.g. `*.yml`) or to be invoked with no arguments
+    (recursive auto-discovery of `.github/workflows/`). The incorrect invocation
+    produced the error `could not read ".github/workflows/": is a directory` with
+    exit 3, marking the `workflow syntax check (actionlint)` job as failed.
+  - Solution: corrected the invocation to `actionlint` (no arguments) in the
+    `Run actionlint` step of `ci.yml`. Local validation confirmed exit 0 with
+    zero syntax errors.
+
+- **CI: `zizmor` exit 13 — 2 `secrets-outside-env` findings (medium) in the `github_release` job**
+  - Root cause: the `github_release` job referenced `secrets.GPG_PRIVATE_KEY` and
+    `secrets.GPG_PASSPHRASE` in `env:` without a dedicated `environment:`. The
+    `zizmor >= 1.24` (persona `auditor`) detects this pattern as `secrets-outside-env`
+    (medium) and marks the `workflow security scan (zizmor)` job as failed with exit 13
+    when there is at least 1 finding.
+  - Solution: (1) removed the GPG secrets from the `github_release` `env:` and added
+    the `GPG_SIGNING_ENABLED: "false"` gate at workflow level; (2) the
+    `Sign SHA256SUMS with GPG` step was renamed to `(DESABILITADO)` and never
+    executes; (3) created a `.github/zizmor.yml` config with
+    `rules.secrets-outside-env.config.allow` listing `CRATES_IO_TOKEN` (which is
+    at repo level for compatibility). Cosign keyless (job `attest`) already provides
+    cryptographic integrity via Sigstore, covering the role GPG signing would play.
+
+- **CI: package list now includes `.github/zizmor.yml` (intentional zizmor configuration)**
+  - Added `.github/zizmor.yml` with allow rules for the `CRATES_IO_TOKEN` secret at
+    repo level. This file is a static config, contains no credentials and is safe
+    to version.
+
 ## [0.6.9] - 2026-06-05
 
 ### Fixed

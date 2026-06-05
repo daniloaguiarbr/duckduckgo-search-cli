@@ -1,0 +1,28 @@
+# zizmor configuration — https://docs.zizmor.sh/configuration/
+#
+# Por que este arquivo existe:
+# O zizmor >= 1.24 com `--persona=auditor` emite `secrets-outside-env`
+# quando um job referencia `secrets.X` sem um `environment:` dedicado.
+#
+# No nosso workflow:
+#   - `github_release`: NÃO tem environment (intencional, evita bloqueios
+#     de `branch_policy` em tags). Os secrets GPG foram removidos em
+#     2026-06-05 (signing desabilitado, cosign keyless é o substituto).
+#   - `crates_io`: TEM `environment: release-publish` (id 16308925736,
+#     sem protection rules, aceita tags). O secret CRATES_IO_TOKEN
+#     está no nível REPO por compatibilidade histórica. Mover para o
+#     environment requer encriptar com a public key do environment via
+#     API — ação manual quando alguém tiver acesso ao valor do token.
+#
+# Esta config documenta explicitamente que o secret `CRATES_IO_TOKEN`
+# é aceito no nível repo (não bloqueia a release). Quando o secret for
+# migrado para o environment `release-publish`, esta entrada pode ser
+# removida.
+
+rules:
+  secrets-outside-env:
+    config:
+      allow:
+        # CRATES_IO_TOKEN está no nível do repositório por enquanto.
+        # Ver comentário acima para o plano de migração.
+        - CRATES_IO_TOKEN

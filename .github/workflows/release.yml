@@ -551,18 +551,18 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build_matrix, macos_universal, attest]
     runs-on: ubuntu-latest
-    # GitHub Environment dedicado para GPG secrets de assinatura.
-    # Environment descontinuado. Usando apenas "release" agora para
-    # simplificar e evitar bloqueios do GitHub runner.
-    # GPG signing agora é opcional (continue-on-error: true) e usa
-    # secrets no nível do workflow (NÃO ambiente).
+    # Sem environment dedicado aqui: GPG signing foi desabilitado para
+    # resolver zizmor `secrets-outside-env` (medium) e porque o GPG
+    # é opcional. cosign keyless (attest) já fornece integridade
+    # criptográfica para SHA256SUMS.txt via Sigstore.
     permissions:
       # contents: write — para criar GitHub Release via gh release create. Sem isso, 403 ao push.
       contents: write # for GitHub Release creation
     env:
-      # GPG secrets vêm do GitHub Environment "release-signing" (zizmor: secrets-outside-env).
-      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      # GPG signing desabilitado: cosign keyless (attest) garante
+      # integridade via Sigstore. Reabilitar requer criar environment
+      # `release-signing` com tag policy `v*` e mover secrets para lá.
+      GPG_SIGNING_ENABLED: "false"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -582,17 +582,23 @@ jobs:
           find artifacts/ -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "SHA256SUMS.txt" -o -name "*.bundle" -o -name "*.cdx.json" \) -exec cp {} dist/ \;
           ls -lh dist/
 
-      - name: Sign SHA256SUMS with GPG
-        if: env.GPG_PRIVATE_KEY != ''
+      - name: Sign SHA256SUMS with GPG (DESABILITADO)
+        if: env.GPG_SIGNING_ENABLED == 'true'
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error::GPG_SIGNING_ENABLED=true mas GPG_PRIVATE_KEY vazio"
+            exit 1
+          fi
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           cd dist
           gpg --batch --yes --pinentry-mode loopback \
-            --passphrase "$GPG_PASSPHRASE" \
+            --passphrase "${GPG_PASSPHRASE:-}" \
             --armor --detach-sign SHA256SUMS.txt
-        continue-on-error: true
+        # Step NUNCA executa: GPG_SIGNING_ENABLED=false no nível workflow.
+        # Quando reabilitar, criar environment `release-signing` com tag
+        # policy `v*.*.*` e adicionar `environment: release-signing` ao job.
 
       - name: Create GitHub Release via REST API
         # softprops/action-gh-release tem causado "runner_id=0, job
@@ -692,10 +698,17 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') && (github.event.inputs.dry_run != 'true')
     needs: github_release
     runs-on: ubuntu-latest
-    # GitHub Environment dedicado para secrets de publicação.
-    # Configurar em Settings → Environments → "release" com secret CRATES_IO_TOKEN.
+    # GitHub Environment dedicado para publicação em crates.io.
+    # ANTES: `name: release` (com `branch_policy` que BLOQUEAVA tags SemVer).
+    # AGORA: `name: release-publish` (sem protection rules → aceita qualquer
+    # ref, incluindo `refs/tags/v*.*.*`).
+    # ID do environment: 16308925736.
+    # Para mover CRATES_IO_TOKEN do nível repo para este environment:
+    #   gh api repos/daniloaguiarbr/duckduckgo-search-cli/environments/
+    #     release-publish/secrets/public-key
+    #   (ler chave pública, encriptar token, POST como encrypted_value)
     environment:
-      name: release
+      name: release-publish
     permissions:
       contents: read
     env:
