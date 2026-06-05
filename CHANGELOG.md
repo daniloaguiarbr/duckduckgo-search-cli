@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.9] - 2026-06-05
+
+### Fixed
+- **CI: Windows `.zip` release asset was empty (209 bytes) — bug in `Package (Windows)` PowerShell script**
+  - Root cause: the script used `${TARGET}` / `${BIN}` / `${EXT}` syntax, which is **bash interpolation**.
+    In PowerShell, `${VAR}` is a string literal — env vars are interpolated as `$env:VAR`.
+    Result: `Copy-Item` failed silently (source path became `target//release/`) and
+    `Compress-Archive` produced an almost-empty zip (only `SHA256SUMS.txt`).
+  - Solution: replaced all `${VAR}` with `$env:VAR` in PowerShell `run:` blocks
+    (Package (Windows) and Generate SHA256SUMS (Windows)).
+  - Reference: incident-jaq-not-found-runner-2026-06-05 + cross-cutting audit on 2026-06-05
+
+- **CI: `sbom.cdx.json` CycloneDX SBOM was 0 bytes (file not actually generated)**
+  - Root cause: `cargo cyclonedx --override-filename sbom.cdx.json` actually writes
+    `sbom.cdx.json.json` because the `--override-filename` flag auto-appends `.json`.
+    The `wc -c < sbom.cdx.json` step then read 0 bytes from the non-existent file and
+    the `Upload SBOM as artifact` step uploaded an empty file (artifact ignored downstream).
+  - Solution: changed invocation to `cargo cyclonedx --format json --override-filename sbom`
+    (stem only), then `mv sbom.json sbom.cdx.json` to match the expected filename.
+
+- **CI: GitHub Release for v0.6.8 was incomplete (missing Windows zip + sbom)**
+  - Root cause: the above two bugs combined meant the v0.6.8 release workflow produced
+    a Windows zip with only the SHA256SUMS stub and an empty SBOM. Manually uploaded
+    the real SBOM after the fact; Windows zip requires a full re-run.
+
 ## [Unreleased]
 
 ### Fixed

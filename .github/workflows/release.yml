@@ -355,9 +355,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/${TARGET}/release/${BIN}${EXT}" dist/
+          # IMPORTANTE: usar `$env:VAR` no PowerShell, NAO `${VAR}` (sintaxe bash).
+          # `${VAR}` em PowerShell eh string literal, nao interpola env vars.
+          Copy-Item "target/$env:TARGET/release/$env:BIN$env:EXT" dist/
           Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE, CHANGELOG.md dist/
-          Compress-Archive -Path dist/* -DestinationPath "dist/${BIN}-${TARGET}.zip"
+          Compress-Archive -Path dist/* -DestinationPath "dist/$env:BIN-$env:TARGET.zip"
 
       - name: Generate SHA256SUMS (Unix)
         if: matrix.archive == 'tar.gz'
@@ -378,8 +380,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $hash = Get-FileHash -Path "dist/${BIN}-${TARGET}.zip" -Algorithm SHA256
-          "$($hash.Hash.ToLower())  ${BIN}-${TARGET}.zip" | Out-File -Append -Encoding ASCII dist/SHA256SUMS.txt
+          # IMPORTANTE: usar `$env:VAR` no PowerShell, NAO `${VAR}` (sintaxe bash).
+          $hash = Get-FileHash -Path "dist/$env:BIN-$env:TARGET.zip" -Algorithm SHA256
+          "$($hash.Hash.ToLower())  $env:BIN-$env:TARGET.zip" | Out-File -Append -Encoding ASCII dist/SHA256SUMS.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -484,7 +487,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo cyclonedx --format json --override-filename sbom.cdx.json
+          # IMPORTANTE: cargo-cyclonedx --override-filename ADICIONA automaticamente
+          # o sufixo `.json`. Passar `sbom.cdx.json` resulta em `sbom.cdx.json.json`.
+          # Solucao: passar apenas o stem `sbom` para gerar `sbom.json`, depois
+          # renomear para `sbom.cdx.json` no formato esperado pelo resto do pipeline.
+          cargo cyclonedx --format json --override-filename sbom
+          if [ ! -f sbom.json ]; then
+            echo "::error::cargo cyclonedx nao gerou sbom.json"
+            exit 1
+          fi
+          mv sbom.json sbom.cdx.json
           echo "SBOM gerado: $(wc -c < sbom.cdx.json) bytes"
 
       - name: Hash all release artifacts for signing
