@@ -586,6 +586,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
           PRERELEASE: ${{ contains(github.ref, '-') }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -594,12 +595,30 @@ jobs:
             FLAGS+=(--prerelease)
           fi
           cd dist
+          # Deletar release existente (se houve retry anterior) antes de recriar
+          gh release delete "${TAG}" --repo "${REPO}" --yes 2>/dev/null || true
+          # Listar arquivos explicitamente (evita expansão de glob com caracteres especiais)
+          FILES=()
+          for f in *.tar.gz *.zip SHA256SUMS.txt; do
+            [ -f "$f" ] && FILES+=("$f")
+          done
+          for f in *.bundle; do
+            [ -f "$f" ] && FILES+=("$f")
+          done
+          for f in *.cdx.json; do
+            [ -f "$f" ] && FILES+=("$f")
+          done
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "::error::Nenhum arquivo para upload"
+            exit 1
+          fi
+          echo "Uploading ${#FILES[@]} arquivos: ${FILES[*]}"
           gh release create "${TAG}" \
             --repo "${REPO}" \
             --title "Release ${TAG}" \
             --generate-notes \
             "${FLAGS[@]}" \
-            *
+            "${FILES[@]}"
 
   # ---------------------------------------------------------------------------
   # 6. CRATES.IO PUBLISH — guard robusto contra versão duplicada.
