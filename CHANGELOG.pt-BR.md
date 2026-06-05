@@ -6,6 +6,36 @@ Leia este arquivo em [English](CHANGELOG.md).
 - O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 - Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
+## [0.6.11] - 2026-06-05
+
+### Corrigido
+- **CI: step 6 do `crates_io` (`Check if version already published`) falhou com `unbound variable` exit 1 no tag v0.6.10**
+  - Causa raiz: a variável `VERSION` era referenciada como `VERSION="${VERSION}"`
+    na primeira linha do script, mas nunca havia sido definida no `env:` do
+    step. Com `set -euo pipefail` ativo, acessar uma variável não definida
+    causou `bash: VERSION: unbound variable` com exit 1, marcando o step
+    como `conclusion: failure` e curto-circuitando o resto do fluxo de
+    publicação. A v0.6.10 do crates.io foi publicada manualmente via
+    `cargo publish --allow-dirty` como workaround.
+  - Solução: adicionado `VERSION: ${{ steps.detect_version.outputs.version }}`
+    no bloco `env:` do step, espelhando o padrão já usado por
+    `Verify tag matches Cargo.toml version`. Também foi aplicado
+    endurecimento com `NO_COLOR=1` e um `sed` para remover ANSI como
+    defesa em profundidade contra códigos de cor que quebrariam a regex
+    de parsing. Aumentado o número de tentativas de 3 para 5 com
+    backoff linear (5s/10s/15s/20s) para absorver rate limits transitórios
+    do crates.io.
+
+- **CI: parsing do `cargo search` agora é resiliente a códigos de cor ANSI**
+  - O output do `cargo search` vem com códigos ANSI quando
+    `CARGO_TERM_COLOR=always` está setado (como está neste workflow). Em
+    alguns esquemas de cor a regex `= "[0-9]+\.[0-9]+\.[0-9]+"` ainda
+    casava, mas em outros os códigos eram injetados entre caracteres e
+    quebravam o parsing.
+  - Solução: strip ANSI escapes com `sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g'`
+    antes de aplicar a regex, e set `NO_COLOR=1` para desabilitar cor
+    explicitamente. Ambas as camadas garantem que a regex vê ASCII limpo.
+
 ## [0.6.10] - 2026-06-05
 
 ### Corrigido

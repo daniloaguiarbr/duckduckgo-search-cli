@@ -5,6 +5,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.11] - 2026-06-05
+
+### Fixed
+- **CI: `crates_io` step 6 `Check if version already published` failed with `unbound variable` exit 1 on tag v0.6.10**
+  - Root cause: the `VERSION` variable was referenced as `VERSION="${VERSION}"`
+    on the first line of the script, but it was never defined in the step's
+    `env:` block. With `set -euo pipefail` active, accessing an undefined
+    variable caused `bash: VERSION: unbound variable` with exit 1, marking
+    the step as `conclusion: failure` and short-circuiting the rest of the
+    publish path. crates.io v0.6.10 was published manually via
+    `cargo publish --allow-dirty` as a workaround.
+  - Solution: passed `VERSION: ${{ steps.detect_version.outputs.version }}`
+    in the step's `env:` block, mirroring the pattern already used by
+    `Verify tag matches Cargo.toml version`. Also hardened the script
+    with `NO_COLOR=1` and a `sed` ANSI-strip as defense-in-depth against
+    color codes that would break the parsing regex. Bumped retries from
+    3 to 5 with linear backoff (5s/10s/15s/20s) to absorb transient
+    crates.io rate limits.
+
+- **CI: `cargo search` parsing is now resilient to ANSI color codes**
+  - The `cargo search` output is wrapped in ANSI escape codes when
+    `CARGO_TERM_COLOR=always` is set (as it is in this workflow). On
+    some color schemes the regex `= "[0-9]+\.[0-9]+\.[0-9]+"` was
+    still matched, but on others the color codes were injected between
+    characters and broke parsing.
+  - Solution: strip ANSI escapes with `sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g'`
+    before applying the regex, and set `NO_COLOR=1` to disable color
+    output explicitly. Both layers ensure the regex sees clean ASCII.
+
 ## [0.6.10] - 2026-06-05
 
 ### Fixed

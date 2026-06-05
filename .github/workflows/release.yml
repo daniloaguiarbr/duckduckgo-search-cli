@@ -762,15 +762,23 @@ jobs:
           # CRATES_IO_TOKEN dedicado em env: (zizmor: secrets-outside-env resolvido).
           CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
           BIN: ${{ env.BIN_NAME }}
+          # VERSION deve ser passado via env: para sobreviver `set -u` (unbound).
+          # Bug v0.6.10: `VERSION="${VERSION}"` causava `unbound variable` exit 1.
+          VERSION: ${{ steps.detect_version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${VERSION}"
           echo "Verificando se $VERSION já está publicada em crates.io..."
 
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             PUBLISHED_VERSION=""
-            PUBLISHED_VERSION=$(timeout 30 cargo search "${BIN}" --limit 1 2>/dev/null \
+            # NO_COLOR=1 garante output sem ANSI escape codes (mais robusto
+            # para regex em ambientes CI com TERM=dumb). Strip ANSI extra
+            # com sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' como defesa em
+            # profundidade caso NO_COLOR seja ignorado por alguma versao
+            # antiga do cargo.
+            PUBLISHED_VERSION=$(NO_COLOR=1 timeout 30 cargo search "${BIN}" --limit 1 2>/dev/null \
+              | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' \
               | grep -oE '= "[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | tr -d '"=' | tr -d ' ' || echo "")
 
             if [ -n "$PUBLISHED_VERSION" ]; then
@@ -778,11 +786,13 @@ jobs:
               break
             fi
 
-            if [ $attempt -lt 3 ]; then
-              echo "::warning::cargo search falhou (tentativa $attempt/3), retrying em 5s..."
-              sleep 5
+            if [ $attempt -lt 5 ]; then
+              BACKOFF=$((attempt * 5))
+              echo "::warning::cargo search falhou (tentativa $attempt/5), retrying em ${BACKOFF}s..."
+              sleep "$BACKOFF"
             else
-              echo "::error::cargo search falhou após 3 tentativas. Não é possível validar."
+              echo "::error::cargo search falhou após 5 tentativas. Não é possível validar."
+              echo "::error::Pode ser rate limit do crates.io. Publicação manual pode ser necessária."
               exit 1
             fi
           done
