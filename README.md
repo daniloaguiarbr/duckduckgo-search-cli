@@ -238,6 +238,17 @@ duckduckgo-search-cli init-config --force
 See the [CHANGELOG](CHANGELOG.md) for release history.
 
 
+## Migration notes (v0.6.4 → v0.6.5)
+
+- **Zero breaking changes.** All CLI flags, JSON output schemas, and exit codes from v0.6.4 remain unchanged.
+- **Windows build fixed (MP-26)**: `cargo install duckduckgo-search-cli` now succeeds on Windows. The v0.6.4 build broke on Windows because `windows-sys 0.59+` changed `HANDLE` from `isize` to `*mut c_void` and the existing code did `handle as isize` casts. v0.6.5 uses `!handle.is_null() && handle != INVALID_HANDLE_VALUE` instead.
+- **CI matrix green again (CI-01)**: v0.6.4 was published with a failing CI on all 3 SOs due to 6 latent clippy errors. v0.6.5 fixes all of them and re-runs `cargo clippy --all-targets --all-features -- -D warnings` in CI.
+- **No new CLI flags or JSON fields.** All v0.6.5 changes are internal or build/quality improvements.
+- **One new transitive dependency**: `indicatif 0.18` (ProgressBar in long crawls; auto-hides in pipes).
+- **WS-12 circuit breaker**: when `--fetch-content --parallel` is used, the new per-host circuit breaker opens after 3 consecutive failures and blocks requests to that host for 30 seconds before allowing a probe. This protects long crawls from cascading failures on a single dead domain.
+- **333 tests passing** (243 unit + 90 integration + 6 doc). 6 clippy errors fixed, 5 new property tests, 4 new circuit breaker tests, 1 new wiremock Retry-After test.
+
+
 ## Migration notes (v0.6.3 → v0.6.4)
 
 - **Zero breaking changes.** All CLI flags, JSON output schemas, and exit codes from v0.6.3 remain unchanged.
@@ -249,6 +260,38 @@ See the [CHANGELOG](CHANGELOG.md) for release history.
   - `metadados.identidade_usada` — identity tag (`<family>-<platform>-<16hex>`) used for the response
   - `metadados.nivel_cascata` — cascade level (0..=4) reached during the request
 - **Version note**: v0.7.0 was in development but rolled back to v0.6.4 to preserve the feature set under a stable patch number. The released binary is functionally identical to what would have been v0.7.0.
+
+
+## v0.6.5 highlights (Windows HANDLE fix + CI green + circuit breaker)
+
+v0.6.5 is a quality release focused on Windows portability and CI hygiene.
+The biggest practical improvement is that **`cargo install duckduckgo-search-cli`
+now works on Windows** for the first time since v0.6.4. The 6 latent clippy
+errors that broke CI on all 3 SOs in v0.6.4 are also fixed.
+
+- **MP-26 (CRITICAL)**: `src/platform.rs:51-69` rewritten to handle the
+  `windows-sys 0.59+` ABI change (`HANDLE = *mut c_void`). Uses
+  `INVALID_HANDLE_VALUE` from `windows_sys::Win32::Foundation` for the Win32
+  sentinel and `is_null()` for the null-check.
+- **CI-01**: 6 clippy errors fixed — `doc_markdown` on 3 strings
+  (`PowerShell`, `rules_rust.md`, `TempDir`), `needless_return`,
+  `missing_debug_implementations` on `ChromeBrowser` and `CircuitBreakerMap`.
+  `cargo clippy --all-targets --all-features -- -D warnings` passes.
+- **WS-12 circuit breaker**: per-host breaker in `src/content_fetch.rs`
+  (3 failures → 30s cooldown). Protects `--fetch-content --parallel`
+  crawls from cascading failures on dead domains.
+- **WS-11 property tests**: 5 invariants in `src/extraction.rs` (empty
+  inputs, dense positions, absolute URLs, idempotence, no panic on
+  malformed HTML). Zero new dependencies.
+- **WS-23 wiremock Retry-After**: integration test validates the 429
+  backoff honors the `Retry-After: 2` header.
+- **WS-25 indicatif ProgressBar**: `--fetch-content` shows a progress
+  bar on stderr. Auto-hides in pipes (no contamination of stdout JSON).
+- **Preventive FFI lints**: `improper_ctypes` and
+  `improper_ctypes_definitions` are now `deny` in `Cargo.toml`, blocking
+  future FFI type drift.
+- **CI additions**: `--version --help` smoke test on all 3 SOs;
+  `cargo build --no-default-features` job to validate the minimal build.
 
 
 ## v0.6.4 highlights (WS-26 anti-bot)

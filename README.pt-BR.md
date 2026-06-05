@@ -257,17 +257,42 @@ cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
 Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo de versões.
 
 
+## Notas de Migração (v0.6.4 → v0.6.5)
+
+- **Zero breaking changes.** Todas as flags CLI, schemas JSON e exit codes de v0.6.4 permanecem inalterados.
+- **Build Windows corrigido (MP-26)**: `cargo install duckduckgo-search-cli` agora funciona no Windows. O build da v0.6.4 quebrava no Windows porque `windows-sys 0.59+` mudou `HANDLE` de `isize` para `*mut c_void` e o código fazia casts `handle as isize`. v0.6.5 usa `!handle.is_null() && handle != INVALID_HANDLE_VALUE`.
+- **CI matrix verde novamente (CI-01)**: v0.6.4 foi publicada com CI falhando em todos os 3 SOs por 6 erros de clippy latentes. v0.6.5 corrige todos e roda `cargo clippy --all-targets --all-features -- -D warnings` no CI.
+- **Sem novas flags CLI ou campos JSON.** Todas as mudanças de v0.6.5 são internas ou melhorias de build/qualidade.
+- **Uma nova dependência transitiva**: `indicatif 0.18` (ProgressBar em crawls longos; auto-esconde em pipes).
+- **WS-12 circuit breaker**: quando `--fetch-content --parallel` é usado, o novo circuit breaker per-host abre após 3 falhas consecutivas e bloqueia requisições para esse host por 30 segundos antes de permitir uma probe. Isso protege crawls longos de falhas em cascata em um único domínio morto.
+- **333 testes passando** (243 unit + 90 integration + 6 doc). 6 erros de clippy corrigidos, 5 novos property tests, 4 novos testes de circuit breaker, 1 novo teste wiremock de Retry-After.
+
+
 ## Notas de Migração (v0.6.3 → v0.6.4)
 
-- **Zero breaking changes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.6.3 permanecem inalterados.
+- **Zero breaking changes.** Todas as flags CLI, schemas JSON e exit codes de v0.6.3 permanecem inalterados.
 - **Novas flags CLI (aditivas)**:
-  - `--probe` — envia uma requisição mínima de pre-flight e reporta saúde como JSON
-  - `--identity-profile` — fixa a sessão em uma identidade específica do pool de 12 identidades (`auto` por padrão para rotação adaptativa)
-  - `--seed` — agora também controla a rotação do pool de identidades (era só UA em v0.6.3)
-- **Novos campos JSON em metadados (aditivos, `skip_serializing_if = "Option::is_none"`)**:
-  - `metadados.identidade_usada` — tag de identidade (`<família>-<plataforma>-<16hex>`) usada na resposta
+  - `--probe` — envia uma requisição mínima de pré-voo e reporta saúde em JSON
+  - `--identity-profile` — fixa a sessão a uma identidade específica do pool de 12 identidades (`auto` por padrão para rotação adaptativa)
+  - `--seed` — agora também controla rotação do pool de identidades (era só UA em v0.6.3)
+- **Novos campos JSON de metadados (aditivos, `skip_serializing_if = "Option::is_none"`)**:
+  - `metadados.identidade_usada` — tag de identidade (`<família>-<plataforma>-<16hex>`) usada para a resposta
   - `metadados.nivel_cascata` — nível de cascata (0..=4) atingido durante a requisição
 - **Nota de versão**: v0.7.0 estava em desenvolvimento mas foi revertido para v0.6.4 para preservar o conjunto de features sob um número de patch estável. O binário lançado é funcionalmente idêntico ao que seria v0.7.0.
+
+
+## Destaques v0.6.5 (Windows HANDLE fix + CI verde + circuit breaker)
+
+v0.6.5 é uma release de qualidade focada em portabilidade Windows e higiene de CI. A maior melhoria prática é que **`cargo install duckduckgo-search-cli` agora funciona no Windows** pela primeira vez desde v0.6.4. Os 6 erros de clippy latentes que quebraram o CI em todos os 3 SOs em v0.6.4 também são corrigidos.
+
+- **MP-26 (CRÍTICO)**: `src/platform.rs:51-69` reescrito para lidar com a mudança de ABI em `windows-sys 0.59+` (`HANDLE = *mut c_void`). Usa `INVALID_HANDLE_VALUE` de `windows_sys::Win32::Foundation` para a sentinela Win32 e `is_null()` para a verificação de nulidade.
+- **CI-01**: 6 erros de clippy corrigidos — `doc_markdown` em 3 strings (`PowerShell`, `rules_rust.md`, `TempDir`), `needless_return`, `missing_debug_implementations` em `ChromeBrowser` e `CircuitBreakerMap`. `cargo clippy --all-targets --all-features -- -D warnings` passa.
+- **WS-12 circuit breaker**: breaker per-host em `src/content_fetch.rs` (3 falhas → 30s de cooldown). Protege crawls `--fetch-content --parallel` contra falhas em cascata em domínios mortos.
+- **WS-11 property tests**: 5 invariantes em `src/extraction.rs` (inputs vazios, positions densos, URLs absolutos, idempotência, sem panic em HTML malformado). Zero novas dependências.
+- **WS-23 wiremock Retry-After**: teste de integração valida que o backoff de 429 respeita o header `Retry-After: 2`.
+- **WS-25 indicatif ProgressBar**: `--fetch-content` mostra barra de progresso no stderr. Auto-esconde em pipes (sem contaminação do stdout JSON).
+- **Lints FFI preventivos**: `improper_ctypes` e `improper_ctypes_definitions` agora são `deny` no `Cargo.toml`, bloqueando drift futuro de tipo FFI.
+- **Adições ao CI**: smoke test `--version --help` em todos os 3 SOs; job `cargo build --no-default-features` para validar o build mínimo.
 
 
 ## Destaques v0.6.4 (WS-26 anti-bot)

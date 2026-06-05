@@ -1,249 +1,137 @@
 # duckduckgo-search-cli
 
-- CLI Rust para busca DuckDuckGo — retorna resultados como JSON, Markdown ou texto
-- Instale com: `cargo install duckduckgo-search-cli`
-- Versão atual: 0.6.5
-- Repositório: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+- Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
+- Install with: `cargo install duckduckgo-search-cli`
+- Current version: v0.6.5
+- Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
 
 
-## Novidades da v0.6.5
-- **CORREÇÃO CRÍTICA (MP-26)**: build Windows volta a compilar. `windows-sys 0.59+` mudou `HANDLE` de `isize` para `*mut c_void`. Substituído `handle != 0 && handle != usize::MAX` por `!handle.is_null() && handle != INVALID_HANDLE_VALUE`.
-- **Correção CI (CI-01)**: 6 erros de clippy latentes em v0.6.4 quebravam o `validate` job em todos os 3 SOs. Corrigidos: `doc_markdown` em 3 strings (`PowerShell`, `rules_rust.md`, `TempDir`), `needless_return`, `missing_debug_implementations` em `ChromeBrowser` e `CircuitBreakerMap`.
-- **Lints preventivos FFI**: `improper_ctypes = "deny"` e `improper_ctypes_definitions = "deny"` no Cargo.toml.
-- **WS-11**: 5 property tests (invariantes) em `extraction.rs` — sem dependência nova.
-- **WS-12**: Circuit breaker per-host em `content_fetch.rs` — 3 falhas consecutivas abrem circuito por 30s.
-- **WS-23**: Teste wiremock valida header `Retry-After` em 429.
-- **WS-25**: `indicatif = "0.18"` adicionado para ProgressBar em crawls longos.
-- **333 testes passando**, 8 gates de validação OK (fmt, clippy, test, doc, audit, deny, publish dry-run, package list).
+## What's new in v0.6.5
+
+- **CRITICAL FIX (MP-26)**: Windows build compiles again. `windows-sys 0.59+` changed `HANDLE` from `isize` to `*mut c_void`. Replaced `handle != 0 && handle != usize::MAX` with `!handle.is_null() && handle != INVALID_HANDLE_VALUE`.
+- **CI fix (CI-01)**: 6 latent clippy errors in v0.6.4 broke the `validate` job on all 3 SOs. Fixed: `doc_markdown` on 3 strings (`PowerShell`, `rules_rust.md`, `TempDir`), `needless_return`, `missing_debug_implementations` on `ChromeBrowser` and `CircuitBreakerMap`.
+- **Preventive FFI lints**: `improper_ctypes = "deny"` and `improper_ctypes_definitions = "deny"` in `Cargo.toml`.
+- **WS-11**: 5 property tests (invariants) in `extraction.rs` — no new dependency.
+- **WS-12**: Per-host circuit breaker in `content_fetch.rs` — 3 consecutive failures open the circuit for 30s.
+- **WS-23**: WireMock test validates the `Retry-After` header on 429 responses.
+- **WS-25**: `indicatif = "0.18"` added for the ProgressBar in long crawls.
+- **333 tests passing**, 8 validation gates OK (fmt, clippy, test, doc, audit, deny, publish dry-run, package list).
 
 
-## Novidades da v0.6.4
-- Pool adaptativo de identidades anti-bot (12 identidades, 4 famílias × 3 plataformas)
-- Cascata de rotação em 5 níveis quando DDG bloqueia (HTTP 202/403/429)
-- Novos campos JSON: `metadados.identidade_usada` e `metadados.nivel_cascata` (aditivos, nao-breaking)
-- Novas flags CLI: `--probe` (pre-flight health check) e `--identity-profile` (fixa perfil)
-- Flag `--seed` agora também controla rotação do pool de identidades (era só UA)
+## What's new in v0.6.4
+
+- Adaptive anti-bot identity pool (12 identities, 4 browser families × 3 platforms)
+- 5-level cascade rotation when DDG blocks (HTTP 202/403/429)
+- New JSON fields: `metadados.identidade_usada` and `metadados.nivel_cascata` (additive, non-breaking)
+- New CLI flags: `--probe` (pre-flight health check) and `--identity-profile` (pin profile)
+- `--seed` flag now also controls identity pool rotation (previously UA only)
 
 
-## Documentação Canônica
-- README.md — visão geral, flags, exit codes, exemplos bilíngues
-- docs/HOW_TO_USE.md — guia pedagógico de uso passo a passo
-- docs/COOKBOOK.md — 17 receitas prontas para pesquisa, ETL e monitoramento
-- docs/INTEGRATIONS.md — integrações com 16 agentes de IA (Claude, GPT, Gemini, Cursor…)
-- docs/AGENTS-GUIDE.md — contrato stdin/stdout e referência completa de schema JSON
-- docs/CROSS_PLATFORM.md — configuração em Linux, macOS, Windows e Docker
-- docs/AGENTS.md — guia rápido de integração para agentes de IA
-- docs/AGENT_RULES.md — 30+ regras MUST/NEVER para uso em produção por agentes
+## Canonical Documentation
+
+- `README.md` — overview, flags, exit codes, bilingual examples
+- `docs/HOW_TO_USE.md` — pedagogical step-by-step guide
+- `docs/COOKBOOK.md` — 17 ready-to-use recipes for search, ETL, and monitoring
+- `docs/INTEGRATIONS.md` — integrations with 16+ AI agents (Claude, GPT, Gemini, Cursor…)
+- `docs/AGENTS-GUIDE.md` — stdin/stdout contract and full JSON schema reference
+- `docs/CROSS_PLATFORM.md` — setup on Linux, macOS, Windows, and Docker
+- `docs/AGENTS.md` — quick integration guide for AI agents
+- `docs/AGENT_RULES.md` — 30+ MUST/NEVER rules for production use by agents
+- `docs/MIGRATION.md` — migration guide between versions
+- `docs/TESTING.md` — test execution and categorization
+- `skill/duckduckgo-search-cli-en/SKILL.md` — Claude/OpenCode skill for agents
+- `skill/duckduckgo-search-cli-pt/SKILL.md` — Portuguese skill for agents
+- `CHANGELOG.md` — version history (EN)
+- `CHANGELOG.pt-BR.md` — version history (PT)
+- `INTEGRATIONS.md` — pointer to full integration catalog
+- `CONTRIBUTING.md` — contributor onboarding
+- `CODE_OF_CONDUCT.md` — community standards
+- `SECURITY.md` — vulnerability disclosure policy
 
 
-## Uso Rápido
+## Quick Start
 
-### Busca básica (saída texto no TTY)
+### Basic search (plain text on TTY)
+
 ```bash
-duckduckgo-search-cli "rust async programming"
+timeout 30 duckduckgo-search-cli "rust async runtime"
 ```
 
-### Busca JSON silenciosa (ideal para pipelines e agentes)
+### Machine-readable JSON (piped)
+
 ```bash
-duckduckgo-search-cli -q -n 10 -f json "query"
+timeout 30 duckduckgo-search-cli -q -f json --num 10 "rust async runtime" \
+  | jaq -r '.resultados[].url'
 ```
 
-### Com timeout externo obrigatório
+### Pre-flight health check (v0.6.4+, preserved in v0.6.5)
+
 ```bash
-timeout 30 duckduckgo-search-cli -q -n 10 -f json "query"
+timeout 15 duckduckgo-search-cli --probe
+# {"endpoint":"html","has_set_cookie":false,"latency_ms":109,"status":200,"type":"probe","url":"https://html.duckduckgo.com/html/"}
 ```
 
-### Salvar em arquivo (atomic write)
+### Batch mode (multi-query)
+
 ```bash
-duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
+printf 'query one\nquery two\nquery three\n' > /tmp/q.txt
+timeout 300 duckduckgo-search-cli \
+  --queries-file /tmp/q.txt \
+  -q -f json --parallel 3 --per-host-limit 1 --retries 3 \
+  --global-timeout 280 > /tmp/multi.json
 ```
 
-### Relatório Markdown
-```bash
-duckduckgo-search-cli -q -n 15 -f markdown -o report.md "query"
-```
+### Content extraction (long crawls, WS-25 ProgressBar)
 
-### Busca com conteúdo das páginas
 ```bash
-duckduckgo-search-cli -q -n 5 --fetch-content --max-content-length 8000 -f json "query"
-```
-
-### Multi-query paralela
-```bash
-duckduckgo-search-cli -q \
-  --queries-file queries.txt \
-  --parallel 3 \
-  --per-host-limit 1 \
-  --retries 3 \
-  -n 10 -f json \
-  -o results.json
-```
-
-### Filtro temporal (últimas 24 horas)
-```bash
-duckduckgo-search-cli -q -n 10 --time-filter d -f json "breaking news"
-```
-
-### Via proxy SOCKS5
-```bash
-duckduckgo-search-cli -q -n 10 --proxy socks5://127.0.0.1:9050 -f json "query"
-```
-
-### Resultados em português do Brasil
-```bash
-duckduckgo-search-cli -q -n 10 --lang pt --country br -f json "query"
+timeout 120 duckduckgo-search-cli -q -f json --num 5 \
+  --fetch-content --max-content-length 5000 \
+  "rust embedded systems" | jaq '.resultados[].url'
 ```
 
 
-## Flags Principais
+## Canonical Invocations
 
-| Flag | Padrão | Descrição |
-|------|--------|-----------|
-| `-n, --num-results` | 15 | Quantidade de resultados |
-| `-f, --format` | auto | Formato: text, json, markdown |
-| `-q, --quiet` | false | Suprime logs de tracing no stdout |
-| `-o, --output` | stdout | Arquivo de saída (escrita atômica) |
-| `--fetch-content` | false | Baixa e incorpora conteúdo das páginas |
-| `--max-content-length` | 10000 | Limite de caracteres por página |
-| `--parallel` | 1 | Concorrência para multi-query (1..=20) |
-| `--per-host-limit` | 10 | Máximo de fetches por domínio (1..=10) |
-| `--retries` | 3 | Tentativas em caso de falha |
-| `--global-timeout` | 60 | Timeout total da pipeline em segundos |
-| `--time-filter` | off | Filtro temporal: d, w, m, y |
-| `--lang` | pt | Código de idioma DuckDuckGo |
-| `--country` | br | Código de país DuckDuckGo |
-| `--proxy` | off | URL do proxy (socks5:// ou http://) |
-| `--no-proxy` | false | Desabilita todas as fontes de proxy |
-| `--endpoint` | auto | Endpoint: auto, lite |
-| `--probe` | off | Pre-flight health check (1 requisição mínima, relatório JSON) |
-| `--identity-profile` | auto | Fixa perfil de identidade do pool (chrome-win, chrome-mac, firefox-linux, safari-mac, edge-win) |
-| `--seed N` | aleatório | Seed determinístico para UA e identidade |
+```bash
+# Single query
+duckduckgo-search-cli -q -f json "query" | jaq '.resultados | length'
+
+# Multi-query (use --queries-file, NEVER shell loops)
+duckduckgo-search-cli -q -f json "one" "two" | jaq '.buscas[0].resultados | length'
+
+# Filter by URL
+duckduckgo-search-cli -q -f json "rust" | jaq -r '.resultados[].url'
+
+# Detect identity used (v0.6.4+)
+duckduckgo-search-cli -q -f json "rust" | jaq -r '.metadados.identidade_usada // "n/a"'
+
+# Detect cascade level (v0.6.4+)
+duckduckgo-search-cli -q -f json "rust" | jaq '.metadados.nivel_cascata // 0'
+```
 
 
 ## Exit Codes
 
-| Código | Significado | Ação Recomendada |
-|--------|-------------|-----------------|
-| 0 | Sucesso | Processar resultados normalmente |
-| 1 | Erro de runtime (rede, parse, I/O) | Verificar stderr para detalhes |
-| 2 | Config inválida (flag fora do range, path inválido) | Corrigir o argumento |
-| 3 | Bloqueio anti-bot DuckDuckGo (HTTP 202) | Aguardar 60s ou rotacionar proxy |
-| 4 | Timeout global excedido | Aumentar `--global-timeout` |
-| 5 | Zero resultados em todas as queries | Ampliar query ou remover filtros |
+| Code | Meaning           | Agent action                              |
+|------|-------------------|-------------------------------------------|
+| `0`  | Success           | Parse `.resultados`                       |
+| `1`  | Runtime error     | Read stderr; retry once with `-v`         |
+| `2`  | Config error      | Re-run `init-config --force`              |
+| `3`  | Anti-bot block    | Back off 300+ s; switch `--endpoint lite` |
+| `4`  | Global timeout    | Raise `--global-timeout`; reduce `--parallel` |
+| `5`  | Zero results      | Refine query or change `--lang`           |
 
 
-## Campos JSON
+## Anti-Patterns to Avoid
 
-### Modo busca simples
-```json
-{
-  "resultados": [
-    {
-      "posicao": 1,
-      "titulo": "Título do resultado",
-      "url": "https://exemplo.com/pagina",
-      "snippet": "Texto descritivo do resultado...",
-      "conteudo": "Texto da página (somente com --fetch-content)"
-    }
-  ],
-  "metadados": {
-    "usou_proxy": false,
-    "user_agent": "Mozilla/5.0 ...",
-    "tempo_execucao_ms": 1234
-  }
-}
-```
-
-### Modo multi-query (--queries-file)
-```json
-{
-  "buscas": [
-    {
-      "query": "texto da query",
-      "resultados": [ ... ]
-    }
-  ]
-}
-```
-
-### Extração com jaq
-```bash
-# Extrair URLs
-duckduckgo-search-cli -q -n 10 -f json "query" | jaq -r '.resultados[].url'
-
-# Extrair títulos e snippets formatados
-duckduckgo-search-cli -q -n 10 -f json "query" \
-  | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\nURL: \(.url)\n"'
-
-# Filtrar por keyword no snippet
-duckduckgo-search-cli -q -n 20 -f json "query" \
-  | jaq -r '.resultados[] | select(.snippet | test("rust")) | .titulo'
-```
+- NEVER parse `text` or `markdown` output with machines (use `json` + `jaq`)
+- NEVER omit `timeout` (pipelines hang indefinitely)
+- NEVER pass proxy credentials in argv (use `HTTPS_PROXY` env var)
+- NEVER raise `--parallel` above 5 (triggers anti-bot)
+- NEVER use `--stream` (placeholder, not implemented)
+- NEVER inject custom `Sec-Fetch-*` or `Accept-Language` headers
 
 
-## Skill para Agentes de IA
+## License
 
-### Claude Code (inglês)
-- Caminho: `skill/duckduckgo-search-cli-en/SKILL.md`
-- Instala como skill nativa de Claude Code
-- Ativa busca web automática sem prompt engineering manual
-
-### Claude Code (português brasileiro)
-- Caminho: `skill/duckduckgo-search-cli-pt/SKILL.md`
-- Versão PT-BR da skill para Claude Code
-- Instruções e exemplos em português brasileiro
-
-### Uso em qualquer LLM via pipe
-```bash
-duckduckgo-search-cli -q -n 10 -f json "query" \
-  | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\n"'
-```
-- Output é Markdown plano — cole diretamente em qualquer janela de contexto
-- Veja `docs/INTEGRATIONS.md` para 16 guias específicos por agente
-
-
-## Compatibilidade com Agentes de IA
-
-- Claude Code, OpenAI Codex / GPT-4o, Gemini CLI, Cursor, Windsurf
-- Aider, Continue.dev, MiniMax, OpenCode, Paperclip
-- OpenClaw, Google Antigravity, GitHub Copilot CLI, Devin, Cline, Roo Code
-- Qualquer agente com acesso a Bash tool ou shell
-
-
-## Prevenção de Bloqueio Anti-Bot
-
-- Sempre passe `-q` ao usar em pipes — tracing polui stdout e quebra jaq
-- Sempre encapsule com `timeout N` em segundos inteiros
-- Use `--per-host-limit 1` para crawling polido
-- `--global-timeout` DEVE ser menor que `timeout` externo
-- Exit code 3 é temporário — aguarde 60s e tente novamente
-- Rotacione IP com `--proxy socks5://127.0.0.1:9050` se bloqueado
-
-
-## Handler de Exit Codes (shell)
-
-```bash
-run_ddg() {
-  local q="$1"
-  timeout 30 duckduckgo-search-cli -q -n 10 -f json "$q" > /tmp/out.json
-  local ec=$?
-  case $ec in
-    0) echo "OK: $q" ;;
-    3) echo "BLOQUEADO: aguarde 60s" >&2 ;;
-    4) echo "TIMEOUT_GLOBAL: aumente --global-timeout" >&2 ;;
-    5) echo "ZERO_RESULTADOS: amplie a query" >&2 ;;
-    *) echo "FALHA($ec): $q" >&2 ;;
-  esac
-  return $ec
-}
-```
-
-
-## Links Diretos
-
-- Crates.io: https://crates.io/crates/duckduckgo-search-cli
-- Docs.rs: https://docs.rs/duckduckgo-search-cli
-- GitHub: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-- Releases: https://github.com/daniloaguiarbr/duckduckgo-search-cli/releases
-- Skill EN: skill/duckduckgo-search-cli-en/SKILL.md
-- Skill PT: skill/duckduckgo-search-cli-pt/SKILL.md
+Dual-licensed under MIT OR Apache-2.0. See `LICENSE` for details.

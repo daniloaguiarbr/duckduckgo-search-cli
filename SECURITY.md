@@ -3,11 +3,12 @@
 
 ## Supported Versions
 - Only the latest release receives security updates
-- Version 0.6.4 is the current supported version
+- Version 0.6.5 is the current supported version
 
 | Version | Supported |
 |---|---|
-| 0.6.4 | yes |
+| 0.6.5 | yes |
+| 0.6.4 | partial (Windows build broken; upgrade recommended) |
 | 0.6.3 | no |
 | < 0.6.3 | no |
 
@@ -60,3 +61,21 @@
 - `cargo deny check advisories licenses bans sources` runs with policy declared in `deny.toml`
 - Dependabot (weekly) opens pull requests for `cargo` and `github-actions` dependency updates
 - See `.github/workflows/ci.yml` and `.github/dependabot.yml` for details
+
+
+## v0.6.5 Security Improvements
+
+- **MP-26 (HANDLE type-safety)**: `src/platform.rs:51-69` uses `is_null()` and
+  `INVALID_HANDLE_VALUE` instead of `handle != 0` and `handle as isize`. The
+  Win32 API now receives a properly-typed `HANDLE` (`*mut c_void`) per the
+  `windows-sys 0.59+` ABI. Eliminates UB latent in v0.6.4.
+- **CI-01 (clippy lints)**: `improper_ctypes` and `improper_ctypes_definitions`
+  are now `deny` in `Cargo.toml`, preventing future FFI type drift. Missing
+  `Debug` impls and `clippy::needless_return` regressions are now caught
+  at `cargo clippy --all-targets --all-features -- -D warnings`.
+- **Lints promoted to deny**: `missing_safety_doc` and `unsafe_op_in_unsafe_fn`
+  prevent underspecified `unsafe` API surface.
+
+For vulnerabilities in v0.6.4 specifically, the Windows HANDLE cast issue
+was the most prominent: a build failure on Windows that could be triggered
+by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
