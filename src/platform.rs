@@ -40,6 +40,9 @@ fn iniciar_windows() {
     }
 
     // MP-01: SetConsoleCP for stdin UTF-8 (queries with accents via pipe).
+    // SAFETY: SetConsoleCP is a Windows API that takes a u32 codepage identifier;
+    // 65001 is the standard UTF-8 codepage constant. No preconditions beyond
+    // being called on a Windows process with a console attached.
     let resultado_input = unsafe { SetConsoleCP(65001) };
     if resultado_input == 0 {
         tracing::warn!("Failed to configure UTF-8 input codepage (65001) on Windows console.");
@@ -59,8 +62,16 @@ fn iniciar_windows() {
     let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
     if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
         let mut mode: u32 = 0;
+        // SAFETY: GetConsoleMode writes a u32 mode value into the provided
+        // mutable reference. The handle was validated above (not null,
+        // not INVALID_HANDLE_VALUE) and `mode` is a stack-allocated u32
+        // with proper alignment. Win32 guarantees no other access.
         if unsafe { GetConsoleMode(handle, &mut mode) } != 0 {
             let novo = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            // SAFETY: SetConsoleMode takes a handle and a u32 mode. The handle
+            // was validated above and the mode is the existing mode OR'd with
+            // ENABLE_VIRTUAL_TERMINAL_PROCESSING, which only enables an
+            // opt-in feature. No memory is dereferenced.
             if unsafe { SetConsoleMode(handle, novo) } == 0 {
                 tracing::debug!("ANSI VTP not available on this Windows console.");
             }
