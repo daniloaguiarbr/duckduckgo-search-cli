@@ -22,14 +22,6 @@ ignore = [
     # Impacto: baixo — runtime I/O apenas para automação de navegador em modo `--fetch-content`.
     # Revisar quando `chromiumoxide 0.8+` for lançado migrando para `smol` ou `tokio` puro.
     "RUSTSEC-2025-0052",
-    # RUSTSEC-2026-0009 — `time 0.3.40` denial-of-service via stack exhaustion
-    # when parsing RFC 2822 format (Date header in HTTP responses).
-    # We pin time 0.3.40 in Cargo.toml for MSRV 1.85 compatibility (the fixed 0.3.47
-    # requires MSRV 1.88+). Impact: a CLI only parses Date headers from HTTP
-    # responses under the user's explicit --lang/--country flags; we already
-    # limit input length via the response body size cap. Review when chrono
-    # migrates to time 0.3.47+ line.
-    "RUSTSEC-2026-0009",
 ]
 
 [licenses]

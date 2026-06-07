@@ -1,8 +1,8 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 description = "CLI in Rust to search DuckDuckGo via pure HTTP, with structured output for LLM consumption."
 authors = ["comandoaguiar"]
@@ -97,10 +97,17 @@ tracing = { version = "0.1", features = ["release_max_level_info"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Random User-Agent selection.
-# Upgraded to 0.9 in v0.7.1: dev-deps like proptest 1.11+ require rand 0.9, and
-# the ecosystem is migrating to 0.9+ for the new APIs (random_range, random_bool,
-# IndexedRandom::choose). Code uses 0.9 APIs throughout.
-rand = "0.9"
+# Upgraded to 0.10 in v0.7.1: dev-deps like proptest 1.11+ require rand 0.9, and
+# the ecosystem is migrating to 0.10+ for the new APIs (random_range, random_bool,
+# IndexedRandom::choose). Code uses 0.10 APIs throughout (methods live in RngExt).
+rand = "0.10"
+
+# Pinned in v0.7.1 to >=0.3.47 to resolve RUSTSEC-2026-0009 (denial-of-service
+# via stack exhaustion when parsing RFC 2822 date headers). The previous 0.3.40
+# was pulled transitively by cookie_store 0.22.0 -> reqwest 0.12.28. Forcing a
+# direct dependency on a patched version overrides the transitive constraint.
+# Bumped MSRV to 1.88 because time 0.3.47+ requires it.
+time = "0.3.47"
 
 # WS-25: ProgressBar for long crawls (--fetch-content --parallel).
 # TTY detection is automatic — bars are silently hidden in pipes.

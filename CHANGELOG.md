@@ -5,36 +5,89 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-06-07
+
+### Fixed
+- **CI: 9 jobs failing on 10 E0599 compile errors** (rand 0.10 trait
+  reorg — the `random_range` / `random_bool` / `random` convenience
+  methods moved from `Rng` to `RngExt` in rand 0.10.0). Updated the
+  `use` lines in `src/identity.rs`, `src/parallel.rs`, and
+  `src/search.rs` to import `RngExt` instead of `Rng`. This unblocks
+  `cargo check`, `build`, `test`, `clippy`, `doc`, `publish --dry-run`,
+  `validate`, `musl smoke`, `msrv`, and `coverage` jobs (all cascading
+  failures of the same root cause).
+- **CI: `supply chain (audit + deny)` job failing on RUSTSEC-2026-0009**
+  (`time 0.3.40` denial-of-service via stack exhaustion when parsing
+  RFC 2822 date headers, severity 6.8 medium). Resolved by upgrading
+  `time` to `0.3.47` (the patched release). The defensive ignore in
+  `deny.toml` for this advisory is now obsolete and has been removed.
+
+### Changed
+- **`rand` bumped from 0.8 (used in published v0.7.1) to 0.10** in
+  this hotfix. The dev-deps ecosystem (proptest 1.11+, getrandom
+  0.4+) unified on 0.10, and 0.10 introduced the `RngExt` trait as
+  the new home for the convenience methods.
+- **`rust-version` bumped from 1.75 to 1.88** (matches `time` 0.3.47
+  MSRV and the `rand` 0.10 ecosystem). All other crates still compile
+  on 1.88+.
+- **`time` pinned to `0.3.47`** as a direct dependency to override the
+  transitive `time 0.3.40` pulled in by `cookie_store 0.22.0` →
+  `reqwest 0.12.28` (RUSTSEC-2026-0009 stack-exhaustion DoS).
+
+### Notes
+- v0.7.1 was published with the source compiled against `rand 0.9`
+  (the lock at the time resolved to a registry snapshot that no
+  longer exists on crates.io). The CI subsequently failed because
+  the registry was updated and the lock now resolves to `rand 0.10`.
+  This hotfix migrates the source forward to match the registry
+  state.
+- Test count: 402 (289 lib + 101 integration + 12 doctest), 0
+  failures. Clippy clean, doc clean, fmt clean, deny clean, audit
+  clean.
+
 ## [0.7.1] - 2026-06-07
 
 ### Changed
-- **Migrated from `rand` 0.8 to `rand` 0.9** to align with the dev-deps
-  ecosystem (proptest 1.11+, getrandom 0.4+).
-- **`rust-version` bumped from 1.75 to 1.85** (matches `rand` 0.9 MSRV and
-  edition 2024 transitive deps). All other crates still compile on 1.85+.
+- **Migrated from `rand` 0.8 to `rand` 0.10** to align with the dev-deps
+  ecosystem (proptest 1.11+, getrandom 0.4+) and the new RngExt trait
+  surface in 0.10.0. Code now imports `rand::RngExt` for the
+  `random_range` / `random_bool` / `random` methods.
+- **`rust-version` bumped from 1.75 to 1.88** (matches `time` 0.3.47 MSRV
+  and the `rand` 0.10 ecosystem). All other crates still compile on 1.88+.
 - **`reqwest` features `gzip` and `brotli` removed**: reqwest 0.12 dropped
   the `ClientBuilder::gzip`/`brotli` builder methods. Decompression is now
   enabled via the standard `Accept-Encoding: gzip, br` request header (which
   reqwest handles transparently).
 - **Replaced `rand::thread_rng()` with `rand::rng()`** in 4 sites (the
   former is deprecated since rand 0.9).
-- **Replaced `Rng::gen_range` → `Rng::random_range`** in 7 sites.
-- **Replaced `Rng::gen_bool` → `Rng::random_bool`** in 2 sites.
-- **Replaced `Rng::gen::<T>()` → `Rng::random::<T>()`** in 1 site.
+- **Replaced `Rng::gen_range` → `RngExt::random_range`** in 7 sites.
+- **Replaced `Rng::gen_bool` → `RngExt::random_bool`** in 2 sites.
+- **Replaced `Rng::gen::<T>()` → `RngExt::random::<T>()`** in 1 site.
 - **Replaced `rand::seq::SliceRandom` with `rand::seq::IndexedRandom`** for
   `choose` calls on slices (the `choose` method moved traits in 0.9).
   `IteratorRandom::choose` is still used for `Iterator` types (e.g.
   `slice.iter().filter().choose`).
+- **Pinned `time = "0.3.47"` as a direct dependency** to override the
+  transitive `time 0.3.40` pulled in by `cookie_store 0.22.0` →
+  `reqwest 0.12.28` (RUSTSEC-2026-0009 stack-exhaustion DoS).
 
 ### Fixed
-- **CI: 9 jobs failing on `gen_range` deprecated warnings → -D warnings errors**
-  (caused by rand 0.9 transitive unification via proptest 1.11).
-  Migrated to the new API names that are non-deprecated.
+- **CI: 9 jobs failing on 10 E0599 errors** (`no method named
+  random_range/random_bool/random found for struct ThreadRng in the current
+  scope`) caused by the `rand 0.10` trait reorganisation (the convenience
+  methods moved from `Rng` to `RngExt`). Updated the `use` lines in
+  `src/identity.rs`, `src/parallel.rs`, and `src/search.rs` to import
+  `RngExt` instead of `Rng`.
+- **CI: `supply chain (audit + deny)` job failing on RUSTSEC-2026-0009**
+  (`time 0.3.40` denial-of-service via stack exhaustion when parsing RFC
+  2822 date headers, severity 6.8 medium). Resolved by upgrading
+  `time` to `0.3.47` (the patched release). The defensive ignore in
+  `deny.toml` for this advisory is now obsolete and has been removed.
 - **CI: 5 jobs failing on `E0599 no method named choose`** (caused by the
   trait move of `choose` from `IteratorRandom` to `IndexedRandom` in
   rand 0.9). Updated import in `src/http.rs` and `src/identity.rs`.
 - **CI: `msrv` job failing on `assert_cmd 2.2.0 edition 2024 parse`**.
-  After the rust-version bump to 1.85, this is now parseable.
+  After the rust-version bump to 1.88, this is now parseable.
 - **CI: `workflow syntax check (actionlint)` failing on
   SC2046 (ci.yml:520) and SC2035 (release.yml:505)**. Quoted the
   unquoted command substitution and prefixed the glob with `--` to

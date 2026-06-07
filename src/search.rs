@@ -17,7 +17,7 @@
 use crate::error::CliError;
 use crate::extraction;
 use crate::types::{Config, Endpoint, SafeSearch, SearchResult, TimeFilter};
-use rand::Rng;
+use rand::RngExt;
 use reqwest::{Client, Response, StatusCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
