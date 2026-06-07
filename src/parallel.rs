@@ -45,7 +45,7 @@ use crate::http;
 use crate::http::ProxyConfig;
 use crate::search;
 use crate::types::{Config, MultiSearchOutput, SearchMetadata, SearchOutput};
-use rand::Rng;
+use rand::RngExt;
 use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

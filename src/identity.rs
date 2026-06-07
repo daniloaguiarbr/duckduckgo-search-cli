@@ -20,7 +20,7 @@
 
 use rand::rngs::StdRng;
 use rand::seq::{IndexedRandom, SliceRandom};
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 /// Browser family claimed by the identity.
