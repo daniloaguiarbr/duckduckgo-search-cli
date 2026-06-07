@@ -3,6 +3,45 @@
 This guide covers test execution, categorization, and CI integration for
 `duckduckgo-search-cli`.
 
+## v0.7.0 Test Additions
+
+The v0.7.0 release added tests across the four new modules, all addressing previously open gaps:
+
+- **Doctests (12 tests)** — added to `aggregation.rs`, `synthesis.rs`,
+  `decomposition.rs`, and `deep_research.rs`. They serve as runnable
+  documentation: each module exports at least one `no_run` example.
+- **Property-based tests (7 tests, `proptest`)** — `aggregation::canonicalize_url`
+  is checked for idempotence, fragment-strip, tracking-param-strip, and
+  host-lower invariants. `synthesis::estimate_tokens` is checked for
+  monotonicity, and `synthesis::trim_to_budget` is checked for both the
+  ceiling and the idempotence invariant. The proptest regressions are
+  written under `proptest-regressions/`, which is captured in
+  `.gitignore`.
+- **Wiremock integration tests (17 tests, `tests/integration_deep_research.rs`)**
+  — pipeline smoke, query-param matching, HTTP 202 anomaly
+  observability, HTTP 404 observability, and 13 surface-coverage tests
+  that exercise the public API of every new module.
+- **Cancellation safety (1 test)** — `decompose_respects_cancellation`
+  validates that the heuristic decomposer returns early when its
+  `CancellationToken` is cancelled.
+- **Manual file handling (3 tests)** — blank-line and `#` comment
+  skipping, file-with-only-comments rejection, and missing-path rejection.
+- **Total: 392 tests passing** (279 lib + 12 doc + 101 integration). The
+  v0.7.0 changes are purely additive. No tests removed, no test
+  signatures changed, no test fixtures renamed.
+
+### v0.7.0 gaps closed by these tests
+
+- **Latent UTF-8 panic in `synthesis::trim_to_budget`** — was using
+  byte indexing without a char-boundary check. The proptest caught the
+  panic on a multi-byte input, the fix uses `floor_char_boundary`, and
+  three regression tests now lock in the `is_char_boundary(out.len())`
+  invariant.
+- **Empty / one-token / zero-max edge cases** in `decomposition.rs`.
+- **`run_deep_research` cancellation safety** — validates that the
+  pipeline bails out before fanning out N sub-queries when the operator
+  hits `Ctrl+C`.
+
 ## v0.6.5 Test Additions
 
 The v0.6.5 release added 11 tests, all addressing previously open gaps:

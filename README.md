@@ -107,6 +107,69 @@ duckduckgo-search-cli "rust async runtime"
 duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 ```
 
+### Deep Research (v0.7.0)
+
+For multi-hop research questions — "compare the four major Rust HTTP clients in 2026", "what changed in Tokio 1.40", "summarise the history of DuckDuckGo's HTML endpoint" — `duckduckgo-search-cli` ships a query fan-out pipeline that decomposes the original question into 1..=12 sub-queries, fans them out in parallel, aggregates the results, and optionally synthesises a numbered-reference report.
+
+```bash
+# Default heuristic decomposition (5 sub-queries, RRF aggregation, no synthesis).
+duckduckgo-search-cli deep-research "best rust http client 2026" -f json -q \
+  | jaq '.resultados[] | {titulo, url, score}'
+
+# Markdown report with explicit token budget and full content extraction.
+duckduckgo-search-cli deep-research "tokio vs async-std production 2026" \
+  --synthesize --budget-tokens 1500 --synth-format markdown \
+  --fetch-content --max-content-length 6000 -f json -q
+
+# Manual sub-queries from a file (comments `#` and blanks ignored).
+cat > /tmp/qs.txt <<EOF
+# Overview
+what is tokio runtime 2026
+# Comparison
+tokio vs async-std vs smol
+# Adoption
+tokio production users 2026
+EOF
+duckduckgo-search-cli deep-research "tokio runtime 2026" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url -f json -q
+```
+
+#### Deep Research flags
+
+| Flag                       | Default        | Description                                                                 |
+| -------------------------- | -------------- | --------------------------------------------------------------------------- |
+| `--max-sub-queries N`      | `5`            | Maximum sub-queries produced (1..=12).                                      |
+| `--sub-query-strategy`     | `heuristic`    | `heuristic` (five canonical templates) or `manual` (from `--sub-queries-file`). |
+| `--sub-queries-file PATH`  | (none)         | Path to explicit sub-queries (one per line; `#` comments skipped).          |
+| `--aggregate`              | `rrf`          | `rrf` (Reciprocal Rank Fusion, K=60) or `dedupe-by-url` (canonical URL).    |
+| `--depth`                  | `0`            | Reflection rounds planned but not executed in v0.7.0.                      |
+| `--fetch-content`          | off            | Extract page body for the aggregated top-K.                                 |
+| `--synthesize`             | off            | Produce a final Markdown / PlainText / JSON report.                          |
+| `--budget-tokens N`        | `1200`         | Token budget for the synthesised report (1 token ≈ 4 chars).               |
+| `--synth-format`           | `markdown`     | Output format for synthesis: `markdown`, `plain`, `json`.                   |
+
+#### Deep Research output schema
+
+```jsonc
+{
+  "metadados": {
+    "query_original": "best rust http client 2026",
+    "sub_queries": [
+      { "texto": "...", "estrategia": "heuristic", "status": "ok", "elapsed_ms": 420 }
+    ],
+    "total_resultados_unicos": 27,
+    "tempo_total_ms": 1850,
+    "nivel_cascata": 0
+  },
+  "resultados": [
+    { "titulo": "...", "url": "...", "score": 0.041, "fontes": ["..."] }
+  ],
+  "sintese": "# Research Report\n\n...\n\n[1] Title — url"
+}
+```
+
+The subcommand inherits the global flags (`--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`) and adds the deep-research-specific knobs above. All cancellation, retry, anti-bot, and circuit-breaker behaviour from the search path applies unchanged.
+
 ### Real-world recipes
 
 ```bash
@@ -151,11 +214,12 @@ duckduckgo-search-cli init-config --force
 
 ### Commands
 
-| Command                                    | Purpose                                                |
-| ------------------------------------------ | ------------------------------------------------------ |
-| `duckduckgo-search-cli <QUERY>...`         | Default search (equivalent to `buscar`).               |
-| `duckduckgo-search-cli buscar <QUERY>...`  | Explicit search subcommand.                            |
-| `duckduckgo-search-cli init-config`        | Write `selectors.toml` and `user-agents.toml` to XDG.  |
+| Command                                          | Purpose                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------- |
+| `duckduckgo-search-cli <QUERY>...`               | Default search (equivalent to `buscar`).                      |
+| `duckduckgo-search-cli buscar <QUERY>...`        | Explicit search subcommand.                                   |
+| `duckduckgo-search-cli deep-research <QUERY>`    | Query fan-out, aggregation, and optional synthesis (v0.7.0).  |
+| `duckduckgo-search-cli init-config`              | Write `selectors.toml` and `user-agents.toml` to XDG.         |
 
 ### Flags
 
@@ -229,7 +293,14 @@ duckduckgo-search-cli init-config --force
 8. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal. Paths targeting system directories (`/etc`, `/usr`, `/bin`, `C:\Windows`) are blocked. Use paths under your home directory, `/tmp`, or the current working directory.
 9. **Getting exit 5 (zero results) frequently** — this is usually temporary rate-limiting from DuckDuckGo, not a permanent block. Wait 60 seconds and retry. If the problem persists, add `--proxy socks5://127.0.0.1:9050` to rotate your outbound IP, or try `--endpoint lite` as a fallback. v0.6.0 browser fingerprint profiles reduce this significantly by mimicking real browser sessions.
 
-### Migration notes (v0.3.x → v0.4.0)
+### Migration notes (v0.6.x → v0.7.0)
+
+- **New subcommand `deep-research`** is the only public addition. The existing `buscar` / default-search path keeps its flags, JSON schema, and exit codes byte-for-byte identical.
+- **Four new public modules** are exposed in `lib.rs` — `deep_research`, `decomposition`, `aggregation`, `synthesis` — for downstream crates that want to compose their own research pipeline around the same primitives.
+- **New direct dependencies** in `Cargo.toml`: `url = "2"`, `regex = "1"`, and `proptest = "1"` (dev-only).
+- **Zero breaking changes** to `SearchOutput`, `MultiSearchOutput`, the default-config JSON schema, or any exit code.
+
+## Migration notes (v0.3.x → v0.4.0)
 
 - `--num` now defaults to `15` (previously the full single-page payload, roughly 11). Scripts that processed "all results" continue to work — you just get a consistent count.
 - When `--num > 10` and `--pages` is left at the default `1`, the CLI automatically raises `--pages` to `ceil(num / 10)` (capped at 5). Pass `--pages 1` explicitly to force a single page.

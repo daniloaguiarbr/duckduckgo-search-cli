@@ -1,4 +1,16 @@
-# duckduckgo-search-cli v0.6.5 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.7.0 — Full Documentation for LLM Context
+
+## v0.7.0 Highlights (2026-06-07)
+
+- **New subcommand `deep-research`** — query fan-out pipeline for multi-hop LLM research
+  - Splits one query into 1..=12 sub-queries via five canonical heuristic templates (aspect, comparison, timeline, opinion, cause) or a manual file
+  - Fans out in parallel via the existing `JoinSet` + `Semaphore` executor
+  - Aggregates with Reciprocal Rank Fusion (K=60) or canonical-URL deduplication
+  - Optional synthesis to Markdown, PlainText, or JSON with numbered references and a token budget
+- **Four new public modules** — `deep_research`, `decomposition`, `aggregation`, `synthesis` — composable from downstream crates
+- **New dependencies** — `url = "2"` (canonicalisation), `regex = "1"` (composite-query detection), `proptest = "1"` (dev, property tests)
+- **Zero breaking changes** — `buscar`, `init-config`, default-config JSON schema, and all exit codes are byte-for-byte identical to v0.6.x
+- **392 tests passing** (279 lib + 12 doc + 101 integration), 8 validation gates OK
 
 ## v0.6.5 Highlights (2026-06-05)
 

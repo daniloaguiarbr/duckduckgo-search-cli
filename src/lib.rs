@@ -48,10 +48,13 @@
 //! The public function [`run`] is called by `main.rs` and returns an exit code
 //! as specified in section 17.7 of the specification.
 
+pub mod aggregation;
 pub mod cli;
 pub mod config_init;
 pub mod content;
 pub mod content_fetch;
+pub mod decomposition;
+pub mod deep_research;
 pub mod error;
 pub mod extraction;
 pub mod http;
@@ -64,6 +67,7 @@ pub mod platform;
 pub mod search;
 pub mod selectors;
 pub mod signals;
+pub mod synthesis;
 pub mod types;
 
 // browser.rs declares `#![cfg(feature = "chrome")]` at the module root (line 25),
@@ -98,6 +102,9 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     let root = RootArgs::parse();
 
     // Dispatch subcommand (or fall through to default = Buscar).
+    if let Some(Subcommand::DeepResearch(dr_args)) = root.subcomando {
+        return execute_deep_research(dr_args).await;
+    }
     let args = match root.subcomando {
         Some(Subcommand::InitConfig(args)) => {
             return execute_init_config(args);
@@ -106,6 +113,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             return execute_completions(args);
         }
         Some(Subcommand::Buscar(args)) => *args,
+        Some(Subcommand::DeepResearch(_)) => unreachable!("handled above"),
         None => root.buscar,
     };
 
@@ -186,6 +194,99 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             tracing::error!(?err, "Pipeline execution failed");
             output::emit_stderr(&format!("Error: {err:#}"));
             exit_codes::GENERIC_ERROR
+        }
+    }
+}
+
+/// Executes the `deep-research` subcommand (v0.7.0).
+///
+/// Builds a default [`Config`] (15 results per sub-query, `--parallel`
+/// inherited from the global `MAX_PARALLELISM` floor), then delegates to
+/// [`crate::deep_research::run_deep_research`].
+async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
+    use crate::cli::DEFAULT_PARALLELISM;
+    use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
+
+    initialize_logging(false, false, false);
+    platform::init();
+
+    // Translate the CLI struct into the library-level struct.
+    let dr = DrArgs {
+        query: args.query.clone(),
+        max_sub_queries: args.max_sub_queries,
+        sub_query_strategy: args.sub_query_strategy.into(),
+        sub_queries_file: args.sub_queries_file.clone(),
+        aggregation: args.aggregation.into(),
+        depth: args.depth,
+        fetch_content: args.fetch_content,
+        synthesize: args.synthesize,
+        budget_tokens: args.budget_tokens,
+        synth_format: args.synth_format.into(),
+    };
+
+    // Build a default config for the sub-queries. The deep-research pipeline
+    // does not need a file output or a custom format — it always emits JSON
+    // via stdout so LLMs can consume it directly.
+    let ua_list = http::load_user_agents(false);
+    let browser_profile = http::select_profile_from_list_seeded(&ua_list, None);
+    let user_agent = browser_profile.user_agent.clone();
+    let selectors = selectors::load_selectors();
+
+    let config = Config {
+        query: dr.query.clone(),
+        queries: vec![dr.query.clone()],
+        num_results: Some(10),
+        format: OutputFormat::Json,
+        timeout_seconds: 15,
+        language: "en".to_string(),
+        country: "us".to_string(),
+        verbose: false,
+        quiet: false,
+        user_agent,
+        browser_profile,
+        parallelism: DEFAULT_PARALLELISM,
+        pages: 1,
+        retries: 2,
+        endpoint: Endpoint::Html,
+        time_filter: None,
+        safe_search: SafeSearch::Moderate,
+        stream_mode: false,
+        output_file: None,
+        fetch_content: dr.fetch_content,
+        max_content_length: 10_000,
+        proxy: None,
+        no_proxy: false,
+        global_timeout_seconds: 120,
+        match_platform_ua: false,
+        per_host_limit: 2,
+        chrome_path: None,
+        selectors,
+    };
+
+    let token = CancellationToken::new();
+    let result = run_deep_research(dr, &config, token.clone()).await;
+
+    match result {
+        Ok(output) => {
+            // Emit the report as JSON on stdout, single line.
+            match serde_json::to_string(&output) {
+                Ok(json) => {
+                    println!("{json}");
+                    exit_codes::SUCCESS
+                }
+                Err(err) => {
+                    output::emit_stderr(&format!("Error serializing deep-research output: {err}"));
+                    exit_codes::GENERIC_ERROR
+                }
+            }
+        }
+        Err(err) => {
+            output::emit_stderr(&format!("deep-research failed: {err:#}"));
+            match err {
+                CliError::InvalidConfig { .. } => exit_codes::INVALID_CONFIG,
+                CliError::Cancelled => exit_codes::GLOBAL_TIMEOUT,
+                _ => exit_codes::GENERIC_ERROR,
+            }
         }
     }
 }

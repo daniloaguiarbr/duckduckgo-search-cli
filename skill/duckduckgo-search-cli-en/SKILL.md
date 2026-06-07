@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-en
-description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results". Invokes the `duckduckgo-search-cli` v0.6.5 CLI via Bash with a stable JSON contract, zero API key, 12-identity adaptive anti-bot pool with 5-level cascade rotation (HTTP 202/403/429), per-browser Sec-Fetch-* fingerprint profiles, path traversal validation on --output, automatic credential masking in error messages, and `identidade_usada` JSON field for diagnostic visibility. Windows build fixed in v0.6.5 (MP-26 — `HANDLE` type-safe with `INVALID_HANDLE_VALUE`). Per-host circuit breaker (WS-12) protects against cascading failures in long crawls. indicatif ProgressBar (WS-25) visualizes long crawls. Released 2026-06-05. See CHANGELOG.md and README.md for full notes. English version.
+description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, multi-hop research questions, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results", "deep research", "compare X vs Y", "what changed in Z". Invokes the `duckduckgo-search-cli` v0.7.0 CLI via Bash with a stable JSON contract, zero API key, 12-identity adaptive anti-bot pool with 5-level cascade rotation (HTTP 202/403/429), per-browser Sec-Fetch-* fingerprint profiles, path traversal validation on --output, automatic credential masking in error messages, and `identidade_usada` JSON field for diagnostic visibility. The new v0.7.0 `deep-research` subcommand fans out one query into 1..=12 sub-queries, aggregates via RRF (K=60) or canonical-URL dedup, and optionally synthesises a Markdown/PlainText/JSON report with a token budget. Windows build fixed in v0.6.5 (MP-26 — `HANDLE` type-safe with `INVALID_HANDLE_VALUE`). Per-host circuit breaker (WS-12) protects against cascading failures in long crawls. indicatif ProgressBar (WS-25) visualizes long crawls. Released 2026-06-07. See CHANGELOG.md and README.md for full notes. English version.
 ---
 
 # Skill — `duckduckgo-search-cli` (EN)
@@ -147,7 +147,7 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 
 ## v0.6.4/v0.6.5 — Adaptive Anti-Bot Identity Pool (WS-26)
 
-> **Note**: v0.6.4 was published originally in place of the planned v0.7.0; v0.6.5 (2026-06-05) adds MP-26/WS-11/12/23/25/CI-01 to preserve the in-development feature set under a stable patch number. The released binary is functionally identical to what would have been v0.7.0. Zero breaking changes from v0.6.3.
+> **Note**: v0.6.4 was published originally in place of the planned v0.7.0; v0.6.5 (2026-06-05) added MP-26/WS-11/12/23/25/CI-01 to preserve the in-development feature set under a stable patch number. v0.7.0 (released 2026-06-07) supersedes both with the new `deep-research` subcommand and four new public modules. Zero breaking changes from v0.6.5.
 
 ### Mandatory Pre-Flight
 - MUST run `duckduckgo-search-cli --probe` in CI before launching real queries — sends 1 minimal request, exits 0 if reachable, 1 if blocked.
@@ -410,3 +410,95 @@ and partial result count:
 - Step 3 — parse JSON results with jaq: `jaq -r '.resultados[] | .titulo + " " + .url'`
 - Step 4 — filter relevant fields: `jaq '.resultados[] | {title: .titulo, url: .url, snippet: .snippet}'`
 - Step 5 — return structured results to the LLM as context for downstream reasoning
+
+
+## v0.7.0 — Deep Research Subcommand
+
+For multi-hop research questions, the `deep-research` subcommand fans out one query into up to 12 sub-queries, aggregates the results, and optionally synthesises a Markdown report.
+
+```bash
+# 1. Default heuristic fan-out (5 sub-queries, RRF aggregation, no synthesis).
+timeout 60 duckduckgo-search-cli -q -f json deep-research "best rust http client 2026" \
+  | jaq '.resultados[] | {titulo, url, score}'
+
+# 2. Markdown report with a token budget.
+timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
+  --synthesize --synth-format markdown --budget-tokens 1500 \
+  | jaq -r '.sintese'
+
+# 3. Manual sub-queries from a file (`# comments` and blank lines ignored).
+cat > /tmp/qs.txt <<EOF
+# Overview
+what is tokio runtime 2026
+# Comparison
+tokio vs async-std
+EOF
+timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio 2026" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url
+```
+
+### Deep Research output schema (v0.7.0+)
+- `.metadados.query_original` — the user's input
+- `.metadados.sub_queries[]` — every generated sub-query with `texto`, `estrategia`, `status`, `elapsed_ms`
+- `.metadados.total_resultados_unicos` — deduplicated count
+- `.metadados.tempo_total_ms` — end-to-end latency
+- `.resultados[].score` — normalised `[0.0, 1.0]`, higher is better
+- `.resultados[].fontes[]` — sub-queries that produced the result (traceability)
+- `.sintese` — present only when `--synthesize` is enabled
+
+The subcommand inherits every global flag (`-q -f json`, `--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, `--fetch-content`, `--max-content-length`) and adds:
+
+- `--max-sub-queries N` — cap the fan-out (1..=12, default 5)
+- `--sub-query-strategy` — `heuristic` (default) or `manual`
+- `--sub-queries-file PATH` — required for `manual`; comments and blanks are ignored
+- `--aggregate` — `rrf` (default, K=60) or `dedupe-by-url`
+- `--synthesize` — produce a final report
+- `--budget-tokens N` — cap the synthesis length (1 token ≈ 4 chars)
+- `--synth-format` — `markdown` (default), `plain`, or `json`
+
+### Heuristic Templates (5 — built-in fan-out)
+The `--sub-query-strategy heuristic` (default) applies 5 canonical templates to the user query:
+- `aspect` — explores distinct dimensions of the topic
+- `comparison` — surfaces alternatives (skipped when query already contains `vs` or `or`)
+- `timeline` — orders results by recency and evolution
+- `opinion` — surfaces opinions, reviews, and experiences
+- `cause` — surfaces causes, consequences, and roots
+
+When the user query is detected as composite via `is_composite_query` (regex-backed, 6 signal kinds), redundant templates are suppressed. Result: the fan-out produces 1..=12 sub-queries (capped by `--max-sub-queries`).
+
+### Pipeline Defaults
+`run_deep_research` builds a default `Config` from global flags: `parallelism=5`, `retries=2`, `endpoint=Html`, `language=en`, `country=us`, `global_timeout=120s`. The pipeline inherits these defaults; the operator does NOT need to pass a full `CliArgs`.
+
+### `--depth` Semantics
+`--depth N` controls reflection rounds (0..=3, default 0). When `depth > 0`, the pipeline PLANS follow-up sub-queries based on the first pass but does NOT execute them in v0.7.0. Use `--depth 0` to enforce end-to-end execution.
+
+### Cross-Reference: RRF (K=60)
+`--aggregate rrf` uses Reciprocal Rank Fusion with K=60, the same K as `hybrid-search` in the GraphRAG skill. RRF score for a document = sum over sub-queries of `1 / (K + rank)`. Practically scores fall in `(0, 0.05]`. Documents appearing in multiple sub-queries are boosted.
+
+### Exit Codes for `deep-research`
+- Exit 0: success — `.metadados.sub_queries[]` has 1+ entries with `status="ok"`.
+- Exit 1: runtime error — at least one sub-query failed; inspect `.metadados.sub_queries[].status="error"`.
+- Exit 2: argument error — `--max-sub-queries` outside 1..=12, or `--sub-queries-file` missing for `manual` strategy.
+- Exit 3: anti-bot block during fan-out (per-host cascade has rotated up to 5 identities).
+- Exit 4: global timeout hit before all sub-queries completed.
+- Exit 5: zero aggregated results — reformulate the query.
+
+### Cancel Safety
+The fan-out loop in `run_deep_research` is cancel-safe. SIGINT or `--global-timeout` triggers `CancellationToken::cancel()`. Each in-flight sub-query gets a `child_token`, the `JoinSet` is aborted, and partial results from completed sub-queries are flushed to stdout. Already-fetched results are not discarded; the JSON contains `metadados.sub_queries[].status="cancelled"` for interrupted ones.
+
+### Plain and JSON Synthesis Examples
+```bash
+# Plain-text synthesis (no Markdown markup, useful for log files)
+timeout 120 duckduckgo-search-cli -q -f json deep-research "rust async 2026" \
+  --synthesize --synth-format plain --budget-tokens 800 \
+  | jaq -r '.sintese'
+
+# JSON synthesis (structured evidence array, no prose)
+timeout 120 duckduckgo-search-cli -q -f json deep-research "rust async 2026" \
+  --synthesize --synth-format json --budget-tokens 1200 \
+  | jaq '.sintese.evidencias[] | {titulo, url, score}'
+
+# Manual sub-queries with dedupe-by-url (deterministic order)
+timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url --max-sub-queries 12
+```

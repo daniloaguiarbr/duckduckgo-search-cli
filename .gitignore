@@ -50,3 +50,17 @@ graphrag.sqlite-wal
 # Nextest outputs
 junit.xml
 target/nextest/
+
+# Property-based testing regression fixtures
+proptest-regressions/
+
+# Coverage HTML reports
+coverage/
+tarpaulin-report.html
+
+# cargo-deny state
+.cargo-deny-state.json
+
+# Cargo lock for libraries (binaries keep Cargo.lock)
+!Cargo.lock
+

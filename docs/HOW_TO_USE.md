@@ -351,3 +351,40 @@ now active. These would have caught the v0.6.4 HANDLE issue at compile time
 if they had been active then.
 
 The `identidade_usada` field reports the identity that produced the successful response. The `nivel_cascata` field reports the cascade level reached (0-4).
+
+
+## v0.7.0 — Deep Research Pipeline
+
+For multi-hop research questions, use the `deep-research` subcommand. It decomposes one query into up to 12 sub-queries, fans them out in parallel, aggregates via RRF or canonical-URL dedup, and optionally produces a Markdown report.
+
+```bash
+# 1. Quick fan-out (no synthesis, 5 sub-queries by default).
+timeout 60 duckduckgo-search-cli -q -f json deep-research "best rust http client 2026" \
+  | jaq '.resultados | length'
+
+# 2. Synthesised Markdown report with a token budget.
+timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
+  --synthesize --synth-format markdown --budget-tokens 1500 \
+  | jaq -r '.sintese'
+
+# 3. Manual sub-queries (the file's `# comments` and blank lines are ignored).
+cat > /tmp/qs.txt <<EOF
+# Visão geral
+what is tokio runtime 2026
+# Comparação
+tokio vs async-std
+EOF
+timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio 2026" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url \
+  | jaq '.metadados.sub_queries | length'
+```
+
+The `deep-research` subcommand inherits every global flag (`-q -f json`, `--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, `--fetch-content`, `--max-content-length`) and adds:
+
+- `--max-sub-queries N` — cap the fan-out (1..=12, default 5)
+- `--sub-query-strategy` — `heuristic` (default) or `manual`
+- `--sub-queries-file PATH` — required for `manual`; comments and blanks are ignored
+- `--aggregate` — `rrf` (default, K=60) or `dedupe-by-url`
+- `--synthesize` — produce a final report
+- `--budget-tokens N` — cap the synthesis length (1 token ≈ 4 chars)
+- `--synth-format` — `markdown` (default), `plain`, or `json`

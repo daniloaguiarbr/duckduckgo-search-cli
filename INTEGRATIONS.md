@@ -30,8 +30,21 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 4  global timeout  → raise --global-timeout; reduce --parallel
 5  zero results    → refine query or try different --lang
 
-# Current version: v0.6.5
+# Current version: v0.7.0
 ```
+
+## v0.7.0 Highlights for Integrations
+
+- **New subcommand `deep-research`**: agents that need multi-hop answers can
+  drop in `duckduckgo-search-cli deep-research "question" --synthesize`
+  and get a Markdown report back, with no extra orchestration. Inherits
+  every global flag (`-q -f json`, `--num`, `--parallel`, `--proxy`,
+  `--fetch-content`) plus deep-research-specific knobs
+  (`--max-sub-queries`, `--sub-queries-file`, `--aggregate`,
+  `--budget-tokens`, `--synth-format`).
+- **Backward-compatible**: zero changes to `buscar`, `init-config`,
+  default-config JSON schema, or any exit code. Existing pipelines keep
+  working unchanged.
 
 ## v0.6.5 Highlights for Integrations
 

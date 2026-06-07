@@ -197,5 +197,87 @@
     "flags": ["-n", "5", "-f", "json", "--timeout", "10"],
     "expected_exit": 0,
     "category": "v0.6.5-regression-test"
+  },
+  {
+    "id": "q28",
+    "query": "best rust http client 2026",
+    "expected_use": "validate v0.7.0 deep-research subcommand. The CLI must fan out the input into 1..=12 sub-queries via 5 heuristic templates, aggregate via RRF (K=60), and emit a JSON envelope with metadados.sub_queries[], metadados.total_resultados_unicos, and metadados.tempo_total_ms. Inspect .metadados.sub_queries[].status field — all entries must be ok",
+    "flags": ["-q", "-f", "json", "deep-research"],
+    "expected_json_fields": ["metadados.sub_queries", "metadados.total_resultados_unicos", "metadados.tempo_total_ms"],
+    "expected_sub_query_count_min": 1,
+    "expected_sub_query_count_max": 12,
+    "expected_exit": 0,
+    "category": "v0.7.0-feature-test"
+  },
+  {
+    "id": "q29",
+    "query": "tokio vs async-std 2026",
+    "expected_use": "validate v0.7.0 deep-research Markdown synthesis. With --synthesize --synth-format markdown --budget-tokens 1500 the output must contain .sintese as a Markdown string with H2 headers, numbered references, and a length bounded by ~6000 chars (1500 tokens × 4 chars heuristic). Inspect .metadados.sub_queries[] for at least 2 entries since the query is explicitly comparative",
+    "flags": ["-q", "-f", "json", "deep-research", "--synthesize", "--synth-format", "markdown", "--budget-tokens", "1500"],
+    "expected_json_fields": ["sintese", "metadados.sub_queries"],
+    "expected_sintese_max_chars": 6000,
+    "expected_sub_query_count_min": 2,
+    "expected_exit": 0,
+    "category": "v0.7.0-feature-test"
+  },
+  {
+    "id": "q30",
+    "query": "tokio runtime",
+    "expected_use": "validate v0.7.0 manual sub-queries strategy via --sub-queries-file. The file at /tmp/qs-test.txt must contain 3 sub-queries (comments and blanks ignored). The CLI must accept --max-sub-queries 12, --aggregate dedupe-by-url, and emit exactly the parsed sub-queries. Test cancellation: --global-timeout 1 must trigger exit 4 with partial results",
+    "flags": ["-q", "-f", "json", "deep-research", "--sub-queries-file", "/tmp/qs-test.txt", "--aggregate", "dedupe-by-url", "--max-sub-queries", "12"],
+    "expected_json_fields": ["metadados.sub_queries", "metadados.total_resultados_unicos"],
+    "expected_sub_query_count_min": 1,
+    "expected_sub_query_count_max": 12,
+    "expected_exit": 0,
+    "category": "v0.7.0-feature-test"
+  },
+  {
+    "id": "q31",
+    "query": "rust async runtimes 2026",
+    "expected_use": "validate v0.7.0 argument validation. --max-sub-queries 13 must exit 2 (out of 1..=12 range). --max-sub-queries 0 must exit 2. The error message must indicate the valid range",
+    "flags": ["-q", "-f", "json", "deep-research", "--max-sub-queries", "13"],
+    "expected_exit": 2,
+    "category": "v0.7.0-regression-test"
+  },
+  {
+    "id": "q32",
+    "query": "serde_json performance",
+    "expected_use": "validate v0.7.0 plain-text synthesis. With --synth-format plain the .sintese field must be a flat string without Markdown markers (no H2, no numbered brackets). Inspect character density to confirm no markup leakage",
+    "flags": ["-q", "-f", "json", "deep-research", "--synthesize", "--synth-format", "plain", "--budget-tokens", "500"],
+    "expected_json_fields": ["sintese"],
+    "expected_sintese_max_chars": 2000,
+    "expected_exit": 0,
+    "category": "v0.7.0-feature-test"
+  },
+  {
+    "id": "q33",
+    "query": "tokio vs smol comparison",
+    "expected_use": "validate v0.7.0 JSON synthesis. With --synth-format json the .sintese field must be a JSON object with .evidencias[] array. Each entry has titulo, url, score, and fontes[]. Score normalized in [0.0, 1.0]",
+    "flags": ["-q", "-f", "json", "deep-research", "--synthesize", "--synth-format", "json", "--budget-tokens", "800"],
+    "expected_json_fields": ["sintese"],
+    "expected_sintese_has_field": "evidencias",
+    "expected_exit": 0,
+    "category": "v0.7.0-feature-test"
+  },
+  {
+    "id": "q34",
+    "query": "webassembly rust 2026",
+    "expected_use": "validate v0.7.0 composite query detection. The query is multi-aspect (WASM + Rust + 2026) so --sub-query-strategy heuristic must produce at least 3 sub-queries via the aspect template",
+    "flags": ["-q", "-f", "json", "deep-research", "--sub-query-strategy", "heuristic"],
+    "expected_json_fields": ["metadados.sub_queries"],
+    "expected_sub_query_count_min": 3,
+    "expected_exit": 0,
+    "category": "v0.7.0-feature-test"
+  },
+  {
+    "id": "q35",
+    "query": "cargo workspace monorepo",
+    "expected_use": "validate v0.7.0 score normalization. .resultados[].score must be normalized in [0.0, 1.0] with higher = better. Inspect that scores are descending in the array order. RRF K=60 means practical range is (0, 0.05] for real corpora",
+    "flags": ["-q", "-f", "json", "deep-research"],
+    "expected_json_fields": ["resultados"],
+    "expected_score_min": 0.0,
+    "expected_score_max": 1.0,
+    "expected_exit": 0,
+    "category": "v0.7.0-feature-test"
   }
 ]

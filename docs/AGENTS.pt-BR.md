@@ -13,7 +13,7 @@
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: 0.6.5 (lançada 2026-06-05; v0.6.4 também suportada) — MSRV: Rust 1.75.
+- Versão: 0.7.0 (lançada 2026-06-07; v0.6.x também suportada) — MSRV: Rust 1.75.
 
 
 ## Instalação
@@ -71,6 +71,15 @@ esac
 - `--time-filter <d|w|m>` — filtro de tempo: dia, semana, mês
 - `--stream` — PROIBIDO: flag placeholder, NÃO implementada
 - `-v, --verbose` — saída detalhada para diagnóstico
+- `deep-research <QUERY>` — subcomando de fan-out de queries (v0.7.0)
+- `--max-sub-queries <N>` — máximo de sub-queries geradas (1..=12, padrão 5)
+- `--sub-query-strategy <heuristic|manual>` — estratégia de geração de sub-queries
+- `--sub-queries-file <PATH>` — lê sub-queries explícitas (estratégia manual)
+- `--aggregate <rrf|dedupe-by-url>` — algoritmo de agregação
+- `--depth <N>` — rounds de reflexão (planejado, não executado em v0.7.0)
+- `--synthesize` — produz relatório final em Markdown/PlainText/JSON
+- `--budget-tokens <N>` — orçamento de tokens para o relatório sintetizado
+- `--synth-format <markdown|plain|json>` — formato de saída da síntese
 
 
 ## Códigos de Saída
@@ -230,6 +239,58 @@ duckduckgo-search-cli "consulta" -q
 - Ler `.metadados.nivel_cascata` como garantia quando é `Option<u32>` (v0.6.5+)
 - Pular `duckduckgo-search-cli --probe` antes de lançar queries reais em CI
 
+
+## v0.7.0 — Subcomando Deep Research
+
+### OBRIGATÓRIO — Use o Novo Subcomando para Pesquisa Multi-Hop
+
+Para perguntas que se beneficiam de fan-out de queries ("compare X vs Y em 2026", "história de Z", "o que mudou na biblioteca W"), use o subcomando `deep-research` em vez de rodar uma única busca.
+
+```bash
+timeout 60 duckduckgo-search-cli -q -f json deep-research "melhor cliente http rust 2026" \
+  | jaq '.resultados[] | {titulo, url, score}'
+```
+
+### OBRIGATÓRIO — Schema de Saída do Deep Research
+
+- O JSON de topo tem três chaves: `metadados`, `resultados` e `sintese` opcional
+- `.metadados.query_original` é a entrada do usuário
+- `.metadados.sub_queries[]` lista cada sub-query gerada com `texto`, `estrategia`, `status`, `elapsed_ms`
+- `.metadados.total_resultados_unicos` é a contagem deduplicada
+- `.metadados.tempo_total_ms` é a latência end-to-end
+- `.resultados[].score` é um valor normalizado `[0.0, 1.0]` — maior é melhor
+- `.resultados[].fontes[]` lista as sub-queries que produziram o resultado (rastreabilidade)
+- `.sintese` aparece apenas quando `--synthesize` está ativo
+
+```bash
+# Extrair o relatório Markdown (quando --synthesize está ativo)
+timeout 120 duckduckgo-search-cli -q -f json deep-research "tópico" \
+  --synthesize --synth-format markdown | jaq -r '.sintese'
+```
+
+### OBRIGATÓRIO — Arquivo de Sub-Queries Manual
+
+Quando `--sub-query-strategy manual` é definido, a CLI lê sub-queries de `--sub-queries-file PATH`. Comentários (`#`) e linhas em branco são ignorados. O arquivo DEVE conter pelo menos uma linha que não seja comentário.
+
+```bash
+cat > /tmp/qs.txt <<EOF
+# Visão geral
+o que é tokio runtime 2026
+# Comparação
+tokio vs async-std
+EOF
+
+timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio 2026" \
+  --sub-query-strategy manual --sub-queries-file /tmp/qs.txt
+```
+
+### OBRIGATÓRIO — Herda Flags Globais
+
+`deep-research` aceita todas as flags globais (`-n`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--retries`, `--timeout`, `--global-timeout`, `--proxy`, `--fetch-content`, `--max-content-length`). Os knobs específicos do deep-research são sobrepostos.
+
+### OBRIGATÓRIO — Orçamento de Tokens para Síntese
+
+`--budget-tokens` usa a heurística 1 token ≈ 4 chars. O relatório sintetizado tem teto rígido de 20 referências. Defina `--budget-tokens 0` para desabilitar o teto e contar apenas com o limite de 20 referências.
 
 ## v0.6.4 e v0.6.5 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
 
@@ -425,5 +486,5 @@ ddg_exit=${PIPESTATUS[0]}
 | R17 | JAMAIS injetar headers `Sec-Fetch-*` (v0.6.0 os gerencia) |
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de schema válido para `duckduckgo-search-cli` v0.6.x.
+Contrato de schema válido para `duckduckgo-search-cli` v0.7.0.
 Versão em inglês: `docs/AGENTS.md`.

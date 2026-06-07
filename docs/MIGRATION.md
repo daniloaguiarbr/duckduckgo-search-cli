@@ -4,6 +4,36 @@ This guide covers version-to-version migration paths for `duckduckgo-search-cli`
 Each section documents breaking changes, additive changes, and rollback
 instructions.
 
+## Migration v0.6.x → v0.7.0
+
+### What Changes
+- **Additive only** — v0.7.0 is fully backward-compatible with v0.6.x. The
+  `buscar` subcommand, default-config JSON schema, every existing flag,
+  and every exit code remain byte-for-byte identical.
+- **New public subcommand** `deep-research` for multi-hop LLM research.
+  Operators that do not invoke `deep-research` see no observable change.
+- **Four new public modules** in `lib.rs` — `deep_research`,
+  `decomposition`, `aggregation`, `synthesis` — composable from
+  downstream crates.
+- **New direct dependencies** in `Cargo.toml`: `url = "2"`, `regex = "1"`,
+  and `proptest = "1"` (dev-only). All three are pure additions; no
+  dependency was upgraded or removed.
+
+### What to Update in Your Pipeline
+- If you script against the `Subcommand` enum, add a match arm for
+  `Subcommand::DeepResearch(DeepResearchArgs)`.
+- If you consume `lib::run` directly, route `args.subcommand` to
+  `lib::execute_deep_research` (the helper that builds a default `Config`
+  and calls the pipeline).
+- If you pin a minimum-supported version in `Cargo.toml` of a downstream
+  crate, bump to `duckduckgo-search-cli = "0.7"`.
+- No JSON-schema migration is required: the `SearchOutput` and
+  `MultiSearchOutput` schemas are unchanged.
+
+### Rollback
+- Pin to `duckduckgo-search-cli = "0.6.5"` in downstream crates; the
+  binary on crates.io is fully backward-compatible.
+
 ## Migration v0.6.4 → v0.6.5
 
 ### What Changes

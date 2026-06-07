@@ -1213,4 +1213,46 @@ duckduckgo-search-cli --version
 
 Windows users no longer need Visual Studio Build Tools or manual patches.
 
+
+## v0.7.0 — New Recipes
+
+### Recipe 22 — Deep research with Markdown synthesis (v0.7.0)
+- **Problem**: a single DuckDuckGo query returns 15 results, but the user wants a multi-angle answer that synthesises evidence across the top of the ranking.
+- **Solution**: v0.7.0's `deep-research` subcommand fans out up to 12 sub-queries, aggregates them with RRF (K=60), optionally extracts page bodies, and emits a numbered-reference Markdown report.
+- **Gain**: a one-shot pipeline that takes a research question and returns an LLM-ready report, no manual orchestration.
+
+```bash
+timeout 120 duckduckgo-search-cli -q -f json \
+  deep-research "tokio vs async-std production 2026" \
+  --synthesize --synth-format markdown \
+  --budget-tokens 1500 \
+  --fetch-content --max-content-length 6000 \
+  | jaq -r '.sintese'
+```
+
+Expected output: a Markdown report with an H1 title, two or three short paragraphs of synthesis, and a numbered reference list at the bottom (capped at 20 references). Latency is dominated by `--fetch-content`; set `--max-content-length 0` and drop `--fetch-content` for sub-second fan-out at the cost of synthesis fidelity.
+
+### Recipe 23 — Manual sub-queries with comments (v0.7.0)
+- **Problem**: a domain expert wants to feed the fan-out a curated sub-query list, not rely on the heuristic decomposition.
+- **Solution**: write the list to a file with `# comments` and blank lines, pass `--sub-queries-file`, and the CLI ignores everything except the non-comment lines.
+
+```bash
+cat > /tmp/qs.txt <<EOF
+# Visão geral
+what is tokio runtime 2026
+# Comparação direta
+tokio vs async-std vs smol
+# Adoção em produção
+tokio production users 2026
+EOF
+
+timeout 60 duckduckgo-search-cli -q -f json \
+  deep-research "tokio runtime 2026" \
+  --sub-queries-file /tmp/qs.txt \
+  --aggregate dedupe-by-url \
+  | jaq '.metadados.sub_queries | length'
+```
+
+Expected output: `3` — only the three non-comment lines were honoured.
+
 _End of COOKBOOK / Fim do Livro de Receitas._

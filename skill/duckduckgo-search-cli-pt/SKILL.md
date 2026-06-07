@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-pt
-description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados". Invoca a CLI `duckduckgo-search-cli` v0.6.5 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. Versão em português brasileiro. Build Windows corrigido em v0.6.5 (MP-26 — `HANDLE` type-safe com `INVALID_HANDLE_VALUE`). Circuit breaker per-host (WS-12) protege contra falhas em cascata em crawls longos. ProgressBar indicatif (WS-25) visualiza crawls longos. Lançada em 2026-06-05. Veja CHANGELOG.md e README.md para notas completas.
+description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, perguntas de pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". Invoca a CLI `duckduckgo-search-cli` v0.7.0 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. O novo subcomando `deep-research` da v0.7.0 faz fan-out de uma query em 1..=12 sub-queries, agrega via RRF (K=60) ou dedup por URL canônica, e opcionalmente sintetiza um relatório Markdown/PlainText/JSON com orçamento de tokens. Versão em português brasileiro. Build Windows corrigido em v0.6.5 (MP-26 — `HANDLE` type-safe com `INVALID_HANDLE_VALUE`). Circuit breaker per-host (WS-12) protege contra falhas em cascata em crawls longos. ProgressBar indicatif (WS-25) visualiza crawls longos. Lançada em 2026-06-07. Veja CHANGELOG.md e README.md para notas completas.
 ---
 
 # Skill — `duckduckgo-search-cli` (PT-BR)
@@ -147,7 +147,7 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 
 ## v0.6.4/v0.6.5 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
 
-> **Nota**: v0.6.4 foi publicada originalmente no lugar da planejada v0.7.0; v0.6.5 (2026-06-05) adiciona MP-26/WS-11/12/23/25/CI-01 para preservar o conjunto de features em desenvolvimento sob um número de patch estável. O binário lançado é funcionalmente idêntico ao que seria v0.7.0. Zero breaking changes em relação à v0.6.3.
+> **Nota**: v0.6.4 foi publicada originalmente no lugar da planejada v0.7.0; v0.6.5 (2026-06-05) adicionou MP-26/WS-11/12/23/25/CI-01 para preservar o conjunto de features em desenvolvimento sob um número de patch estável. v0.7.0 (lançada em 2026-06-07) substitui ambas com o novo subcomando `deep-research` e quatro novos módulos públicos. Zero breaking changes em relação à v0.6.5.
 
 ### Verificação Pré-Voo Obrigatória
 - DEVE executar `duckduckgo-search-cli --probe` em CI antes de lançar queries reais — envia 1 requisição mínima, exit 0 se acessível, 1 se bloqueado.
@@ -413,3 +413,95 @@ execução e contagem parcial de resultados:
 - Passo 3 — parsear resultados JSON com jaq: `jaq -r '.resultados[] | .titulo + " " + .url'`
 - Passo 4 — filtrar campos relevantes: `jaq '.resultados[] | {titulo: .titulo, url: .url, snippet: .snippet}'`
 - Passo 5 — retornar resultados estruturados ao LLM como contexto para raciocínio posterior
+
+
+## v0.7.0 — Subcomando Deep Research
+
+Para perguntas de pesquisa multi-hop, o subcomando `deep-research` faz fan-out de uma query em até 12 sub-queries, agrega os resultados e opcionalmente sintetiza um relatório em Markdown.
+
+```bash
+# 1. Fan-out heurístico padrão (5 sub-queries, agregação RRF, sem síntese).
+timeout 60 duckduckgo-search-cli -q -f json deep-research "melhor cliente http rust 2026" \
+  | jaq '.resultados[] | {titulo, url, score}'
+
+# 2. Relatório Markdown com orçamento de tokens.
+timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
+  --synthesize --synth-format markdown --budget-tokens 1500 \
+  | jaq -r '.sintese'
+
+# 3. Sub-queries manuais de arquivo (comentários `#` e linhas vazias ignorados).
+cat > /tmp/qs.txt <<EOF
+# Visão geral
+o que é tokio runtime 2026
+# Comparação
+tokio vs async-std
+EOF
+timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio 2026" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url
+```
+
+### Schema de saída do Deep Research (v0.7.0+)
+- `.metadados.query_original` — entrada do usuário
+- `.metadados.sub_queries[]` — cada sub-query gerada com `texto`, `estrategia`, `status`, `elapsed_ms`
+- `.metadados.total_resultados_unicos` — contagem deduplicada
+- `.metadados.tempo_total_ms` — latência end-to-end
+- `.resultados[].score` — normalizado em `[0.0, 1.0]`, maior é melhor
+- `.resultados[].fontes[]` — sub-queries que produziram o resultado (rastreabilidade)
+- `.sintese` — presente apenas quando `--synthesize` está ativo
+
+O subcomando herda toda flag global (`-q -f json`, `--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, `--fetch-content`, `--max-content-length`) e adiciona:
+
+- `--max-sub-queries N` — teto do fan-out (1..=12, padrão 5)
+- `--sub-query-strategy` — `heuristic` (padrão) ou `manual`
+- `--sub-queries-file PATH` — obrigatório para `manual`; comentários e linhas vazias são ignorados
+- `--aggregate` — `rrf` (padrão, K=60) ou `dedupe-by-url`
+- `--synthesize` — produz o relatório final
+- `--budget-tokens N` — teto de tamanho da síntese (1 token ≈ 4 chars)
+- `--synth-format` — `markdown` (padrão), `plain` ou `json`
+
+### Templates Heurísticos (5 — fan-out embutido)
+A estratégia `--sub-query-strategy heuristic` (padrão) aplica 5 templates canônicos à query do usuário:
+- `aspect` — explora dimensões distintas do tópico
+- `comparison` — expõe alternativas (pulado quando a query já contém `vs` ou `or`)
+- `timeline` — ordena resultados por recência e evolução
+- `opinion` — expõe opiniões, reviews e experiências
+- `cause` — expõe causas, consequências e raízes
+
+Quando a query do usuário é detectada como composta via `is_composite_query` (regex-backed, 6 tipos de sinais), templates redundantes são suprimidos. Resultado: o fan-out produz 1..=12 sub-queries (limitado por `--max-sub-queries`).
+
+### Defaults do Pipeline
+`run_deep_research` constrói um `Config` padrão a partir das flags globais: `parallelism=5`, `retries=2`, `endpoint=Html`, `language=en`, `country=us`, `global_timeout=120s`. O pipeline herda esses defaults; o operador NÃO precisa passar um `CliArgs` completo.
+
+### Semântica de `--depth`
+`--depth N` controla rodadas de reflexão (0..=3, padrão 0). Quando `depth > 0`, o pipeline PLANÉJA sub-queries de follow-up com base na primeira passada mas NÃO AS EXECUTA na v0.7.0. Use `--depth 0` para forçar execução end-to-end.
+
+### Cross-Reference: RRF (K=60)
+`--aggregate rrf` usa Reciprocal Rank Fusion com K=60, o mesmo K do `hybrid-search` na skill GraphRAG. Score RRF para um documento = soma sobre sub-queries de `1 / (K + rank)`. Na prática scores caem em `(0, 0.05]`. Documentos que aparecem em múltiplas sub-queries recebem boost.
+
+### Exit Codes para `deep-research`
+- Exit 0: sucesso — `.metadados.sub_queries[]` tem 1+ entradas com `status="ok"`.
+- Exit 1: erro de runtime — pelo menos uma sub-query falhou; inspecionar `.metadados.sub_queries[].status="error"`.
+- Exit 2: erro de argumento — `--max-sub-queries` fora de 1..=12, ou `--sub-queries-file` ausente para estratégia `manual`.
+- Exit 3: bloqueio anti-bot durante fan-out (cascata per-host rotacionou até 5 identidades).
+- Exit 4: timeout global atingido antes de todas sub-queries completarem.
+- Exit 5: zero resultados agregados — reformular a query.
+
+### Cancel Safety
+O loop de fan-out em `run_deep_research` é cancel-safe. SIGINT ou `--global-timeout` dispara `CancellationToken::cancel()`. Cada sub-query em voo recebe um `child_token`, o `JoinSet` é abortado, e resultados parciais das sub-queries completadas são flushados para stdout. Resultados já fetched NÃO são descartados; o JSON contém `metadados.sub_queries[].status="cancelled"` para os interrompidos.
+
+### Exemplos de Síntese Plain e JSON
+```bash
+# Síntese em texto puro (sem markup Markdown, útil para arquivos de log)
+timeout 120 duckduckgo-search-cli -q -f json deep-research "rust async 2026" \
+  --synthesize --synth-format plain --budget-tokens 800 \
+  | jaq -r '.sintese'
+
+# Síntese em JSON (array estruturado de evidências, sem prosa)
+timeout 120 duckduckgo-search-cli -q -f json deep-research "rust async 2026" \
+  --synthesize --synth-format json --budget-tokens 1200 \
+  | jaq '.sintese.evidencias[] | {titulo, url, score}'
+
+# Sub-queries manuais com dedupe-by-url (ordem determinística)
+timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url --max-sub-queries 12
+```

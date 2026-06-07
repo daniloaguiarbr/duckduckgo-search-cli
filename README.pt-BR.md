@@ -125,7 +125,65 @@ duckduckgo-search-cli init-config --force
 |---|---|
 | `duckduckgo-search-cli <QUERY>...` | Busca padrão (equivalente a `buscar`) |
 | `duckduckgo-search-cli buscar <QUERY>...` | Subcommand explícito de busca |
+| `duckduckgo-search-cli deep-research <QUERY>` | Fan-out de queries, agregação e síntese opcional (v0.7.0) |
 | `duckduckgo-search-cli init-config` | Grava `selectors.toml` e `user-agents.toml` no XDG |
+
+## Deep Research (v0.7.0)
+
+Para perguntas de pesquisa multi-hop — "compare os quatro principais clientes HTTP Rust em 2026", "o que mudou no Tokio 1.40", "resuma a história do endpoint HTML do DuckDuckGo" — o `duckduckgo-search-cli` traz um pipeline de fan-out que decompõe a pergunta em 1..=12 sub-queries, dispara em paralelo, agrega e opcionalmente sintetiza um relatório com referências numeradas.
+
+```bash
+# Decomposição heurística padrão (5 sub-queries, agregação RRF, sem síntese).
+duckduckgo-search-cli deep-research "melhor cliente http rust 2026" -f json -q \
+  | jaq '.resultados[] | {titulo, url, score}'
+
+# Relatório em Markdown com orçamento de tokens e extração completa.
+duckduckgo-search-cli deep-research "tokio vs async-std produção 2026" \
+  --synthesize --budget-tokens 1500 --synth-format markdown \
+  --fetch-content --max-content-length 6000 -f json -q
+
+# Sub-queries manuais a partir de arquivo (comentários `#` e linhas vazias ignorados).
+cat > /tmp/qs.txt <<EOF
+# Visão geral
+o que é tokio runtime 2026
+# Comparação
+tokio vs async-std vs smol
+EOF
+duckduckgo-search-cli deep-research "tokio runtime 2026" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url -f json -q
+```
+
+### Flags do Deep Research
+
+- `--max-sub-queries N` máximo de sub-queries geradas (1..=12)
+- `--sub-query-strategy` heurística ou manual
+- `--sub-queries-file PATH` lista explícita de sub-queries
+- `--aggregate` RRF (K=60) ou dedupe por URL canônica
+- `--depth` rounds de reflexão planejados mas não executados em v0.7.0
+- `--fetch-content` extrai o corpo da página para o top-K
+- `--synthesize` produz relatório final em Markdown, PlainText ou JSON
+- `--budget-tokens N` limite de tokens do relatório
+- `--synth-format` markdown, plain ou json
+
+### Schema JSON de saída
+
+```jsonc
+{
+  "metadados": {
+    "query_original": "melhor cliente http rust 2026",
+    "sub_queries": [
+      { "texto": "...", "estrategia": "heuristic", "status": "ok", "elapsed_ms": 420 }
+    ],
+    "total_resultados_unicos": 27,
+    "tempo_total_ms": 1850,
+    "nivel_cascata": 0
+  },
+  "resultados": [
+    { "titulo": "...", "url": "...", "score": 0.041, "fontes": ["..."] }
+  ],
+  "sintese": "# Relatório\n\n...\n\n[1] Título — url"
+}
+```
 
 
 ## Flags Disponíveis
@@ -268,6 +326,15 @@ Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo de versões.
 - **333 testes passando** (243 unit + 90 integration + 6 doc). 6 erros de clippy corrigidos, 5 novos property tests, 4 novos testes de circuit breaker, 1 novo teste wiremock de Retry-After.
 
 
+## Notas de Migração (v0.6.x → v0.7.0)
+
+- **Zero breaking changes.** Todas as flags CLI existentes, schemas JSON de `SearchOutput` e `MultiSearchOutput`, e exit codes de v0.6.x permanecem byte-for-byte idênticos em v0.7.0.
+- **Novo subcomando público `deep-research`** para pesquisa multi-hop por LLM. Operadores que não invocam `deep-research` não veem mudança observável.
+- **Quatro novos módulos públicos** expostos em `lib.rs` — `deep_research`, `decomposition`, `aggregation`, `synthesis` — composíveis a partir de crates downstream.
+- **Novas dependências diretas** no `Cargo.toml`: `url = "2"`, `regex = "1"`, e `proptest = "1"` (somente dev). Todas as três são adições puras; nenhuma dependência foi atualizada ou removida.
+- **Sem migração de schema JSON obrigatória**: os schemas `SearchOutput` e `MultiSearchOutput` permanecem inalterados.
+
+
 ## Notas de Migração (v0.6.3 → v0.6.4)
 
 - **Zero breaking changes.** Todas as flags CLI, schemas JSON e exit codes de v0.6.3 permanecem inalterados.
@@ -278,7 +345,6 @@ Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo de versões.
 - **Novos campos JSON de metadados (aditivos, `skip_serializing_if = "Option::is_none"`)**:
   - `metadados.identidade_usada` — tag de identidade (`<família>-<plataforma>-<16hex>`) usada para a resposta
   - `metadados.nivel_cascata` — nível de cascata (0..=4) atingido durante a requisição
-- **Nota de versão**: v0.7.0 estava em desenvolvimento mas foi revertido para v0.6.4 para preservar o conjunto de features sob um número de patch estável. O binário lançado é funcionalmente idêntico ao que seria v0.7.0.
 
 
 ## Destaques v0.6.5 (Windows HANDLE fix + CI verde + circuit breaker)

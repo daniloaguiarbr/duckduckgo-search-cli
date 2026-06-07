@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.6.5** — adds the 12-identity adaptive anti-bot pool (WS-26) with `--probe`, `--identity-profile`, and `--seed` flags. Pre-built binaries for all five targets are attached to every GitHub Release.
+> Current release: **v0.7.0** — adds the `deep-research` subcommand (query fan-out, aggregation, optional synthesis), four new public modules, and three new direct dependencies (`url`, `regex`, `proptest` dev-only). The release is fully backward-compatible with v0.6.x. Pre-built binaries for all five targets are attached to every GitHub Release.
 
 
 ## Support Matrix

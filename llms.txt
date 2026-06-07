@@ -2,8 +2,21 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.6.5
+- Current version: v0.7.0
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## What's new in v0.7.0
+
+- **New subcommand `deep-research`** — query fan-out pipeline for multi-hop LLM research
+  - Splits one query into 1..=12 sub-queries via five canonical heuristic templates (aspect, comparison, timeline, opinion, cause) or a manual file
+  - Fans out in parallel via the existing `JoinSet` + `Semaphore` executor
+  - Aggregates with Reciprocal Rank Fusion (K=60) or canonical-URL deduplication
+  - Optional synthesis to Markdown, PlainText, or JSON with numbered references and a token budget
+- **Four new public modules** — `deep_research`, `decomposition`, `aggregation`, `synthesis` — composable from downstream crates
+- **New dependencies** — `url = "2"` (canonicalisation), `regex = "1"` (composite-query detection), `proptest = "1"` (dev, property tests)
+- **Zero breaking changes** — `buscar`, `init-config`, default-config JSON schema, and all exit codes are byte-for-byte identical to v0.6.x
+- **392 tests passing** (279 lib + 12 doc + 101 integration), 8 validation gates OK
 
 
 ## What's new in v0.6.5
@@ -31,7 +44,7 @@
 
 - `README.md` — overview, flags, exit codes, bilingual examples
 - `docs/HOW_TO_USE.md` — pedagogical step-by-step guide
-- `docs/COOKBOOK.md` — 17 ready-to-use recipes for search, ETL, and monitoring
+- `docs/COOKBOOK.md` — 23 ready-to-use recipes for search, ETL, monitoring, and deep research
 - `docs/INTEGRATIONS.md` — integrations with 16+ AI agents (Claude, GPT, Gemini, Cursor…)
 - `docs/AGENTS-GUIDE.md` — stdin/stdout contract and full JSON schema reference
 - `docs/CROSS_PLATFORM.md` — setup on Linux, macOS, Windows, and Docker
@@ -107,6 +120,26 @@ duckduckgo-search-cli -q -f json "rust" | jaq -r '.metadados.identidade_usada //
 
 # Detect cascade level (v0.6.4+)
 duckduckgo-search-cli -q -f json "rust" | jaq '.metadados.nivel_cascata // 0'
+
+# Deep research (v0.7.0+): default heuristic, RRF, no synthesis
+timeout 60 duckduckgo-search-cli -q -f json deep-research "rust http client 2026" \
+  | jaq '.resultados[] | {titulo, url, score}'
+
+# Deep research with synthesis (Markdown report)
+timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
+  --synthesize --budget-tokens 1500 --synth-format markdown \
+  --fetch-content --max-content-length 6000 | jaq '.sintese'
+
+# Deep research with manual sub-queries from a file
+cat > /tmp/qs.txt <<EOF
+# Visão geral
+what is tokio runtime 2026
+# Comparação
+tokio vs async-std vs smol
+EOF
+timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio runtime 2026" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url \
+  | jaq '.metadados.sub_queries | length'
 ```
 
 

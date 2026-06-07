@@ -5,6 +5,101 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-07
+
+### Added
+- **New subcommand `deep-research`** — query fan-out pipeline for LLM
+  consumption. Splits the user query into 1..=12 sub-queries via five
+  canonical heuristic templates (aspect, comparison, timeline, opinion,
+  cause), fans them out through the existing parallel executor, aggregates
+  the per-sub-query results with Reciprocal Rank Fusion (K=60) or
+  canonical-URL deduplication, and optionally produces a synthesised
+  report in Markdown, PlainText, or JSON with numbered references.
+- **New module `src/deep_research.rs`** — pipeline orchestrator
+  (`run_deep_research(args, cfg, cancel)`).
+- **New module `src/decomposition.rs`** — heuristic + manual sub-query
+  generation. Reads explicit sub-queries from a file when the
+  `--sub-query-strategy manual` flag is set; comments (`#`) and blank
+  lines are ignored.
+- **New module `src/aggregation.rs`** — `Rrf(K=60)` and `DedupeByUrl`
+  strategies. URL canonicalisation strips `utm_*` and other tracking
+  parameters, lowercases the host and scheme, sorts query parameters,
+  and collapses repeated slashes. The canonical form is hashed with
+  `blake3` (first 16 hex chars) to serve as the dedup key.
+- **New module `src/synthesis.rs`** — three output formats
+  (Markdown, PlainText, Json) with a configurable token budget
+  (1 token ≈ 4 chars heuristic) and a 20-reference cap per report.
+- **New dependencies**:
+  - `url = "2"` — URL canonicalisation in `aggregation.rs`.
+  - `regex = "1"` — used by `decomposition::is_composite_query` to
+    detect composite-query signals and suppress redundant templates.
+  - `proptest = "1"` (dev) — property-based tests for new modules.
+
+### Changed
+- **Version bumped** from `0.6.11` to `0.7.0` (minor: new public
+  subcommand `deep-research` and four new public modules
+  `deep_research`, `decomposition`, `aggregation`, `synthesis`). No
+  breaking changes to the existing `buscar` subcommand or the default
+  `SearchOutput` / `MultiSearchOutput` schemas — additive only.
+- **`Config` construction in `lib::execute_deep_research`** builds a
+  default config from the global flags — `parallelism = 5`,
+  `retries = 2`, `endpoint = Html`, `language = en`, `country = us`,
+  `global_timeout = 120s`. The pipeline inherits these defaults and
+  does NOT require the operator to pass a full `CliArgs`.
+
+### Internal
+- **Cargo.toml `exclude` block** — `gaps.md` and `docs_prd/` are
+  excluded from the published crate.
+- **`[profile.release]` panic = "abort"** — smaller binary, harder to
+  leak panic payloads across the FFI boundary if one is ever added.
+- **`.gitignore`** — added `proptest-regressions/`, `coverage/`,
+  `tarpaulin-report.html`, and `.cargo-deny-state.json` to match the
+  real artifacts produced by the new test suite and CI tooling.
+
+### Gap closure pass
+- **Doctests added to all four new modules** (12 doctests total):
+  `aggregation::canonicalize_url`, `synthesis::estimate_tokens`,
+  `synthesis::trim_to_budget`, `decomposition::HeuristicTemplate::suffix`,
+  `deep_research::DeepResearchArgs::validate`, and a usage example in
+  `deep_research::run_deep_research`.
+- **Property-based tests with `proptest`** (7 tests) covering
+  `canonicalize_url` (idempotence, fragment strip, tracking-param strip,
+  host lowercasing) and `synthesis` (`estimate_tokens` monotonicity,
+  `trim_to_budget` ceiling + idempotence). `proptest-regressions/` is
+  captured in `.gitignore`.
+- **`regex` integrated** in `decomposition::is_composite_query` with
+  `CompositeSignal` enum (Comparison, Aspect, Timeline, Opinion, Cause,
+  Topic) and `OnceLock`-cached compiled patterns. The heuristic strategy
+  now suppresses redundant templates (e.g. `Comparison` is skipped when
+  the query already contains `vs` or `or`).
+- **Wiremock integration tests** in `tests/integration_deep_research.rs`
+  (17 tests): pipeline smoke, query-param matching, HTTP 202 anomaly
+  observability, 404 observability, and 13 surface-coverage tests.
+- **`cargo deny check`** — all four gates pass: `advisories ok, bans ok,
+  licenses ok, sources ok`.
+- **`cargo publish --dry-run`** — package created and verified
+  (1.1 MiB, 14.00 s on a warm cache).
+- **Latent UTF-8 bug fixed in `synthesis::trim_to_budget`** — was using
+  byte indexing without a char-boundary check, which panicked on
+  multi-byte inputs (the same panic shape that the proptest book
+  highlights). Replaced with a private `floor_char_boundary` helper.
+  Three proptests lock in the invariant
+  `is_char_boundary(out.len())` for arbitrary inputs.
+
+### Validation
+- `cargo build --release` — clean.
+- `cargo clippy --all-targets --all-features -- -D warnings` — clean.
+- `cargo test --lib` — 279 tests passing, 0 failing.
+- `cargo test --doc` — 12 doctests passing.
+- `cargo test --tests` — 101 integration tests passing (24 + 3 + 17 + 5 + 10 + 10 + 14 + 18).
+- **Total: 392 tests passing** (279 lib + 12 doc + 101 integration), 0 failing.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --lib` — clean.
+- `cargo fmt --all -- --check` — clean.
+- `cargo audit` — no new advisories (pre-existing `RUSTSEC-2025-0057`
+  on `selectors 0.25.0` is the only warning and is tracked separately).
+- `cargo deny check` — all four gates ok.
+- `cargo publish --dry-run` — ok.
+
 ## [0.6.11] - 2026-06-05
 
 ### Fixed

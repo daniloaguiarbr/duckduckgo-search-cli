@@ -167,6 +167,129 @@ pub enum Subcommand {
     InitConfig(InitConfigArgs),
     /// Generates shell completion scripts for the specified shell.
     Completions(CompletionsArgs),
+    /// Runs a deep research pipeline: query fan-out, aggregation, and
+    /// optional synthesis into a Markdown/PlainText/Json report.
+    DeepResearch(DeepResearchArgs),
+}
+
+/// Arguments for the `deep-research` subcommand (v0.7.0).
+#[derive(Debug, Clone, Args)]
+pub struct DeepResearchArgs {
+    /// The original user query to research.
+    #[arg(value_name = "QUERY")]
+    pub query: String,
+
+    /// Maximum number of sub-queries to produce by decomposition (1..=12, default 5).
+    #[arg(
+        long = "max-sub-queries",
+        value_name = "N",
+        default_value_t = crate::deep_research::DEFAULT_MAX_SUB_QUERIES
+    )]
+    pub max_sub_queries: usize,
+
+    /// Decomposition strategy: `heuristic` (5 templates, default) or `manual`.
+    #[arg(
+        long = "sub-query-strategy",
+        value_enum,
+        default_value_t = CliSubQueryStrategy::Heuristic
+    )]
+    pub sub_query_strategy: CliSubQueryStrategy,
+
+    /// File with one sub-query per line (only used with `--sub-query-strategy manual`).
+    #[arg(long = "sub-queries-file", value_name = "PATH")]
+    pub sub_queries_file: Option<PathBuf>,
+
+    /// Aggregation strategy: `rrf` (default, K=60) or `dedupe-by-url`.
+    #[arg(
+        long = "aggregate",
+        value_enum,
+        default_value_t = CliAggregationStrategy::Rrf
+    )]
+    pub aggregation: CliAggregationStrategy,
+
+    /// Reflection depth (0..=3). 0 = single pass. Each round plans a
+    /// follow-up sub-query from the top results; v0.7.0 plans but does
+    /// not execute the follow-up.
+    #[arg(long = "depth", value_name = "N", default_value_t = 0)]
+    pub depth: u32,
+
+    /// Enables content extraction from the top-K aggregated URLs.
+    #[arg(long = "fetch-content")]
+    pub fetch_content: bool,
+
+    /// Produces a synthesised report at the end of the pipeline.
+    #[arg(long = "synthesize")]
+    pub synthesize: bool,
+
+    /// Approximate token budget for the synthesised report (default 4000).
+    /// 1 token ≈ 4 characters (English text heuristic).
+    #[arg(long = "budget-tokens", value_name = "N", default_value_t = 4000)]
+    pub budget_tokens: usize,
+
+    /// Format of the synthesised report.
+    #[arg(
+        long = "synth-format",
+        value_enum,
+        default_value_t = CliSynthFormat::Markdown
+    )]
+    pub synth_format: CliSynthFormat,
+}
+
+/// CLI wrapper for the decomposition strategy enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CliSubQueryStrategy {
+    /// Heuristic fan-out using 5 canonical templates (default).
+    Heuristic,
+    /// Read sub-queries from a file or stdin.
+    Manual,
+}
+
+/// CLI wrapper for the aggregation strategy enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CliAggregationStrategy {
+    /// Reciprocal Rank Fusion with K=60 (default).
+    Rrf,
+    /// Canonical-URL deduplication, keep first occurrence.
+    DedupeByUrl,
+}
+
+/// CLI wrapper for the synthesis format enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CliSynthFormat {
+    /// Markdown with H2/H3 headings and `[n](url)` links.
+    Markdown,
+    /// Linear numbered list without markup.
+    PlainText,
+    /// Structured JSON tree.
+    Json,
+}
+
+impl From<CliSubQueryStrategy> for crate::deep_research::SubQueryStrategy {
+    fn from(value: CliSubQueryStrategy) -> Self {
+        match value {
+            CliSubQueryStrategy::Heuristic => Self::Heuristic,
+            CliSubQueryStrategy::Manual => Self::Manual,
+        }
+    }
+}
+
+impl From<CliAggregationStrategy> for crate::deep_research::AggregationStrategyKind {
+    fn from(value: CliAggregationStrategy) -> Self {
+        match value {
+            CliAggregationStrategy::Rrf => Self::Rrf,
+            CliAggregationStrategy::DedupeByUrl => Self::DedupeByUrl,
+        }
+    }
+}
+
+impl From<CliSynthFormat> for crate::synthesis::SynthFormat {
+    fn from(value: CliSynthFormat) -> Self {
+        match value {
+            CliSynthFormat::Markdown => Self::Markdown,
+            CliSynthFormat::PlainText => Self::PlainText,
+            CliSynthFormat::Json => Self::Json,
+        }
+    }
 }
 
 /// Arguments for the `completions` subcommand (MP-04).
@@ -530,12 +653,12 @@ mod tests {
         let root = RootArgs::try_parse_from(argv)?;
         match root.subcomando {
             Some(Subcommand::Buscar(a)) => Ok(*a),
-            Some(Subcommand::InitConfig(_)) | Some(Subcommand::Completions(_)) => {
-                Err(clap::Error::raw(
-                    clap::error::ErrorKind::InvalidSubcommand,
-                    "subcomando nao-busca retornado em contexto que esperava busca",
-                ))
-            }
+            Some(Subcommand::InitConfig(_))
+            | Some(Subcommand::Completions(_))
+            | Some(Subcommand::DeepResearch(_)) => Err(clap::Error::raw(
+                clap::error::ErrorKind::InvalidSubcommand,
+                "subcomando nao-busca retornado em contexto que esperava busca",
+            )),
             None => Ok(root.buscar),
         }
     }
@@ -846,11 +969,12 @@ mod tests {
     #[test]
     fn search_subcommand_stays_small_when_boxed() {
         // Regression guarantee: Subcommand::Buscar is still Box — clippy lint large_enum.
+        // v0.7.0 added DeepResearchArgs; the largest variant dictates the enum
+        // size. We assert the enum stays under 256 bytes (deep-research fields
+        // include 5 strings + 1 PathBuf, well below that cap).
         let enum_size = std::mem::size_of::<Subcommand>();
-        let init_size = std::mem::size_of::<InitConfigArgs>();
-        // Enum <= max(variant + discriminant) — Buscar is Box (ptr size).
         assert!(
-            enum_size <= init_size.max(std::mem::size_of::<usize>()) * 4,
+            enum_size <= 256,
             "Subcommand grew unexpectedly: {enum_size} bytes"
         );
     }

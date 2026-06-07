@@ -1228,4 +1228,17 @@ cargo install duckduckgo-search-cli
 - Main README: [`../README.md`](../README.md)
 - Changelog: [`../CHANGELOG.md`](../CHANGELOG.md)
 - Issue tracker: [github.com/daniloaguiarbr/duckduckgo-search-cli/issues](https://github.com/daniloaguiarbr/duckduckgo-search-cli/issues)
+
+
+## v0.7.0 — Deep Research for AI Agents
+
+For agents that need multi-hop answers (Claude Code, OpenAI Codex, Gemini CLI, Cline, Roo Code, Devin, Paperclip, Antigravity), the `deep-research` subcommand fans out one user query into 1..=12 sub-queries, aggregates the results, and optionally emits a Markdown report ready for the context window.
+
+```bash
+timeout 120 duckduckgo-search-cli -q -f json deep-research "question" \
+  --synthesize --synth-format markdown --budget-tokens 1500 \
+  | jaq -r '.sintese'
+```
+
+The new subcommand inherits every global flag (`-q -f json`, `--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, `--fetch-content`, `--max-content-length`) and adds the deep-research-specific knobs above. The output schema is documented in `docs/AGENTS-GUIDE.md` and stable across the v0.7.x line.
 - Maintainer: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · License: MIT OR Apache-2.0
