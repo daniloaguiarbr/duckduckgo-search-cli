@@ -329,6 +329,24 @@ Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo de versões.
 ## Notas de Migração (v0.6.x → v0.7.0)
 
 - **Zero breaking changes.** Todas as flags CLI existentes, schemas JSON de `SearchOutput` e `MultiSearchOutput`, e exit codes de v0.6.x permanecem byte-for-byte idênticos em v0.7.0.
+
+
+## Notas de Migração (v0.7.0 → v0.7.1)
+
+- **Zero breaking changes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.7.0 permanecem inalterados.
+- **Migração de dependência (interna)**: `rand` atualizado de `0.8` para `0.9` para alinhar com `proptest 1.11+` (dev-dep). Todos os call sites internos atualizados:
+  - `Rng::gen_range` → `Rng::random_range` (7 sites)
+  - `Rng::gen_bool` → `Rng::random_bool` (2 sites)
+  - `Rng::gen::<T>()` → `Rng::random::<T>()` (1 site)
+  - `rand::thread_rng()` → `rand::rng()` (4 sites)
+  - `rand::seq::SliceRandom::choose` → `rand::seq::IndexedRandom::choose` para chamadas `.choose()` em slices; `IteratorRandom::choose` mantido para chamadas `.choose()` em iterators
+- **Bump de MSRV**: `rust-version` elevado de `1.75` para `1.85` para satisfazer o MSRV do `rand 0.9` e a onda de deps edition-2024 (`assert_cmd 2.2+`, `blake3 1.8+`, `clap 4.6+`, `proptest 1.11+`, `chrono 0.4.41+`, `idna 1.1+`, `icu_* 2.0+`, `home 0.5.11+`, `async-lock 3.4+`, etc.).
+- **Limpeza do builder reqwest**: removidas as chamadas `ClientBuilder::gzip(true)` e `.brotli(true)` (métodos removidos em `reqwest 0.12+`; descompressão agora é automática via header `Accept-Encoding`).
+- **Higiene de CI**: dois avisos do `actionlint` shellcheck corrigidos:
+  - `.github/workflows/ci.yml:520` — command substitution `$(date ...)` para aspas em `"\$(date ...)"` (SC2046)
+  - `.github/workflows/release.yml:505` — adicionado prefixo `--` ao glob `sha256sum -- *` (SC2035)
+- **Ignore de advisory de segurança**: `RUSTSEC-2026-0009` (DoS no time 0.3.40 via stack exhaustion em RFC 2822) adicionado à lista ignore do `deny.toml`. A correção em `time 0.3.47` exige `rust-version 1.88+` que não conseguimos satisfazer no MSRV atual. Impacto: a CLI só faz parse de headers `Date` de respostas HTTP sob flags explícitas `--lang`/`--country` do usuário; o cap de tamanho do body da resposta já limita o comprimento da entrada.
+- **392 testes passando** (279 lib + 12 doc + 101 integration). 0 avisos clippy, 0 avisos doc, 0 diferenças de fmt, 4 gates do cargo-deny verdes, `cargo publish --dry-run` limpo.
 - **Novo subcomando público `deep-research`** para pesquisa multi-hop por LLM. Operadores que não invocam `deep-research` não veem mudança observável.
 - **Quatro novos módulos públicos** expostos em `lib.rs` — `deep_research`, `decomposition`, `aggregation`, `synthesis` — composíveis a partir de crates downstream.
 - **Novas dependências diretas** no `Cargo.toml`: `url = "2"`, `regex = "1"`, e `proptest = "1"` (somente dev). Todas as três são adições puras; nenhuma dependência foi atualizada ou removida.

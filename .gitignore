@@ -64,3 +64,4 @@ tarpaulin-report.html
 # Cargo lock for libraries (binaries keep Cargo.lock)
 !Cargo.lock
 
+.graphrag-backup/

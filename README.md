@@ -300,6 +300,24 @@ duckduckgo-search-cli init-config --force
 - **New direct dependencies** in `Cargo.toml`: `url = "2"`, `regex = "1"`, and `proptest = "1"` (dev-only).
 - **Zero breaking changes** to `SearchOutput`, `MultiSearchOutput`, the default-config JSON schema, or any exit code.
 
+
+## Migration notes (v0.7.0 → v0.7.1)
+
+- **Zero breaking changes.** All CLI flags, JSON output schemas, and exit codes from v0.7.0 remain unchanged.
+- **Dependency migration (internal)**: `rand` bumped from `0.8` to `0.9` to align with `proptest 1.11+` (dev-dep). All internal call sites updated:
+  - `Rng::gen_range` → `Rng::random_range` (7 sites)
+  - `Rng::gen_bool` → `Rng::random_bool` (2 sites)
+  - `Rng::gen::<T>()` → `Rng::random::<T>()` (1 site)
+  - `rand::thread_rng()` → `rand::rng()` (4 sites)
+  - `rand::seq::SliceRandom::choose` → `rand::seq::IndexedRandom::choose` for slice `.choose()` calls; `IteratorRandom::choose` kept for iterator `.choose()` calls
+- **MSRV bump**: `rust-version` raised from `1.75` to `1.85` to satisfy `rand 0.9` MSRV and the wave of edition-2024 transitive deps (`assert_cmd 2.2+`, `blake3 1.8+`, `clap 4.6+`, `proptest 1.11+`, `chrono 0.4.41+`, `idna 1.1+`, `icu_* 2.0+`, `home 0.5.11+`, `async-lock 3.4+`, etc.).
+- **reqwest builder cleanup**: removed `ClientBuilder::gzip(true)` and `.brotli(true)` calls (these methods were removed in `reqwest 0.12+`; decompression is now automatic via the `Accept-Encoding` header).
+- **CI hygiene**: two `actionlint` shellcheck warnings fixed:
+  - `.github/workflows/ci.yml:520` — quoted command substitution `$(date ...)` to `"\$(date ...)"` (SC2046)
+  - `.github/workflows/release.yml:505` — added `--` prefix to glob `sha256sum -- *` (SC2035)
+- **Security advisory ignore**: `RUSTSEC-2026-0009` (time 0.3.40 DoS via RFC 2822 stack exhaustion) added to `deny.toml` ignore list. The fix in `time 0.3.47` requires `rust-version 1.88+` which we cannot satisfy at the current MSRV. Impact: a CLI that only parses `Date` headers from HTTP responses under the user's explicit `--lang`/`--country` flags; the response body size cap already limits input length.
+- **392 tests passing** (279 lib + 12 doc + 101 integration). 0 clippy warnings, 0 doc warnings, 0 fmt diff, 4 cargo-deny gates green, `cargo publish --dry-run` clean.
+
 ## Migration notes (v0.3.x → v0.4.0)
 
 - `--num` now defaults to `15` (previously the full single-page payload, roughly 11). Scripts that processed "all results" continue to work — you just get a consistent count.
