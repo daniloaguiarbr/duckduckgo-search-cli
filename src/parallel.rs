@@ -149,7 +149,7 @@ pub async fn execute_parallel_searches(
 
         task_set.spawn(async move {
             // Staggered launch: delay before acquiring permit to avoid synchronous burst.
-            let jitter_ms = rand::thread_rng().gen_range(0..MAX_STAGGERED_JITTER_MS);
+            let jitter_ms = rand::rng().random_range(0..MAX_STAGGERED_JITTER_MS);
             let delay_total = Duration::from_millis(
                 DELAY_BASE_STAGGERED_MS.saturating_mul(index as u64) + jitter_ms,
             );
@@ -366,7 +366,7 @@ pub async fn execute_parallel_searches_streaming(
         let config_proxy_task = Arc::clone(&config_proxy);
 
         task_set.spawn(async move {
-            let jitter_ms = rand::thread_rng().gen_range(0..MAX_STAGGERED_JITTER_MS);
+            let jitter_ms = rand::rng().random_range(0..MAX_STAGGERED_JITTER_MS);
             let delay_total = Duration::from_millis(
                 DELAY_BASE_STAGGERED_MS.saturating_mul(index as u64) + jitter_ms,
             );

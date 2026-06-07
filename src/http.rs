@@ -21,7 +21,7 @@
 
 use crate::error::CliError;
 use crate::platform;
-use rand::seq::{IteratorRandom, SliceRandom};
+use rand::seq::{IndexedRandom, IteratorRandom};
 use reqwest::{
     header::{
         HeaderMap, HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CACHE_CONTROL,
@@ -468,7 +468,7 @@ fn default_user_agents_vec() -> Vec<String> {
 
 /// Selects a random User-Agent from the built-in list.
 pub fn select_user_agent() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     USER_AGENTS_DEFAULT
         .choose(&mut rng)
         .copied()
@@ -480,7 +480,7 @@ pub fn select_user_agent() -> String {
 ///
 /// If the list is empty, falls back to the built-in default.
 pub fn select_user_agent_from_list(list: &[String]) -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     list.choose(&mut rng)
         .cloned()
         .unwrap_or_else(select_user_agent)
@@ -547,7 +547,7 @@ pub fn select_profile_from_list_seeded(list: &[String], seed: Option<u64>) -> Br
 /// of consistent fingerprinting. If all UAs in the list match `excluding`
 /// (or the list has a single item), returns any UA from the list.
 pub fn select_random_user_agent(excluding: Option<&str>) -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let chosen = USER_AGENTS_DEFAULT
         .iter()
         .filter(|ua| match excluding {
@@ -697,8 +697,6 @@ pub fn build_client_with_proxy(
         .tcp_keepalive(Duration::from_secs(60))
         .pool_max_idle_per_host(10)
         .connect_timeout(Duration::from_secs(10))
-        .gzip(true)
-        .brotli(true)
         .redirect(Policy::limited(5))
         .timeout(Duration::from_secs(timeout_secs));
 

@@ -523,7 +523,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Cargo.lock
           git commit -m "chore(deps): weekly cargo update $(date -u +%Y-%m-%d)"
-          git push origin HEAD:deps/weekly-update-$(date -u +%Y%m%d)
+          git push origin HEAD:deps/weekly-update-"$(date -u +%Y%m%d)"
           gh pr create \
             --title "chore(deps): weekly cargo update" \
             --body "Atualização semanal automática de dependências via \`cargo update --workspace\`." \

@@ -5,6 +5,41 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-06-07
+
+### Changed
+- **Migrated from `rand` 0.8 to `rand` 0.9** to align with the dev-deps
+  ecosystem (proptest 1.11+, getrandom 0.4+).
+- **`rust-version` bumped from 1.75 to 1.85** (matches `rand` 0.9 MSRV and
+  edition 2024 transitive deps). All other crates still compile on 1.85+.
+- **`reqwest` features `gzip` and `brotli` removed**: reqwest 0.12 dropped
+  the `ClientBuilder::gzip`/`brotli` builder methods. Decompression is now
+  enabled via the standard `Accept-Encoding: gzip, br` request header (which
+  reqwest handles transparently).
+- **Replaced `rand::thread_rng()` with `rand::rng()`** in 4 sites (the
+  former is deprecated since rand 0.9).
+- **Replaced `Rng::gen_range` → `Rng::random_range`** in 7 sites.
+- **Replaced `Rng::gen_bool` → `Rng::random_bool`** in 2 sites.
+- **Replaced `Rng::gen::<T>()` → `Rng::random::<T>()`** in 1 site.
+- **Replaced `rand::seq::SliceRandom` with `rand::seq::IndexedRandom`** for
+  `choose` calls on slices (the `choose` method moved traits in 0.9).
+  `IteratorRandom::choose` is still used for `Iterator` types (e.g.
+  `slice.iter().filter().choose`).
+
+### Fixed
+- **CI: 9 jobs failing on `gen_range` deprecated warnings → -D warnings errors**
+  (caused by rand 0.9 transitive unification via proptest 1.11).
+  Migrated to the new API names that are non-deprecated.
+- **CI: 5 jobs failing on `E0599 no method named choose`** (caused by the
+  trait move of `choose` from `IteratorRandom` to `IndexedRandom` in
+  rand 0.9). Updated import in `src/http.rs` and `src/identity.rs`.
+- **CI: `msrv` job failing on `assert_cmd 2.2.0 edition 2024 parse`**.
+  After the rust-version bump to 1.85, this is now parseable.
+- **CI: `workflow syntax check (actionlint)` failing on
+  SC2046 (ci.yml:520) and SC2035 (release.yml:505)**. Quoted the
+  unquoted command substitution and prefixed the glob with `--` to
+  prevent option-like name expansion.
+
 ## [0.7.0] - 2026-06-07
 
 ### Added

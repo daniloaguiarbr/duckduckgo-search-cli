@@ -58,7 +58,7 @@ const BACKOFF_JITTER_MAX_MS: u64 = 500;
 fn calculate_backoff_ms(attempt: u32) -> u64 {
     let factor = 1u64 << attempt.min(10);
     let backoff = BACKOFF_BASE_MS.saturating_mul(factor);
-    let jitter = rand::thread_rng().gen_range(0..=BACKOFF_JITTER_MAX_MS);
+    let jitter = rand::rng().random_range(0..=BACKOFF_JITTER_MAX_MS);
     backoff.saturating_add(jitter)
 }
 
@@ -247,7 +247,7 @@ pub async fn execute_with_retry(
 
         // Se o rate-limit global foi acionado por outra task, aplica delay extra.
         if flag_rate_limit.load(Ordering::Relaxed) && attempt == 0 {
-            let extra_ms = rand::thread_rng().gen_range(500..1200);
+            let extra_ms = rand::rng().random_range(500..1200);
             tracing::debug!(
                 extra_ms,
                 "global rate-limit flag active — waiting before retry attempt"
@@ -625,7 +625,7 @@ pub async fn search_with_pagination(
 
                 // Delay between pages.
                 let delay_ms =
-                    rand::thread_rng().gen_range(PAGINATION_DELAY_MIN_MS..=PAGINATION_DELAY_MAX_MS);
+                    rand::rng().random_range(PAGINATION_DELAY_MIN_MS..=PAGINATION_DELAY_MAX_MS);
                 tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => { break; }

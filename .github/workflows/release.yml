@@ -505,7 +505,7 @@ jobs:
         run: |
           set -euo pipefail
           cd artifacts
-          sha256sum * > SHA256SUMS.txt
+          sha256sum -- * > SHA256SUMS.txt
           echo "sha256sums=sha256:$(sha256sum SHA256SUMS.txt | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Sign artifacts with cosign (keyless OIDC)

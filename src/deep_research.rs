@@ -357,8 +357,8 @@ pub async fn run_deep_research(
         .map(|v| v as u8);
 
     // Reflective depth: future iterations can spawn follow-up sub-queries from
-    // the aggregated top-K. For v0.7.0 we report the planned depth but do not
-    // execute reflection yet (deferred to v0.6.13 with an LLM-driven gap fill).
+    // the aggregated top-K. For v0.7.1 we report the planned depth but do not
+    // execute reflection yet (deferred to v0.7.2 with an LLM-driven gap fill).
     if args.depth > 0 {
         let planned = SubQueryOutcome {
             text: format!("<reflective depth={} not implemented>", args.depth),

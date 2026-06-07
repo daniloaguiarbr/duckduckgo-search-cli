@@ -1,8 +1,8 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 description = "CLI in Rust to search DuckDuckGo via pure HTTP, with structured output for LLM consumption."
 authors = ["comandoaguiar"]
@@ -62,11 +62,15 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # HTTP client — rustls-tls for universal cross-platform (no OpenSSL/SChannel dependency).
 # default-features = false removes native-tls which would pull OpenSSL on Linux.
 # "socks" feature added in iteration 5 to support --proxy socks5://... (tunnel via hyper-socks2).
+# gzip/brotli features removed in v0.7.1: they transitively require async-compression
+# HTTP client — rustls-tls for universal cross-platform (no OpenSSL/Schannel dependency).
+# default-features = false removes native-tls which would pull OpenSSL on Linux.
+# "socks" feature added in iteration 5 to support --proxy socks5://... (tunnel via hyper-socks2).
+# gzip/brotli features removed in v0.7.1: reqwest 0.12+ removed the .gzip()/.brotli() builder
+# methods. Decompression is now enabled via the Accept-Encoding header by default.
 reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
     "cookies",
-    "gzip",
-    "brotli",
     "socks",
 ] }
 
@@ -93,7 +97,10 @@ tracing = { version = "0.1", features = ["release_max_level_info"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Random User-Agent selection.
-rand = "0.8"
+# Upgraded to 0.9 in v0.7.1: dev-deps like proptest 1.11+ require rand 0.9, and
+# the ecosystem is migrating to 0.9+ for the new APIs (random_range, random_bool,
+# IndexedRandom::choose). Code uses 0.9 APIs throughout.
+rand = "0.9"
 
 # WS-25: ProgressBar for long crawls (--fetch-content --parallel).
 # TTY detection is automatic — bars are silently hidden in pipes.

@@ -19,7 +19,7 @@
 //! sustains the same fingerprint across consecutive retries.
 
 use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
+use rand::seq::{IndexedRandom, SliceRandom};
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
@@ -168,7 +168,7 @@ impl IdentityProfile {
         let lang = language.to_ascii_lowercase();
         let ctry = country.to_ascii_uppercase();
         // Deterministic 0/1 choose between the two real-world variants.
-        let variant: u8 = rng.gen_range(0..=1);
+        let variant: u8 = rng.random_range(0..=1);
         if lang == "en" {
             match variant {
                 0 => "en-US,en;q=0.9".to_string(),
@@ -185,9 +185,9 @@ impl IdentityProfile {
     fn platform_arch(&self, rng: &mut StdRng) -> String {
         // Chrome emits a Sec-CH-UA-Arch hint most of the time; we randomize
         // between x86, x86_64 and absent (each real-browser distribution).
-        if rng.gen_bool(0.85) {
+        if rng.random_bool(0.85) {
             "x86_64".to_string()
-        } else if rng.gen_bool(0.5) {
+        } else if rng.random_bool(0.5) {
             "x86".to_string()
         } else {
             String::new()
@@ -226,8 +226,8 @@ impl IdentityPool {
     pub fn new(seed: Option<u64>) -> Self {
         let identities = build_default_identities();
         let s = seed.unwrap_or_else(|| {
-            let mut r = rand::thread_rng();
-            r.gen::<u64>()
+            let mut r = rand::rng();
+            r.random::<u64>()
         });
         let rng = StdRng::seed_from_u64(s);
         Self {
@@ -319,7 +319,7 @@ impl IdentityPool {
 
     fn pick_random(&mut self) -> usize {
         let n = self.identities.len();
-        self.rng.gen_range(0..n)
+        self.rng.random_range(0..n)
     }
 
     fn choose_from(&mut self, candidates: &[usize]) -> usize {
