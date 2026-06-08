@@ -30,7 +30,8 @@
 - Install: `cargo install duckduckgo-search-cli`
 - Defaults: `--num 15` (auto-paginates 2 pages), `-f auto` (JSON in pipes, text in TTY)
 - Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
-- v0.6.4+ (preserved in v0.6.5) anti-bot flags: `--probe` (pre-flight health check), `--identity-profile` (pin a 12-identity pool profile), `--seed` (deterministic seed for UA + identity selection)
+- v0.6.4+ (preserved in v0.6.5 and v0.7.x) anti-bot flags: `--probe` (pre-flight health check), `--identity-profile` (pin a 12-identity pool profile), `--seed` (deterministic seed for UA + identity selection)
+- v0.7.3+ session and probe-deep flags: `--no-warmup`, `--no-cookie-persistence`, `--cookies-path <PATH>`, `--probe-deep`, `--allow-lite-fallback`
 - Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results
 - JSON schema (single query, v0.6.4+, preserved in v0.6.5):
   ```json
@@ -1241,4 +1242,28 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "question" \
 ```
 
 The new subcommand inherits every global flag (`-q -f json`, `--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, `--fetch-content`, `--max-content-length`) and adds the deep-research-specific knobs above. The output schema is documented in `docs/AGENTS-GUIDE.md` and stable across the v0.7.x line.
+
+
+## v0.7.3 — Session + Probe-Deep for AI Agents
+
+For agents that hit `quantidade_resultados: 0` or HTTP 200 with empty body in v0.7.2 (the GAP-WS-27 macOS CAPTCHA), v0.7.3 ships:
+
+- **Cookie persistence + warm-up (session feature)**: each invocation now starts with a `GET https://duckduckgo.com/` warm-up that populates session cookies, persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`. Opt out with `--no-warmup` or `--no-cookie-persistence`.
+- **CAPTCHA interstitial detection (probe-deep feature)**: `--probe-deep` runs a real search query and classifies the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers. The probe report includes `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, and `latency_ms`. Use this flag in CI before launching real queries on macOS to detect early signs of the CAPTCHA.
+- **Auto-fallback to `lite` (opt-in)**: `--allow-lite-fallback` automatically switches from the `html` endpoint to the `lite` endpoint when `--probe-deep` (or zero-result retries) detect CAPTCHA.
+
+Recommended CI gate for macOS runners:
+
+```bash
+# Step 1: health check (existing)
+timeout 15 duckduckgo-search-cli --probe
+
+# Step 2: deep CAPTCHA check (new in v0.7.3)
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+
+# Step 3: real query
+timeout 60 duckduckgo-search-cli "rust async tokio" -q -f json --num 10 | jaq '.resultados[].url'
+```
+
+If step 2 reports `status: "captcha"`, the operator should either switch to `--endpoint lite` manually, add `--allow-lite-fallback` for automatic fallback, or rotate proxy via `--proxy socks5://127.0.0.1:9050`. The CLI will NOT auto-fallback unless `--allow-lite-fallback` is passed.
 - Maintainer: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · License: MIT OR Apache-2.0

@@ -18,11 +18,11 @@ use crate::error::CliError;
 use crate::extraction;
 use crate::types::{Config, Endpoint, SafeSearch, SearchResult, TimeFilter};
 use rand::RngExt;
-use reqwest::{Client, Response, StatusCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+use wreq::{Client, Response, StatusCode};
 
 /// Default base URL for the `DuckDuckGo` HTML endpoint.
 const URL_ENDPOINT_HTML_DEFAULT: &str = "https://html.duckduckgo.com/html/";
@@ -605,16 +605,16 @@ pub async fn search_with_pagination(
             // DDG expects `nextParams` (empty), `v="l"`, `o="json"`, `api="d.js"`.
             // Built once before the loop; only variable fields (s/dc/vqd) are
             // updated per iteration via clone_from to reuse String capacity.
-            let mut form_data: Vec<(&str, String)> = vec![
-                ("q", query.to_string()),                       // [0] fixed
-                ("s", s.clone()),                               // [1] variable
-                ("nextParams", String::new()),                  // [2] fixed
-                ("v", "l".to_string()),                         // [3] fixed
-                ("o", "json".to_string()),                      // [4] fixed
-                ("dc", dc.clone()),                             // [5] variable
-                ("api", "d.js".to_string()),                    // [6] fixed
-                ("vqd", vqd.clone()),                           // [7] variable
-                ("kl", format_kl(&cfg.language, &cfg.country)), // [8] fixed
+            let mut form_data: Vec<(String, String)> = vec![
+                ("q".to_string(), query.to_string()),      // [0] fixed
+                ("s".to_string(), s.clone()),              // [1] variable
+                ("nextParams".to_string(), String::new()), // [2] fixed
+                ("v".to_string(), "l".to_string()),        // [3] fixed
+                ("o".to_string(), "json".to_string()),     // [4] fixed
+                ("dc".to_string(), dc.clone()),            // [5] variable
+                ("api".to_string(), "d.js".to_string()),   // [6] fixed
+                ("vqd".to_string(), vqd.clone()),          // [7] variable
+                ("kl".to_string(), format_kl(&cfg.language, &cfg.country)), // [8] fixed
             ];
 
             for page_idx in 2..=cfg.pages {
@@ -644,7 +644,7 @@ pub async fn search_with_pagination(
                     }
                     r = client
                         .post(&base)
-                        .header(reqwest::header::REFERER, "https://html.duckduckgo.com/")
+                        .header(wreq::header::REFERER, "https://html.duckduckgo.com/")
                         .headers(cfg.browser_profile.pagination_headers())
                         .form(&form_data)
                         .send() => r,

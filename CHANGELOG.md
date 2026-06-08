@@ -1,11 +1,46 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+## [0.7.3] - 2026-06-08
+
+### Fixed
+- **GAP-WS-27 — Bloqueio CAPTCHA no macOS que não ocorre no Windows**.
+  Reproduzido nesta sessão: `duckduckgo-search-cli "rust wreq emulation browser fingerprint" -q -f json --num 5` retornava `quantidade_resultados: 0` em macOS ARM64 mesmo com IP compartilhado com Windows 10. Causa raiz: fingerprint TLS do `rustls` é reconhecível pelo Cloudflare Bot Management (vetor JA4_o), disparando CAPTCHA interstitial em HTTP 200.
+- Substituído `reqwest 0.12` + `rustls-tls` por `wreq 6.0.0-rc.29` + BoringSSL (`boring2` v4.15.11) + `wreq-util 3.0.0-rc.12`. BoringSSL embarcado produz JA4_o idêntico ao Chrome/Safari real, eliminando o CAPTCHA. Ver ADR `docs/decisions/0001-tls-boring-via-wreq.md`.
+- Mesma query após migração: 5 resultados, 735ms, sem fallback, sem CAPTCHA. Validação cross-OS pendente (operador deve testar em Windows / Linux).
+
+### Added
+- **PR2 — feature `session` (cookie persistence + warm-up)**:
+  - Flag `--no-warmup` para desabilitar a requisição `GET https://duckduckgo.com/` de warm-up.
+  - Flag `--no-cookie-persistence` para manter cookies apenas em memória.
+  - Flag `--cookies-path <PATH>` para sobrescrever o local padrão do `cookies.json`.
+  - Cookie jar persistido em `~/.config/duckduckgo-search-cli/cookies.json` (Unix) ou `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows) ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS).
+  - Permissões 0o600 aplicadas no Unix (owner read+write only).
+  - Módulo `src/session_warmup.rs` (XDG path resolution) e `src/wreq_cookie_adapter.rs` (JSON <-> `wreq::cookie::Jar` bridge).
+- **PR3 — feature `probe-deep` (CAPTCHA interstitial detection)**:
+  - Flag `--probe-deep` que executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare/DuckDuckGo.
+  - Flag `--allow-lite-fallback` (opt-in) para fallback automático do endpoint `html` para `lite` quando interstitial é detectado.
+  - Módulo `src/probe_deep.rs` com `detectar_interstitial()` e `sugestao_mitigacao()`.
+  - Reporta JSON com `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`.
+
+### Changed
+- **Stack TLS trocada de rustls para BoringSSL via wreq**. Build agora requer `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux. Documentado em `docs/CROSS_PLATFORM.md` e ADR-0001.
+- ADR `docs/decisions/0001-tls-boring-via-wreq.md` registra a decisão arquitetural e trade-offs aceitos.
+- Build time de release aumentou ~30s (BoringSSL estático). Binário final ~20 MB maior.
+
+### Removed
+- Dependência `reqwest 0.12` (substituída por `wreq`).
+- `time 0.3.47` agora é puramente transitivo (vinha como dep direta para sobrescrever transitivo do `reqwest`).
+
+### Notes
+- **GAP-WS-27 causa raiz 1 (fingerprint TLS) FECHADA**. Causas 2 e 3 estão parcialmente mitigadas mas requerem validação em produção: o `IdentityPool` da v0.6.4 já gera `Accept-Language` coerente com `--country`, e a persistência de cookies reduz a frequência de sessões "cold". O `gaps.md` mantém o status "RESOLVIDO PARCIALMENTE" até validação cross-OS do operador.
+- O `time 0.3.47` pin em `Cargo.toml` foi removido. `time` agora é transitivo puro de `wreq` e suas deps. CI deve continuar verde porque `wreq` puxa `time 0.3.47+`.
+- Test count: 292 lib (vs 279 em v0.7.2) + 18 wiremock + outras integrações = 0 falhas.
+- Build verificado: `cargo build --release` verde (40s), `cargo test --lib` verde, `cargo test --tests` verde, `cargo clippy --all-targets -- -D warnings` verde.
+
+## [0.7.2] - 2026-06-07
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.7.2] - 2026-06-07
 
 ### Fixed
 - **CI: 9 jobs failing on 10 E0599 compile errors** (rand 0.10 trait

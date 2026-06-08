@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-en
-description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, multi-hop research questions, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results", "deep research", "compare X vs Y", "what changed in Z". Invokes the `duckduckgo-search-cli` v0.7.0 CLI via Bash with a stable JSON contract, zero API key, 12-identity adaptive anti-bot pool with 5-level cascade rotation (HTTP 202/403/429), per-browser Sec-Fetch-* fingerprint profiles, path traversal validation on --output, automatic credential masking in error messages, and `identidade_usada` JSON field for diagnostic visibility. The new v0.7.0 `deep-research` subcommand fans out one query into 1..=12 sub-queries, aggregates via RRF (K=60) or canonical-URL dedup, and optionally synthesises a Markdown/PlainText/JSON report with a token budget. Windows build fixed in v0.6.5 (MP-26 — `HANDLE` type-safe with `INVALID_HANDLE_VALUE`). Per-host circuit breaker (WS-12) protects against cascading failures in long crawls. indicatif ProgressBar (WS-25) visualizes long crawls. Released 2026-06-07. See CHANGELOG.md and README.md for full notes. English version.
+description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, multi-hop research questions, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results", "deep research", "compare X vs Y", "what changed in Z". Invokes the `duckduckgo-search-cli` v0.7.3 CLI via Bash with a stable JSON contract, zero API key, 12-identity adaptive anti-bot pool with 5-level cascade rotation (HTTP 202/403/429), per-browser Sec-Fetch-* fingerprint profiles, BoringSSL TLS fingerprint (JA4_o identical to Chrome/Safari) via `wreq 6.0.0-rc.29`, cookie persistence with warm-up to XDG `cookies.json` (Unix permissions 0o600), `--probe-deep` CAPTCHA interstitial detector, path traversal validation on --output, automatic credential masking in error messages, and `identidade_usada` JSON field for diagnostic visibility. The v0.7.0 `deep-research` subcommand fans out one query into 1..=12 sub-queries, aggregates via RRF (K=60) or canonical-URL dedup, and optionally synthesises a Markdown/PlainText/JSON report with a token budget. Windows build fixed in v0.6.5 (MP-26 — `HANDLE` type-safe with `INVALID_HANDLE_VALUE`). Per-host circuit breaker (WS-12) protects against cascading failures in long crawls. indicatif ProgressBar (WS-25) visualizes long crawls. GAP-WS-27 (macOS CAPTCHA) fixed in v0.7.3 by switching from `rustls` to BoringSSL. Released 2026-06-08. See CHANGELOG.md and README.md for full notes. English version.
 ---
 
 # Skill — `duckduckgo-search-cli` (EN)
@@ -142,7 +142,12 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - Cascade level: `| jaq '.metadados.nivel_cascata // 0'` (v0.6.5+)
 - Probe health (v0.6.4+): `timeout 15 duckduckgo-search-cli --probe`.
 - Long crawl with circuit breaker (v0.6.5+): combine `--queries-file` with `--parallel 5 --retries 2 --global-timeout 580`.
-- Cross-platform install (v0.6.5+): `cargo install duckduckgo-search-cli --version 0.6.5 --force` works on Linux, macOS, and Windows.
+- Cross-platform install (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.3 --force` works on Linux, macOS, and Windows.
+- Pre-flight CAPTCHA check (v0.7.3+): `timeout 15 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'` returns exit 0 only when no Cloudflare interstitial is present.
+- Persistent session with cookie jar (v0.7.3+): cookies are auto-persisted to XDG `cookies.json` with Unix mode `0o600`; pass `--cookies-path <PATH>` to redirect to an encrypted volume.
+- Bypass warm-up (v0.7.3+): add `--no-warmup` to skip the `GET https://duckduckgo.com/` GET that populates session cookies.
+- Disable cookie persistence (v0.7.3+): add `--no-cookie-persistence` to keep cookies in memory only and never write `cookies.json` to disk.
+- Allow `html` → `lite` fallback (v0.7.3+): add `--allow-lite-fallback` to opt into automatic endpoint downgrade when CAPTCHA is detected.
 - Progress bar to file (v0.6.5+): redirect stderr to a log file with `2> /tmp/progress.log` to keep stdout JSON clean.
 
 ## v0.6.4/v0.6.5 — Adaptive Anti-Bot Identity Pool (WS-26)
@@ -168,7 +173,7 @@ The `HANDLE` type changed from `isize` (windows-sys 0.52) to
 in `src/platform.rs`.
 
 **What this means for agents**:
-- The same `cargo install duckduckgo-search-cli --version 0.6.5 --force`
+- The same `cargo install duckduckgo-search-cli --version 0.7.3 --force`
   command now works on Linux, macOS AND Windows.
 - The Windows binary uses the `INVALID_HANDLE_VALUE` sentinel from
   `windows_sys::Win32::Foundation` (NOT a magic `usize::MAX` comparison).
@@ -181,7 +186,7 @@ in `src/platform.rs`.
 ```bash
 # After cargo install on Windows (PowerShell 5.1+ or 7+)
 duckduckgo-search-cli --version
-# Expected: duckduckgo-search-cli 0.6.5
+# Expected: duckduckgo-search-cli 0.7.3
 duckduckgo-search-cli --help
 # Expected: full help text in stderr, exit 0
 ```
@@ -290,7 +295,7 @@ that failed CI in all 3 SOs (Linux, macOS, Windows). The errors were:
 **What this means for agents**:
 - `cargo clippy --all-targets --all-features -- -D warnings` passes.
 - CI matrix returns success in all 3 SOs.
-- 333 tests pass (243 lib + 90 integration + 6 doc tests).
+- 333 tests pass (243 lib + 90 integration + 6 doc tests) as of v0.6.5. v0.7.3 ships 391 tests (292 lib + 99 integration + 0 doc).
 - Lints `improper_ctypes`, `missing_safety_doc`, and
   `unsafe_op_in_unsafe_fn` are now `deny` to prevent regressions.
 
@@ -502,3 +507,92 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "rust async 2026" \
 timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio" \
   --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url --max-sub-queries 12
 ```
+
+
+## v0.7.1 — Maintenance Window (2026-06-06)
+
+Patch release focused on codebase hygiene. Zero breaking changes and zero
+agent-facing behavior changes. Agents can safely upgrade from v0.7.0 to
+v0.7.1 without modifying pipelines.
+
+What changed (transparent to agents):
+- Dependency updates and minor refactors
+- CI tooling improvements
+- Documentation consistency fixes
+
+
+## v0.7.2 — RUSTSEC-2026-0009 + rand 0.10 (2026-06-07)
+
+Patch release closing two latent supply-chain and trait drift issues. Zero
+breaking changes for agents but the underlying `time 0.3.47` pin and the
+`rand 0.10` trait extension shift matter to maintainers. MSRV bumped
+from 1.85 to 1.88 in this release.
+
+- `time = "0.3.47"` pinned as a direct dependency to override
+  `time 0.3.40` (RUSTSEC-2026-0009 — stack exhaustion DoS) which arrived
+  transitively via `cookie_store 0.22.0` and `reqwest 0.12.28`.
+- `rand 0.10.1` reorganized `random_range`, `random_bool`, and `random`
+  from the `Rng` trait to the `RngExt` extension trait. `use rand::Rng;`
+  was replaced with `use rand::RngExt;` in `src/identity.rs`,
+  `src/parallel.rs`, and `src/search.rs`.
+- MSRV is now 1.88 — agents building from source need a toolchain
+  that satisfies this minimum.
+
+
+## v0.7.3 — Session + Probe-Deep + BoringSSL (GAP-WS-27 fix)
+
+> **Mandatory headline (v0.7.3)**: The TLS stack is `wreq 6.0.0-rc.29` with
+> BoringSSL statically linked. `reqwest` and `rustls-tls` are REMOVED from
+> the dependency tree. The pre-built binary from `cargo install
+> duckduckgo-search-cli --version 0.7.3` requires no extra build deps on
+> the operator machine. The build deps `cmake`, `perl`, `pkg-config`, and
+> `libclang-dev` only matter when compiling from source on Linux.
+
+### MANDATORY — Recognize the New Flags
+- `--probe-deep` — runs a real search query and reports `status: "ok"` or `status: "captcha"`. Use this in CI gates for macOS runners to detect Cloudflare Bot Management interstitials before launching expensive pipelines.
+- `--no-warmup` — skip the `GET https://duckduckgo.com/` warm-up that populates session cookies.
+- `--no-cookie-persistence` — keep cookies in memory only; never write `cookies.json` to disk.
+- `--cookies-path <PATH>` — override the default XDG cookie jar path. Use this to point at an encrypted volume.
+- `--allow-lite-fallback` — opt-in to automatic fallback from `html` to `lite` endpoint when CAPTCHA is detected. Off by default.
+
+### MANDATORY — Build Prerequisites for Source Builds (v0.7.3+)
+- Compiling from source on Linux now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev`. Pre-built binaries from `cargo install` are unaffected. This requirement is the trade-off for switching the TLS stack from `rustls` to BoringSSL (statically linked by `wreq 6.0.0-rc.29`), which produces a JA4_o fingerprint identical to Chrome/Safari and closes the GAP-WS-27 macOS CAPTCHA.
+
+### MANDATORY — Treat the Cookie Jar as a Credential
+- The `session` feature persists DuckDuckGo session cookies to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`. Read the file with the same care you would read an API key.
+
+### MANDATORY — Probe-Deep in CI Gates
+```bash
+# Pre-flight CAPTCHA check for macOS runners
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+```
+
+If the probe reports `status: "captcha"`, the operator should:
+1. Wait 300+ seconds before retry (Cloudflare rate limit)
+2. Switch to `--endpoint lite` manually
+3. Add `--allow-lite-fallback` for automatic fallback
+4. Rotate proxy via `--proxy socks5://127.0.0.1:9050`
+
+### MANDATORY — Probe-Deep JSON Contract
+- `.status` — `ok` (no interstitial) or `captcha` (Cloudflare challenge detected)
+- `.endpoint` — the endpoint hit during the probe (`html`)
+- `.http_status` — the HTTP response status (202 in v0.7.3 probe)
+- `.latency_ms` — wall-clock latency of the probe search
+- `.cascade_level` — anti-bot cascade level reached (0..=4)
+- `.cascata_motivo` — `none` if clean, or short identifier for the failure mode
+- `.sugestao_mitigacao` — `no interstitial detected` when clean, or a remediation suggestion when CAPTCHA
+- `.url` — the query URL that was probed
+
+### MANDATORY — Session Lifecycle and Cookie Path Resolution
+- The first real search in any process triggers `GET https://duckduckgo.com/` to populate the cookie jar.
+- After every real search, the jar is written back to disk atomically (tempfile + fsync + rename).
+- The jar path is resolved via `dirs::config_dir()` (XDG on Linux, APPDATA on Windows, `~/Library/Application Support` on macOS).
+- File permissions on Unix are set to `0o600` (owner read/write only).
+- The jar contains only session cookies (e.g. `kl=br-pt` for `--country br`); no `secure` cookies are stored or logged.
+
+### FORBIDDEN — Anti-Patterns Introduced by v0.7.3
+- FORBIDDEN to hardcode `--cookies-path` in CI — use XDG defaults so the path is reproducible across machines
+- FORBIDDEN to enable `--allow-lite-fallback` in pipelines that need `html` results — the content quality of `lite` is lower
+- FORBIDDEN to commit `cookies.json` to version control — the file is credential-adjacent
+- FORBIDDEN to use `reqwest` or `rustls-tls` as the underlying TLS stack in v0.7.3+ — they are no longer in the dependency tree
+

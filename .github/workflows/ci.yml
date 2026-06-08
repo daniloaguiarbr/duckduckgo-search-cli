@@ -107,6 +107,18 @@ jobs:
           cargo --version
           cargo clippy --version
 
+      - name: Install BoringSSL build prerequisites (v0.7.3+, Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev
+
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -200,6 +212,17 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           rustc --version
 
+      - name: Install BoringSSL build prerequisites (v0.7.3+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev
+
       - name: Cache cargo registry and target (MSRV)
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -238,6 +261,17 @@ jobs:
             sh -s -- -y --default-toolchain stable --profile minimal --component llvm-tools-preview
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Install BoringSSL build prerequisites (v0.7.3+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev
+
       - name: Cache cargo registry and target (coverage)
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -274,6 +308,17 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
             sh -s -- -y --default-toolchain stable --profile minimal --component clippy --component rustfmt
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install BoringSSL build prerequisites (v0.7.3+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev
 
       - name: Cache cargo registry and target (no-default-features)
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -312,6 +357,17 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
             sh -s -- -y --default-toolchain stable --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install BoringSSL build prerequisites (v0.7.3+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev
 
       - name: Cache cargo registry and target (supply-chain)
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -358,6 +414,17 @@ jobs:
             sh -s -- -y --default-toolchain stable --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Install BoringSSL build prerequisites (v0.7.3+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev
+
       - name: Cache cargo registry and target (publish-dry-run)
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -402,11 +469,17 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           rustup target add x86_64-unknown-linux-musl
 
-      - name: Install musl-tools
+      - name: Install BoringSSL build prerequisites (v0.7.3+)
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update && sudo apt-get install -y musl-tools
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev \
+            musl-tools
 
       - name: Cache cargo registry and target (musl)
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -492,6 +565,17 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
             sh -s -- -y --default-toolchain stable --profile minimal --component clippy --component rustfmt
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install BoringSSL build prerequisites (v0.7.3+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev
 
       - name: cargo update --workspace
         shell: bash

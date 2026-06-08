@@ -416,7 +416,7 @@ impl SafeSearch {
 /// (useful for the legacy flow in `pipeline::execute`). In multi-query mode, the
 /// pipeline iterates over `queries` and clones this struct for each task,
 /// overwriting `query` with the current iteration item.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     /// "Active" query — populated before calling the single-query flow.
     /// In multi-query mode starts equal to the first query and is overwritten per task.
@@ -478,6 +478,30 @@ pub struct Config {
     /// CSS selector configuration (loaded from selectors.toml or built-in defaults).
     /// Wrapped in `Arc` for cheap cloning across concurrent tasks.
     pub selectors: std::sync::Arc<SelectorConfig>,
+    /// Pre-built cookie jar for `wreq::Client::cookie_provider`. Built by
+    /// `build_config` from the persistent JSON file (or an empty jar if
+    /// persistence is disabled). v0.7.3 PR2.
+    pub cookie_provider: Option<std::sync::Arc<dyn wreq::cookie::CookieStore>>,
+    /// Persistent jar handle used by the pipeline to save cookies back to
+    /// disk after the request completes. v0.7.3 PR2.
+    pub persistent_jar: Option<crate::wreq_cookie_adapter::PersistentJar>,
+    /// Whether to perform the warm-up `GET https://duckduckgo.com/`
+    /// before the first real query. v0.7.3 PR2.
+    pub warmup_enabled: bool,
+    /// Whether to allow automatic fallback to the `lite` endpoint when
+    /// the `html` endpoint returns a bot-detection interstitial. v0.7.3 PR3.
+    pub allow_lite_fallback: bool,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("query", &self.query)
+            .field("endpoint", &self.endpoint)
+            .field("warmup_enabled", &self.warmup_enabled)
+            .field("allow_lite_fallback", &self.allow_lite_fallback)
+            .finish()
+    }
 }
 
 /// Output formats supported by the CLI (only `Json` is supported in the MVP).

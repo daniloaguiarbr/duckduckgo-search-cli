@@ -904,6 +904,9 @@ timeout 60 duckduckgo-search-cli "consulta" -q
 | R32 | NEVER hardcode `--identity-profile`; let pool adapt (v0.6.4+)        | JAMAIS hardcodar `--identity-profile`; deixe o pool adaptar (v0.6.4+) |
 | R33 | MUST treat `.identidade_usada` as `Option<String>` (v0.6.4+)         | DEVE tratar `.identidade_usada` como `Option<String>` (v0.6.4+)      |
 | R34 | MUST inspect `.nivel_cascata` after repeated blocks (v0.6.4+)        | DEVE inspecionar `.nivel_cascata` após bloqueios repetidos (v0.6.4+) |
+| R35 | MUST run `--probe-deep` in CI on macOS runners (v0.7.3+)              | DEVE rodar `--probe-deep` em CI em runners macOS (v0.7.3+)           |
+| R36 | MUST treat cookie jar as credential; use `--no-cookie-persistence` for ephemeral (v0.7.3+) | DEVE tratar cookie jar como credencial; use `--no-cookie-persistence` para efêmero (v0.7.3+) |
+| R37 | MUST use `--allow-lite-fallback` only when `lite` results acceptable (v0.7.3+) | DEVE usar `--allow-lite-fallback` somente quando resultados `lite` forem aceitáveis (v0.7.3+) |
 
 ## v0.6.4/v0.6.5 Quick Reference (WS-26 Anti-Bot Identity Pool)
 
@@ -974,4 +977,19 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.6.x.
+End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.7.3.
+
+
+## v0.7.3 — New Rules (MUST/NEVER additions)
+
+### MUST
+- MUST run `duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'` in CI before launching real queries on macOS runners.
+- MUST treat the `cookies.json` file written by the `session` feature as a credential. Unix permissions are `0o600`. Do not commit, share, or sync this file.
+- MUST specify `--cookies-path <PATH>` if the default XDG path is not acceptable (e.g. on encrypted volume requirements).
+- MUST read `docs/decisions/0001-tls-boring-via-wreq.md` before suggesting `reqwest` as a dependency, since the v0.7.3+ stack is `wreq` only.
+
+### NEVER
+- NEVER hardcode the cookie jar path in CI; rely on XDG defaults so the path is reproducible across machines.
+- NEVER enable `--allow-lite-fallback` in pipelines that need full `html` results — the content quality of `lite` is lower.
+- NEVER suggest a downgrade to v0.7.2 to fix a v0.7.3 issue without first checking `gaps.md` and `docs/decisions/0001-tls-boring-via-wreq.md` — the macOS CAPTCHA bug (GAP-WS-27) returns on downgrade.
+- NEVER use the `--cookies-path` output to redirect cookies outside of `$HOME`-controlled directories.

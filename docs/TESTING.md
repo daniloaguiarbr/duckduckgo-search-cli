@@ -77,11 +77,11 @@ The v0.6.5 release added 11 tests, all addressing previously open gaps:
 The test suite is split into four categories to balance speed, isolation,
 and coverage:
 
-| Category       | Speed      | Isolation   | Real I/O  | Count (v0.6.5) |
+| Category       | Speed      | Isolation   | Real I/O  | Count (v0.7.3) |
 |----------------|------------|-------------|-----------|----------------|
-| Unit           | < 1 s      | per-fn      | none      | 243            |
-| Integration    | < 30 s     | per-test    | localhost | 84             |
-| Doc            | < 5 s      | per-doc     | none      | 6              |
+| Unit           | < 1 s      | per-fn      | none      | 292            |
+| Integration    | < 30 s     | per-test    | localhost | 99             |
+| Doc            | < 5 s      | per-doc     | none      | 0              |
 | Loom           | n/a        | n/a         | n/a       | 0 (gated)      |
 
 ## Test Categories
@@ -202,7 +202,7 @@ cargo test ws12_
 Three CI jobs run the test suite:
 
 1. **`validate` matrix** — `cargo test --all-features --locked` on Linux, macOS, Windows
-2. **`msrv`** — `cargo check --all-targets --all-features --locked` on Rust 1.75
+2. **`msrv`** — `cargo check --all-targets --all-features --locked` on Rust 1.88 (MSRV since v0.7.2)
 3. **`coverage`** — `cargo llvm-cov --all-features --locked --fail-under-lines 80` on Linux
 
 Plus a manual `cargo nextest` profile available locally:
@@ -249,3 +249,19 @@ unit or integration tests to cover the missing branches.
 ```bash
 cargo nextest run --retries 3
 ```
+
+
+## v0.7.3 Test Additions
+
+The v0.7.3 release added 13 new tests across the three new modules:
+
+- **`session_warmup` (5 unit tests)** — XDG path resolution on Linux, macOS, and Windows; missing-directory creation; path override via `DUCKDUCKGO_SEARCH_CLI_HOME`; `default_cookies_filename` constant stability.
+- **`wreq_cookie_adapter` (3 unit tests)** — `PersistentJar::empty()` produces a valid `Arc<dyn CookieStore>`; `parse_json` roundtrip preserves cookies across the `wreq::cookie::Jar` boundary; `save` and `load` roundtrip with `0o600` Unix permissions and atomic write semantics.
+- **`probe_deep` (5 unit tests)** — `detectar_interstitial` correctly identifies Cloudflare markers (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`); `detectar_interstitial` correctly identifies DuckDuckGo `robot-detected` and `bots, we have detected` markers; `sugestao_mitigacao` returns concrete next steps for each interstitial kind; `InterstitialKind::None` is the default for a normal HTML response; `execute_probe_deep` produces a valid JSON report.
+- **Total: 292 lib tests passing** (was 279 in v0.7.2 = +13 new). The v0.7.3 changes are purely additive. No tests removed, no test signatures changed, no test fixtures renamed.
+
+### v0.7.3 gaps closed by these tests
+
+- **`probe_deep::detectar_interstitial`** — validates the marker strings are detected at all (the cost of a false negative is a CAPTCHA that goes undiagnosed). Five Cloudflare markers + two DuckDuckGo markers are unit-tested in isolation.
+- **`wreq_cookie_adapter::PersistentJar`** — validates the JSON ↔ `wreq::cookie::Jar` bridge does not lose cookies during roundtrip. A regression here would silently strip session cookies, re-introducing a CAPTCHAd session.
+- **`session_warmup::default_cookies_path`** — validates the XDG resolution is correct per platform. A regression here would put the cookie jar in the wrong directory or fail to set `0o600` permissions on Unix.

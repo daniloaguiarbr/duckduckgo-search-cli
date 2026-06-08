@@ -220,7 +220,7 @@ async fn wiremock_deep_research_pipeline_smoke() {
         .mount(&server)
         .await;
 
-    let client = reqwest::Client::builder()
+    let client = wreq::Client::builder()
         .timeout(Duration::from_secs(5))
         .user_agent("Mozilla/5.0 (test)")
         .build()
@@ -249,7 +249,7 @@ async fn wiremock_404_observable() {
         .mount(&server)
         .await;
 
-    let client = reqwest::Client::builder()
+    let client = wreq::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .unwrap();
@@ -273,7 +273,7 @@ async fn wiremock_202_anomaly_path() {
         .mount(&server)
         .await;
 
-    let client = reqwest::Client::builder()
+    let client = wreq::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .unwrap();
@@ -295,7 +295,7 @@ async fn wiremock_query_param_matching() {
         .mount(&server)
         .await;
 
-    let client = reqwest::Client::builder()
+    let client = wreq::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .unwrap();

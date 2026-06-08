@@ -24,6 +24,7 @@
 - Perfis de browser v0.6.0 imitam sessões reais para evitar bloqueios anti-bot
 - `--fetch-content` baixa e limpa o body de cada URL direto no JSON para o agente
 - Schema estável entre releases: nenhuma quebra de contrato para pipelines existentes
+- **v0.7.3 — Fingerprint TLS real via BoringSSL (wreq).** BoringSSL é estaticamente vinculado e produz fingerprint JA4_o idêntico ao Chrome/Safari, eliminando o CAPTCHA do Cloudflare que afetava o macOS na v0.7.2. Build requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `docs/CROSS_PLATFORM.md`.
 
 
 ## Instalação
@@ -413,3 +414,27 @@ duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
 ## Licença
 - Licenciado sob MIT OR Apache-2.0
 - Escolha a licença que melhor atende às suas necessidades
+
+
+## Notas de migração (v0.7.2 → v0.7.3)
+
+- **QUEBRA DE AMBIENTE DE BUILD (apenas builds do código-fonte)**: A stack TLS mudou de `rustls` para BoringSSL via `wreq 6.0.0-rc.29`. Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. Binários pré-compilados do crates.io não são afetados. A matrix `.github/workflows/release.yml` instala esses pacotes automaticamente nos jobs Linux.
+- **GAP-WS-27 fechado**: O interstitial de CAPTCHA no macOS está corrigido. Mesma query que retornava `quantidade_resultados: 0` na v0.7.2 retorna 5 resultados na v0.7.3 na mesma máquina. Ver `gaps.md` e `docs/decisions/0001-tls-boring-via-wreq.md`.
+- **Novas flags CLI (aditivas)**:
+  - `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` antes da primeira query real
+  - `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco
+  - `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar
+  - `--probe-deep` — executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo
+  - `--allow-lite-fallback` — opt-in para fallback automático do endpoint `html` para `lite` quando `--probe-deep` (ou retentativas de zero resultados) detectam CAPTCHA
+- **Novo estado persistente: cookie jar**: Um arquivo `cookies.json` agora é gravado em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). Permissões Unix são `0o600` (owner read+write only). **Trate este arquivo como trataria uma credencial** — ver `SECURITY.pt-BR.md`. Use `--no-cookie-persistence` para desabilitar.
+- **Zero mudanças no schema JSON de saída**. Todos os campos da v0.7.2 permanecem presentes.
+- **Novas dependências**: `wreq 6.0.0-rc.29`, `wreq-util 3.0.0-rc.12`, mais as transitivas `boring2 4.15.11`, `webpki-root-certs 1.0.7` e a toolchain C do BoringSSL.
+- **Dependências removidas**: `reqwest 0.12.28`. `time 0.3.47` não é mais dep direta — puramente transitiva agora.
+- **Contagem de testes: 292 lib** (era 279 na v0.7.2). +13 novos testes em `session_warmup` (5), `wreq_cookie_adapter` (3), e `probe_deep` (5). 0 warnings de clippy, 0 diff de fmt, 2 warnings de cargo-deny (RUSTSEC-2025-0057 + RUSTSEC-2025-0052, ambos já na lista de ignore).
+- **Tamanho do binário**: +20 MB (BoringSSL é estaticamente vinculado). Tempo de build de release: ~40s mais longo que v0.7.2.
+
+
+## Troubleshooting adicional (v0.7.3+)
+
+1. **CAPTCHA interstitial detectado (v0.7.3+)** — rode `duckduckgo-search-cli --probe-deep -q -f json` para classificar o body da resposta. Se `status` for `captcha`, a resposta está bloqueada. O probe também reporta `sugestao_mitigacao` com próximos passos concretos (rotacionar proxy, trocar endpoint, back off). Trate o cookie jar como credencial: o arquivo `cookies.json` é gravado com permissões 0o600 e contém cookies de sessão do DuckDuckGo.
+2. **Cookie jar crescendo sem controle** — cada invocação adiciona um cookie novo. O arquivo é reescrito inteiro a cada invocação, então o tamanho se mantém proporcional ao número de cookies únicos. Para resetar, apague o arquivo manualmente.

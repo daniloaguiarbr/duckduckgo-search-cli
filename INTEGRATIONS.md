@@ -30,8 +30,20 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 4  global timeout  → raise --global-timeout; reduce --parallel
 5  zero results    → refine query or try different --lang
 
-# Current version: v0.7.0
+# Current version: v0.7.3
 ```
+
+## v0.7.3 Highlights for Integrations
+
+- **GAP-WS-27 fixed (CRITICAL)**: The macOS CAPTCHA interstitial that returned HTTP 200 with `quantidade_resultados: 0` while Windows returned full results is closed. TLS stack changed from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`. Pre-built binaries from crates.io are unaffected; only source builds now need `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux.
+- **`session` feature (cookie persistence + warm-up)**:
+  - New flags: `--no-warmup`, `--no-cookie-persistence`, `--cookies-path <PATH>`.
+  - Cookie jar persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`.
+  - Warm-up adds one `GET https://duckduckgo.com/` before the first real query to populate session cookies.
+- **`probe-deep` feature (CAPTCHA interstitial detection)**:
+  - New flags: `--probe-deep` (run a real search query and classify the body as `ok` or `captcha`), `--allow-lite-fallback` (opt-in to automatic `html → lite` fallback when CAPTCHA detected).
+  - New JSON report fields on the probe response: `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`.
+- **Zero breaking changes to JSON output schema**. All v0.7.2 fields remain present.
 
 ## v0.7.0 Highlights for Integrations
 

@@ -3,7 +3,7 @@
 //! Full text content extraction from URLs (flag `--fetch-content`).
 //!
 //! Pure HTTP implementation (iteration 5). For each URL:
-//! 1. Makes an HTTP request with `reqwest::Client`.
+//! 1. Makes an HTTP request with `wreq::Client`.
 //! 2. Checks `Content-Type` — accepts only `text/html` and variants.
 //! 3. Reads body as `Vec<u8>`, detects charset from header and converts to UTF-8
 //!    with `encoding_rs` (fallback `from_utf8_lossy` for UTF-8/absent).
@@ -19,10 +19,10 @@
 //! Headless Chrome fallback will come in iteration 6 under feature `chrome`.
 
 use crate::error::CliError;
-use reqwest::Client;
 use scraper::{Html, Selector};
 use std::net::IpAddr;
 use tokio_util::sync::CancellationToken;
+use wreq::Client;
 
 /// Threshold below which we consider content "insufficient" (Chrome fallback candidate).
 const MIN_CONTENT_THRESHOLD: usize = 200;
@@ -38,7 +38,7 @@ const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
 /// Rejects non-HTTP schemes (`file://`, `ftp://`, `data:`, etc.) and
 /// hosts that resolve to private/loopback IP ranges (RFC 1918, RFC 4193).
 fn is_safe_url(url: &str) -> bool {
-    let parsed = match reqwest::Url::parse(url) {
+    let parsed = match url::Url::parse(url) {
         Ok(u) => u,
         Err(_) => return false,
     };
@@ -142,7 +142,7 @@ pub async fn extract_http_content(
     // Extrai charset do Content-Type ANTES de consumir o body.
     let content_type = response
         .headers()
-        .get(reqwest::header::CONTENT_TYPE)
+        .get(wreq::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
@@ -154,7 +154,7 @@ pub async fn extract_http_content(
 
     let charset = extract_charset(&content_type);
 
-    if let Some(cl) = response.headers().get(reqwest::header::CONTENT_LENGTH) {
+    if let Some(cl) = response.headers().get(wreq::header::CONTENT_LENGTH) {
         if let Ok(size_str) = cl.to_str() {
             if let Ok(size) = size_str.parse::<u64>() {
                 if size > MAX_BODY_BYTES as u64 {

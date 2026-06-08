@@ -79,6 +79,10 @@ fn cfg_multi(queries: Vec<String>, format: OutputFormat, stream: bool) -> Config
         match_platform_ua: false,
         per_host_limit: 2,
         chrome_path: None,
+        cookie_provider: None,
+        persistent_jar: None,
+        warmup_enabled: false,
+        allow_lite_fallback: false,
         selectors: std::sync::Arc::new(
             duckduckgo_search_cli::types::SelectorConfig::default(),
         ),

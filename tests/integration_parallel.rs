@@ -90,6 +90,10 @@ fn test_config_wm(
         match_platform_ua: false,
         per_host_limit: 2,
         chrome_path: None,
+        cookie_provider: None,
+        persistent_jar: None,
+        warmup_enabled: false,
+        allow_lite_fallback: false,
         selectors: Arc::new(SelectorConfig::default()),
     }
 }

@@ -13,7 +13,7 @@
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: 0.7.0 (lançada 2026-06-07; v0.6.x também suportada) — MSRV: Rust 1.75.
+- Versão: 0.7.3 (lançada 2026-06-08; v0.7.0/v0.7.1/v0.7.2 também suportadas) — MSRV: Rust 1.88.
 
 
 ## Instalação
@@ -72,14 +72,19 @@ esac
 - `--stream` — PROIBIDO: flag placeholder, NÃO implementada
 - `-v, --verbose` — saída detalhada para diagnóstico
 - `deep-research <QUERY>` — subcomando de fan-out de queries (v0.7.0)
-- `--max-sub-queries <N>` — máximo de sub-queries geradas (1..=12, padrão 5)
+- `--max-sub-queries <N>` — máximo de sub-queries produzidas (1..=12, padrão 5)
 - `--sub-query-strategy <heuristic|manual>` — estratégia de geração de sub-queries
 - `--sub-queries-file <PATH>` — lê sub-queries explícitas (estratégia manual)
 - `--aggregate <rrf|dedupe-by-url>` — algoritmo de agregação
-- `--depth <N>` — rounds de reflexão (planejado, não executado em v0.7.0)
+- `--depth <N>` — rounds de reflexão (planejado, não executado na v0.7.0)
 - `--synthesize` — produz relatório final em Markdown/PlainText/JSON
-- `--budget-tokens <N>` — orçamento de tokens para o relatório sintetizado
+- `--budget-tokens <N>` — orçamento de tokens para o relatório de síntese
 - `--synth-format <markdown|plain|json>` — formato de saída da síntese
+- `--probe-deep` — executa uma query real e classifica o body como `ok` ou `captcha` (v0.7.3+)
+- `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` antes da primeira query real (v0.7.3+)
+- `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco (v0.7.3+)
+- `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar (v0.7.3+)
+- `--allow-lite-fallback` — opt-in para fallback automático `html → lite` quando CAPTCHA é detectado (v0.7.3+)
 
 
 ## Códigos de Saída
@@ -484,7 +489,26 @@ ddg_exit=${PIPESTATUS[0]}
 | R15 | JAMAIS passar credenciais de proxy em argv |
 | R16 | JAMAIS executar URLs de resultados sem sandbox |
 | R17 | JAMAIS injetar headers `Sec-Fetch-*` (v0.6.0 os gerencia) |
+| R18 | DEVE rodar `duckduckgo-search-cli --probe-deep` antes de queries reais em runners macOS para detectar CAPTCHA cedo (v0.7.3+) |
+| R19 | DEVE tratar o cookie jar (`cookies.json`) como credencial; desabilite com `--no-cookie-persistence` (v0.7.3+) |
+| R20 | DEVE usar `--allow-lite-fallback` apenas quando resultados `lite` forem aceitáveis; não habilite em pipelines que precisam de resultados `html` (v0.7.3+) |
+
+
+## v0.7.3 — Session + Probe-Deep + BoringSSL (correção do GAP-WS-27)
+
+### OBRIGATÓRIO — Reconhecer as Novas Flags
+- `--probe-deep` — executa uma query real e reporta `status: "ok"` ou `status: "captcha"`. Use isto em portões de CI para runners macOS para detectar interstitials do Cloudflare Bot Management antes de lançar pipelines custosas.
+- `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` que popula os cookies de sessão.
+- `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco.
+- `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar. Use isto para apontar para um volume encriptado.
+- `--allow-lite-fallback` — opt-in para fallback automático do endpoint `html` para o endpoint `lite` quando CAPTCHA é detectado. Desligado por padrão.
+
+### OBRIGATÓRIO — Pré-requisitos de Build Mudaram (v0.7.3+)
+- Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. Binários pré-compilados do crates.io não são afetados. Este requisito é o trade-off pela troca da stack TLS de `rustls` para BoringSSL (estaticamente vinculado pelo `wreq 6.0.0-rc.29`), que produz fingerprint JA4_o idêntico ao Chrome/Safari e fecha o CAPTCHA do macOS do GAP-WS-27.
+
+### OBRIGATÓRIO — Trate o Cookie Jar como Credencial
+- A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de schema válido para `duckduckgo-search-cli` v0.7.0.
+Contrato de schema válido para `duckduckgo-search-cli` v0.7.3.
 Versão em inglês: `docs/AGENTS.md`.

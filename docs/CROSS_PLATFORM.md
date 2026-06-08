@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.7.0** — adds the `deep-research` subcommand (query fan-out, aggregation, optional synthesis), four new public modules, and three new direct dependencies (`url`, `regex`, `proptest` dev-only). The release is fully backward-compatible with v0.6.x. Pre-built binaries for all five targets are attached to every GitHub Release.
+> Current release: **v0.7.3** — fixes GAP-WS-27 (macOS CAPTCHA) by switching the TLS stack from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`. Adds cookie persistence + warm-up (`session` feature) and CAPTCHA interstitial detection (`probe-deep` feature). The release is fully backward-compatible with v0.7.0–v0.7.2 in terms of CLI flags and JSON output schema. Build now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. Pre-built binaries for all five targets are attached to every GitHub Release.
 
 
 ## Support Matrix
@@ -19,7 +19,7 @@
 - Targets Ubuntu 20.04+, Debian 11+, Fedora 37+, RHEL 8+
 - Requires glibc version 2.17 or newer — present in every current distribution
 - Download the pre-built binary from GitHub Releases or install via `cargo install`
-- No shared TLS library needed — `rustls-tls` links statically in release builds
+- **v0.7.3+: building from source requires BoringSSL toolchain.** Install `cmake`, `perl`, `pkg-config`, and `libclang-dev` (Debian/Ubuntu: `apt install cmake perl pkg-config libclang-dev`; Fedora/RHEL: `dnf install cmake perl pkg-config clang-devel`). The build statically links BoringSSL via `wreq 6.0.0-rc.29`; pre-built binaries are not affected.
 - Works inside WSL2 (Windows Subsystem for Linux) without any extra configuration
 ### musl — x86_64-unknown-linux-musl
 - Targets Alpine Linux, minimal Docker containers, and embedded environments
@@ -27,6 +27,7 @@
 - Works in `FROM scratch` Docker images because no libc is loaded at runtime
 - Build locally with `cargo build --release --target x86_64-unknown-linux-musl`
 - Requires `musl-tools` on the build machine: `apt install musl-tools` on Debian or `apk add musl-dev` on Alpine
+- **v0.7.3+: BoringSSL build adds cmake, perl, pkg-config, libclang-dev as additional build-time deps for the musl target**
 - Pre-built musl binaries are attached to every GitHub Release as `SHA256SUMS.txt`-verified archives
 
 
@@ -79,6 +80,50 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - **Re-enable CI Windows builds**: v0.6.4 CI silently failed on `windows-latest`.
   v0.6.5 adds `--version` and `--help` smoke tests to the matrix so future
   Windows regressions are caught before release.
+
+
+### v0.7.3 — BoringSSL Build Prerequisites and musl Toolchain
+
+- **TLS stack changed from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`.** BoringSSL
+  is statically linked into the binary. On Linux, building from source now
+  requires the C toolchain for BoringSSL compilation:
+
+  ```bash
+  # Debian / Ubuntu
+  sudo apt-get update && sudo apt-get install -y \
+    cmake perl pkg-config libclang-dev
+
+  # Fedora / RHEL
+  sudo dnf install -y cmake perl pkg-config clang-devel
+
+  # Alpine (musl)
+  sudo apk add cmake perl pkg-config clang-dev
+  ```
+
+- **CI matrix in `.github/workflows/release.yml`** automatically installs
+  these packages in the `linux-x86_64-build` and `linux-x86_64-musl-build`
+  jobs. End users installing the pre-built binary from crates.io do not
+  need any of these tools.
+- **Binary size**: +20 MB (BoringSSL is statically linked). Release build
+  time: +30s to +90s depending on hardware (BoringSSL takes 30s to 90s
+  to compile in release mode).
+- **macOS Apple Silicon and Intel**: pre-built. No additional deps for
+  end users. Building from source requires Command Line Tools (`xcode-select --install`).
+- **Windows MSVC**: pre-built. Building from source requires Visual Studio
+  Build Tools 2019+ with the C++ workload.
+- **Docker Alpine example** (v0.7.3+):
+
+  ```dockerfile
+  FROM rust:1.88-alpine AS builder
+  RUN apk add --no-cache musl-dev cmake perl pkg-config clang-dev
+  WORKDIR /app
+  COPY . .
+  RUN cargo build --release --target x86_64-unknown-linux-musl
+
+  FROM alpine:3.19
+  COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/duckduckgo-search-cli /usr/local/bin/
+  ENTRYPOINT ["duckduckgo-search-cli"]
+  ```
 
 
 ## Docker and Containers
@@ -143,8 +188,9 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 
 ## Building from Source
 ### Prerequisites
-- Rust toolchain version 1.75 or newer — install via `rustup` from rustup.rs
+- Rust toolchain version 1.88 or newer — install via `rustup` from rustup.rs
 - For musl targets on Linux: `sudo apt install musl-tools` or `apk add musl-dev` on Alpine
+- **For v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux. macOS needs `xcode-select --install`. Windows needs Visual Studio Build Tools 2019+ with C++ workload.
 - Cross-compilation: `rustup target add <target>` before running `cargo build`
 - For the macOS Universal binary: add both `aarch64-apple-darwin` and `x86_64-apple-darwin` targets
 ### Build Commands by Target
@@ -184,8 +230,8 @@ cargo install duckduckgo-search-cli
 ```
 
 - Cargo fetches the crate from crates.io, compiles for the host architecture, and places the binary in `~/.cargo/bin`
-- Minimum Supported Rust Version (MSRV) is 1.75 — run `rustup update` if your toolchain is older
-- Verify the installation: `duckduckgo-search-cli --version` (expect `0.6.5` for v0.6.5 release)
+- Minimum Supported Rust Version (MSRV) is 1.88 (since v0.7.2) — run `rustup update` if your toolchain is older. v0.7.3+ additionally requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux for the BoringSSL stack via `wreq 6.0.0-rc`.
+- Verify the installation: `duckduckgo-search-cli --version` (expect `0.7.3` for v0.7.3 release)
 ### Pre-built Binaries
 - Pre-built binaries for all five targets are attached to each GitHub Release
 - Each release includes a `SHA256SUMS.txt` file for integrity verification before execution
@@ -198,7 +244,7 @@ sha256sum --check SHA256SUMS.txt
 tar -xzf duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
 chmod +x duckduckgo-search-cli
 sudo mv duckduckgo-search-cli /usr/local/bin/
-duckduckgo-search-cli --version   # expect 0.6.5
+duckduckgo-search-cli --version   # expect 0.7.3
 ```
 
 - Report platform-specific issues at the GitHub repository issue tracker

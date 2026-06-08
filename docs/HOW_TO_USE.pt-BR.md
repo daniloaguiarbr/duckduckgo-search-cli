@@ -12,8 +12,9 @@ Busca web em tempo real no seu terminal — 15 resultados frescos em menos de 3 
 ## Pré-requisitos
 ### Obrigatórios
 - Acesso à rede para duckduckgo.com
-- Rust 1.75+ ao instalar via `cargo install`
+- Rust 1.88+ ao instalar via `cargo install` (MSRV desde v0.7.2)
 - Binários pré-compilados não exigem instalação do Rust
+- **v0.7.3+ ao compilar do source no Linux**: `cmake`, `perl`, `pkg-config` e `libclang-dev` (deps de build do BoringSSL via `wreq 6.0.0-rc`)
 ### Opcionais
 - `jaq` (substituto Rust do jq) para processar JSON em pipelines
 - Um proxy SOCKS5 para rotação de IP quando houver rate-limiting
@@ -249,6 +250,111 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - Veja `docs/AGENTS-GUIDE.md` para o contrato completo stdin/stdout e referência de schema
 - Veja `docs/CROSS_PLATFORM.md` para guias de configuração em Linux, macOS, Windows e Docker
 - Veja `docs/AGENT_RULES.md` para 30+ regras DEVE/JAMAIS para uso em produção com agentes
+
+
+## v0.7.3 — Sessão + Probe-Deep + BoringSSL (correção do GAP-WS-27)
+
+v0.7.3 fecha atomicamente o GAP-WS-27 (CAPTCHA no macOS) substituindo a stack TLS `rustls` por BoringSSL embarcado via `wreq 6.0.0-rc.29`, mais persistência de cookies de sessão e detecção profunda de CAPTCHA.
+
+### Mudança da Stack TLS (wreq + BoringSSL)
+
+A CLI agora usa `wreq 6.0.0-rc.29` em vez de `reqwest 0.12` + `rustls-tls`. O `wreq` traz o BoringSSL embarcado (via `boring2 v4.15.11`) e produz um fingerprint `JA4_o` idêntico ao Chrome/Safari real, fechando a porta de entrada do Cloudflare Bot Management que gerava o CAPTCHA.
+
+- Dependências adicionadas: `wreq = "6.0.0-rc"` com features `tokio-rt, webpki-roots, cookies, gzip, brotli, deflate, zstd, socks, form, query`; `wreq-util = "3.0.0-rc.12"`.
+- Dependências removidas: `reqwest`, `rustls`, `cookie_store`, `cookie` (em deps diretas).
+- ADR formal: `docs/decisions/0001-tls-boring-via-wreq.md`.
+
+### Pré-requisitos de Build Mudaram (v0.7.3+)
+
+Compilar do source no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev` (BoringSSL). Binários pré-compilados do crates.io não são afetados.
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install cmake perl pkg-config libclang-dev
+# Fedora/RHEL
+sudo dnf install cmake perl pkg-config clang-devel
+# Alpine
+apk add cmake perl pkgconf clang-dev
+```
+
+### Persistência de Cookies de Sessão
+
+A feature `session` persiste cookies do DuckDuckGo em `cookies.json` para que requisições subsequentes reutilizem a sessão, e faz um `GET https://duckduckgo.com/` de warm-up antes da primeira query real para popular os cookies de sessão.
+
+- Localização do cookie jar:
+  - macOS: `~/Library/Application Support/duckduckgo-search-cli/cookies.json`
+  - Linux: `~/.config/duckduckgo-search-cli/cookies.json`
+  - Windows: `%APPDATA%\duckduckgo-search-cli\cookies.json`
+- Permissões Unix: `0o600` (owner read+write only).
+- O cookie jar contém cookies de sessão do DuckDuckGo. Trate como credencial.
+
+#### Flags de Sessão
+
+```bash
+# Desabilitar warm-up (pular GET /warm-up)
+duckduckgo-search-cli --no-warmup "query"
+
+# Manter cookies só em memória (não gravar cookies.json)
+duckduckgo-search-cli --no-cookie-persistence "query"
+
+# Apontar para um cookie jar em volume criptografado
+duckduckgo-search-cli --cookies-path /Volumes/encrypted/cookies.json "query"
+```
+
+### Detecção Profunda de CAPTCHA (probe-deep)
+
+`--probe-deep` faz uma query de teste real e classifica o body retornado como `ok` ou `captcha`, expondo o JSON:
+
+```bash
+duckduckgo-search-cli --probe-deep -q -f json
+# {"status": "ok", "endpoint": "html", "http_status": 202,
+#  "latency_ms": 97, "cascata_motivo": "none",
+#  "sugestao_mitigacao": "no interstitial detected"}
+```
+
+Use `--probe-deep` em CI antes de lançar queries caras, especialmente em runners macOS onde o GAP-WS-27 se manifestava.
+
+#### Fallback Automático html→lite
+
+Por padrão, o probe-deep apenas detecta e reporta. Para acionar fallback automático de `html` para `lite` quando CAPTCHA é detectado, passe `--allow-lite-fallback`:
+
+```bash
+duckduckgo-search-cli --probe-deep --allow-lite-fallback -q -f json "query"
+```
+
+### Validação Empírica (v0.7.3)
+
+```bash
+# Antes (v0.7.2): quantidade_resultados: 0, ms: 1695
+# Depois (v0.7.3): quantidade_resultados: 5, ms: 735
+duckduckgo-search-cli "rust wreq emulation browser fingerprint 2026" -q -f json --num 5
+```
+
+
+## v0.7.2 — rand 0.10 RngExt + time 0.3.47 RUSTSEC-2026-0009 + MSRV 1.88
+
+v0.7.2 é uma release de manutenção que endereça duas dependências upstream:
+
+- `time = "0.3.47"` pinado como dependência direta para sobrescrever `time 0.3.40` que vinha transitivamente via `cookie_store 0.22.0` e `reqwest 0.12.28`. Resolve `RUSTSEC-2026-0009` (stack exhaustion DoS em time 0.3.40).
+- `rand 0.10.1` reorganizou os métodos `random_range`, `random_bool` e `random` do trait `Rng` para o trait extension `RngExt`. Substituído `use rand::Rng;` por `use rand::RngExt;` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs`.
+- MSRV subiu de 1.85 para 1.88 (exigido por `time 0.3.47` e `rand 0.10`).
+
+
+## v0.7.1 — Patch de Manutenção
+
+v0.7.1 é uma release puramente de manutenção sem novas flags CLI e sem novos campos JSON. Sincroniza `Cargo.lock` self-version 0.7.0 → 0.7.1 e conserta warnings de clippy latentes.
+
+
+## v0.7.0 — Subcomando `deep-research`
+
+v0.7.0 introduz o subcomando `deep-research` para pesquisa multi-hop com fan-out de sub-queries.
+
+```bash
+duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
+  --synthesize --synth-format markdown | jaq -r '.sintese'
+```
+
+Campos novos: `.metadados.sub_queries[]`, `.metadados.total_resultados_unicos`, `.metadados.tempo_total_ms`, `.resultados[].score`, `.resultados[].fontes[]`, `.sintese` (opt-in via `--synthesize`).
 
 
 ## v0.6.4 — Pool Adaptativo de Identidades Anti-Bot (WS-26)

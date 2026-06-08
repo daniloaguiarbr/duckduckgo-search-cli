@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: orchestrator (config assembly, delegation to pipeline)
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.6.6")]
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.7.3")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -26,7 +26,7 @@
 //! | Module        | Responsibility                                               |
 //! |---------------|--------------------------------------------------------------|
 //! | [`cli`]       | Clap structs (command-line argument parsing).                |
-//! | [`http`]      | `reqwest::Client` construction and User-Agent selection.     |
+//! | [`http`]      | `wreq::Client` construction and User-Agent selection.     |
 //! | [`search`]    | URL building and HTTP request to the `DuckDuckGo` endpoint.    |
 //! | [`extraction`]| HTML parsing with `scraper` and ad filtering.                |
 //! | [`pipeline`]  | Single/multi orchestration, deduplication and source reading.|
@@ -64,11 +64,14 @@ pub mod parallel;
 pub mod paths;
 pub mod pipeline;
 pub mod platform;
+pub mod probe_deep;
 pub mod search;
 pub mod selectors;
+pub mod session_warmup;
 pub mod signals;
 pub mod synthesis;
 pub mod types;
+pub mod wreq_cookie_adapter;
 
 // browser.rs declares `#![cfg(feature = "chrome")]` at the module root (line 25),
 // which already excludes the entire module when the feature is off. Re-declaring
@@ -129,6 +132,12 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     // 1 minimal request to the configured endpoint and reports status as JSON.
     if args.probe {
         return execute_probe(&args).await;
+    }
+
+    // v0.7.3 PR3: deep probe — runs a real query and detects CAPTCHA
+    // interstitials in the response body. Emits a JSON report on stdout.
+    if args.probe_deep {
+        return execute_probe_deep(&args).await;
     }
 
     // Convert CliArgs into internal Config.
@@ -261,6 +270,11 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
         per_host_limit: 2,
         chrome_path: None,
         selectors,
+        // Deep research uses an in-memory cookie jar with no warm-up.
+        cookie_provider: None,
+        persistent_jar: None,
+        warmup_enabled: false,
+        allow_lite_fallback: false,
     };
 
     let token = CancellationToken::new();
@@ -435,6 +449,97 @@ async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
     }
 }
 
+/// Executes the v0.7.3 PR3 `--probe-deep` health check.
+///
+/// Runs one real query against the configured endpoint, reads the
+/// response body, and classifies it as `captcha | ok` based on the
+/// presence of Cloudflare or DDG bot-detection markers. Emits a JSON
+/// report on stdout with `status`, `endpoint`, `cascade_level`,
+/// `cascata_motivo`, and `sugestao_mitigacao`. Exits 0 on success
+/// (including when the probe detected a captcha — the caller is
+/// expected to act on the JSON), 1 on network failure.
+async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
+    use crate::error::exit_codes;
+    use crate::probe_deep::{detectar_interstitial, sugestao_mitigacao, InterstitialKind};
+    use std::time::Instant;
+
+    let endpoint = match args.endpoint {
+        crate::cli::CliEndpoint::Html => "html",
+        crate::cli::CliEndpoint::Lite => "lite",
+    };
+    let probe_url = if endpoint == "lite" {
+        crate::search::lite_base_url()
+    } else {
+        crate::search::html_base_url()
+    };
+
+    // Build a minimal client. The deep probe does not use the persistent
+    // cookie jar or the warm-up — it tests the endpoint raw.
+    let ua = crate::http::select_user_agent();
+    let client =
+        match crate::http::build_client(&ua, args.timeout_seconds, &args.language, &args.country) {
+            Ok(c) => c,
+            Err(err) => {
+                let payload = serde_json::json!({
+                    "type": "probe_deep",
+                    "endpoint": endpoint,
+                    "status": "error",
+                    "error": format!("client build failed: {err}"),
+                });
+                let _ = output::print_line_stdout(&payload.to_string());
+                return exit_codes::GENERIC_ERROR;
+            }
+        };
+
+    // Build a minimal form with just `q=`. The HTML endpoint requires
+    // POST with a form body, so we send a one-field form.
+    let form_data: Vec<(String, String)> = vec![("q".to_string(), "rust".to_string())];
+    let started = Instant::now();
+    let result = client.post(&probe_url).form(&form_data).send().await;
+    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+
+    match result {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            let kind = detectar_interstitial(&body);
+            let status_str = match kind {
+                InterstitialKind::None => "ok",
+                _ => "captcha",
+            };
+            let payload = serde_json::json!({
+                "type": "probe_deep",
+                "endpoint": endpoint,
+                "status": status_str,
+                "http_status": status,
+                "latency_ms": latency_ms,
+                "cascade_level": 0,
+                "cascata_motivo": kind.as_str(),
+                "sugestao_mitigacao": sugestao_mitigacao(kind),
+                "url": probe_url,
+            });
+            if let Err(err) = output::print_line_stdout(&payload.to_string()) {
+                if !output::is_broken_pipe(&err) {
+                    tracing::error!(?err, "failed to emit probe_deep report");
+                    return exit_codes::GENERIC_ERROR;
+                }
+            }
+            exit_codes::SUCCESS
+        }
+        Err(err) => {
+            let payload = serde_json::json!({
+                "type": "probe_deep",
+                "endpoint": endpoint,
+                "status": "error",
+                "latency_ms": latency_ms,
+                "error": format!("network error: {err}"),
+            });
+            let _ = output::print_line_stdout(&payload.to_string());
+            exit_codes::GENERIC_ERROR
+        }
+    }
+}
+
 /// Executes the `completions` subcommand — generates shell completion scripts.
 fn execute_completions(args: CompletionsArgs) -> i32 {
     use clap::CommandFactory;
@@ -561,6 +666,24 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         1
     };
 
+    // v0.7.3 PR2: build the cookie jar / warm-up machinery.
+    let (persistent_jar, warmup_enabled) = if args.no_cookie_persistence {
+        (
+            crate::wreq_cookie_adapter::PersistentJar::empty(None),
+            !args.no_warmup,
+        )
+    } else {
+        let path = match args.cookies_path.as_ref() {
+            Some(p) => p.clone(),
+            None => crate::wreq_cookie_adapter::default_cookies_path()?,
+        };
+        (
+            crate::wreq_cookie_adapter::PersistentJar::load(Some(path)),
+            !args.no_warmup,
+        )
+    };
+    let cookie_provider = persistent_jar.as_provider();
+
     Ok(Config {
         query: first_query,
         queries,
@@ -590,6 +713,10 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         per_host_limit: args.per_host_limit as usize,
         chrome_path: args.chrome_path.clone(),
         selectors,
+        cookie_provider: Some(cookie_provider),
+        persistent_jar: Some(persistent_jar),
+        warmup_enabled,
+        allow_lite_fallback: args.allow_lite_fallback,
     })
 }
 
@@ -656,6 +783,11 @@ mod tests {
             no_color: false,
             seed: None,
             config_path: None,
+            no_warmup: false,
+            no_cookie_persistence: false,
+            cookies_path: None,
+            probe_deep: false,
+            allow_lite_fallback: false,
         }
     }
 

@@ -46,13 +46,13 @@ use crate::http::ProxyConfig;
 use crate::search;
 use crate::types::{Config, MultiSearchOutput, SearchMetadata, SearchOutput};
 use rand::RngExt;
-use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use wreq::Client;
 
 /// Base delay per index (milliseconds) for staggered launch.
 const DELAY_BASE_STAGGERED_MS: u64 = 200;
@@ -120,12 +120,13 @@ pub async fn execute_parallel_searches(
     // Decide whether the Client is shared or built per task.
     // Per section 4.3: pages == 1 → shared; pages > 1 → isolated.
     let client_shared: Option<Client> = if config.pages <= 1 {
-        let client = http::build_client_with_proxy(
+        let client = http::build_client_with_proxy_and_cookies(
             &config.browser_profile,
             config.timeout_seconds,
             &config.language,
             &config.country,
             &config_proxy,
+            config.cookie_provider.clone(),
         )
         .map_err(|e| CliError::HttpError {
             message: format!("failed to build shared HTTP client for multi-query: {e}"),
@@ -188,12 +189,13 @@ pub async fn execute_parallel_searches(
             // Per-task Client decision.
             let client_result = match task_client {
                 Some(shared) => Ok(shared),
-                None => http::build_client_with_proxy(
+                None => http::build_client_with_proxy_and_cookies(
                     &task_config.browser_profile,
                     task_config.timeout_seconds,
                     &task_config.language,
                     &task_config.country,
                     &config_proxy_task,
+                    task_config.cookie_provider.clone(),
                 )
                 .map_err(|e| CliError::HttpError { message: format!("failed to build isolated Client for query: {e}"), cause: None }),
             };
@@ -339,12 +341,13 @@ pub async fn execute_parallel_searches_streaming(
     ));
 
     let client_shared: Option<Client> = if config.pages <= 1 {
-        let client = http::build_client_with_proxy(
+        let client = http::build_client_with_proxy_and_cookies(
             &config.browser_profile,
             config.timeout_seconds,
             &config.language,
             &config.country,
             &config_proxy,
+            config.cookie_provider.clone(),
         )
         .map_err(|e| CliError::HttpError {
             message: format!("failed to build shared HTTP client for streaming: {e}"),
@@ -421,12 +424,13 @@ pub async fn execute_parallel_searches_streaming(
 
             let client_result = match task_client {
                 Some(c) => Ok(c),
-                None => http::build_client_with_proxy(
+                None => http::build_client_with_proxy_and_cookies(
                     &task_config.browser_profile,
                     task_config.timeout_seconds,
                     &task_config.language,
                     &task_config.country,
                     &config_proxy_task,
+                    task_config.cookie_provider.clone(),
                 )
                 .map_err(|e| CliError::HttpError { message: format!("failed to build isolated Client: {e}"), cause: None }),
             };
@@ -687,6 +691,10 @@ mod tests {
             per_host_limit: 2,
             chrome_path: None,
             selectors: std::sync::Arc::new(SelectorConfig::default()),
+            cookie_provider: None,
+            persistent_jar: None,
+            warmup_enabled: false,
+        allow_lite_fallback: false,
         }
     }
 

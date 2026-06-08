@@ -8,11 +8,11 @@ use duckduckgo_search_cli::content_fetch::enrich_with_content;
 use duckduckgo_search_cli::types::{
     Config, Endpoint, OutputFormat, SafeSearch, SearchMetadata, SearchOutput, SearchResult,
 };
-use reqwest::Client;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+use wreq::Client;
 
 fn cfg(parallelism: u32) -> Config {
     Config {
@@ -43,6 +43,10 @@ fn cfg(parallelism: u32) -> Config {
         match_platform_ua: false,
         per_host_limit: 2,
         chrome_path: None,
+        cookie_provider: None,
+        persistent_jar: None,
+        warmup_enabled: false,
+        allow_lite_fallback: false,
         selectors: std::sync::Arc::new(
             duckduckgo_search_cli::types::SelectorConfig::default(),
         ),

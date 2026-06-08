@@ -313,6 +313,18 @@ jobs:
           rustup target add "${TARGET}"
           rustc --version
 
+      - name: Install BoringSSL build prerequisites (v0.7.3+)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            perl \
+            pkg-config \
+            libclang-dev
+
       - name: Install musl-tools
         if: matrix.needs_musl_tools
         shell: bash

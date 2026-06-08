@@ -6,6 +6,77 @@ Leia este arquivo em [English](CHANGELOG.md).
 - O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 - Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
+## [0.7.3] - 2026-06-08
+
+### Corrigido
+- **GAP-WS-27 — Bloqueio CAPTCHA no macOS que não ocorre no Windows**. Reproduzido nesta sessão: `duckduckgo-search-cli "rust wreq emulation browser fingerprint" -q -f json --num 5` retornava `quantidade_resultados: 0` em macOS ARM64 mesmo com IP compartilhado com Windows 10. Causa raiz: fingerprint TLS do `rustls` é reconhecível pelo Cloudflare Bot Management (vetor JA4_o), disparando CAPTCHA interstitial em HTTP 200.
+- Substituído `reqwest 0.12` + `rustls-tls` por `wreq 6.0.0-rc.29` + BoringSSL (`boring2` v4.15.11) + `wreq-util 3.0.0-rc.12`. BoringSSL embarcado produz JA4_o idêntico ao Chrome/Safari real, eliminando o CAPTCHA. Ver ADR `docs/decisions/0001-tls-boring-via-wreq.md`.
+- Mesma query após migração: 5 resultados, 735ms, sem fallback, sem CAPTCHA. Validação cross-OS pendente (operador deve testar em Windows e Linux).
+
+### Adicionado
+- **Feature `session` (cookie persistence + warm-up)**:
+  - Flag `--no-warmup` para desabilitar a requisição `GET https://duckduckgo.com/` de warm-up.
+  - Flag `--no-cookie-persistence` para manter cookies apenas em memória.
+  - Flag `--cookies-path <PATH>` para sobrescrever o local padrão do `cookies.json`.
+  - Cookie jar persistido em `~/.config/duckduckgo-search-cli/cookies.json` (Linux) ou `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows) ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS).
+  - Permissões 0o600 aplicadas no Unix (owner read+write only).
+  - Módulo `src/session_warmup.rs` (XDG path resolution) e `src/wreq_cookie_adapter.rs` (JSON ↔ `wreq::cookie::Jar` bridge).
+- **Feature `probe-deep` (detecção de interstitial CAPTCHA)**:
+  - Flag `--probe-deep` que executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo.
+  - Flag `--allow-lite-fallback` (opt-in) para fallback automático do endpoint `html` para `lite` quando interstitial é detectado.
+  - Módulo `src/probe_deep.rs` com `detectar_interstitial()` e `sugestao_mitigacao()`.
+  - Reporta JSON com `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`.
+
+### Mudado
+- **Stack TLS trocada de rustls para BoringSSL via wreq**. Build agora requer `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux. Documentado em `docs/CROSS_PLATFORM.md` e ADR-0001.
+- ADR `docs/decisions/0001-tls-boring-via-wreq.md` registra a decisão arquitetural e trade-offs aceitos.
+- Tempo de build de release aumentou aproximadamente 30s (BoringSSL estático). Binário final aproximadamente 20 MB maior.
+
+### Removido
+- Dependência `reqwest 0.12` (substituída por `wreq`).
+- `time 0.3.47` agora é puramente transitivo. Pin direto removido do `[dependencies]`.
+
+### Notas
+- **GAP-WS-27 fechado em v0.7.3**. As três causas raiz (fingerprint TLS rustls, incoerência de headers, ausência de cookie persistence) foram entregues atomicamente em um único release. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `gaps.md` para detalhes.
+- Contagem de testes: 292 lib (vs 279 em v0.7.2) + 18 wiremock + outras integrações, 0 falhas.
+- Build verificado: `cargo build --release` verde (40s), `cargo test --lib` verde, `cargo test --tests` verde, `cargo clippy --all-targets -- -D warnings` verde.
+- CI matrix do `release.yml` agora instala `cmake perl pkg-config libclang-dev` no Linux para suportar o build do BoringSSL.
+
+## [0.7.2] - 2026-06-07
+
+O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
+e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+
+### Corrigido
+- **CI: 9 jobs falhando com 10 erros E0599** (reorganização de traits do rand 0.10 — os métodos `random_range`, `random_bool` e `random` migraram de `Rng` para `RngExt` no rand 0.10.0). Linhas `use` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs` atualizadas para importar `RngExt` em vez de `Rng`. Isso destrava os jobs `cargo check`, `build`, `test`, `clippy`, `doc`, `publish --dry-run`, `validate`, `musl smoke`, `msrv` e `coverage` (todas falhas em cascata da mesma causa raiz).
+- **CI: job `supply chain (audit + deny)` falhando em RUSTSEC-2026-0009** (negação de serviço via exaustão de stack ao parsear headers de data RFC 2822, severidade 6.8 média). Resolvido com upgrade do `time` para `0.3.47` (release corrigida). O ignore defensivo no `deny.toml` para este advisory agora é obsoleto e foi removido.
+
+### Mudado
+- **`rand` saltou de 0.8 (publicado em v0.7.1) para 0.10** neste hotfix. O ecossistema de dev-deps (proptest 1.11+, getrandom 0.4+) unificou em 0.10, e 0.10 introduziu o trait `RngExt` como novo lar dos métodos de conveniência.
+- **`rust-version` saltou de 1.75 para 1.88** (bata com `time` 0.3.47 MSRV e ecossistema `rand` 0.10). Todas as outras crates ainda compilam em 1.88+.
+- **`time` fixado em `0.3.47`** como dependência direta para sobrescrever o `time 0.3.40` transitivo puxado por `cookie_store 0.22.0` → `reqwest 0.12.28` (RUSTSEC-2026-0009 stack-exhaustion DoS).
+
+### Notas
+- v0.7.1 foi publicada com código-fonte compilado contra `rand 0.9` (o lock na época resolveu para um snapshot do registry que não existe mais no crates.io). O CI subsequentemente falhou porque o registry foi atualizado e o lock agora resolve para `rand 0.10`. Este hotfix migra o código-fonte adiante para casar com o estado do registry.
+- Contagem de testes: 402 (289 lib + 101 integração + 12 doctest), 0 falhas. Clippy limpo, doc limpo, fmt limpo, deny limpo, audit limpo.
+
+## [0.7.1] - 2026-06-07
+
+### Mudado
+- **Migrado de `rand` 0.8 para `rand` 0.10** para alinhar com o ecossistema de dev-deps (proptest 1.11+, getrandom 0.4+) e a nova superfície de trait RngExt em 0.10.0. O código agora importa `rand::RngExt` para os métodos `random_range` / `random_bool` / `random`.
+- **`rust-version` saltou de 1.75 para 1.88** (bata com `time` 0.3.47 MSRV e ecossistema `rand` 0.10). Todas as outras crates ainda compilam em 1.88+.
+- **Features `gzip` e `brotli` do `reqwest` removidas**: `reqwest 0.12` removeu os métodos `ClientBuilder::gzip` e `ClientBuilder::brotli`. A descompressão agora é habilitada via header padrão `Accept-Encoding: gzip, br` (que `reqwest` manipula transparentemente).
+- **`rand::thread_rng()` substituído por `rand::rng()`** em 4 sites (o primeiro está deprecated desde rand 0.9).
+- **`Rng::gen_range` → `RngExt::random_range`** em 7 sites.
+- **`Rng::gen_bool` → `RngExt::random_bool`** em 2 sites.
+- **`Rng::gen::<T>()` → `RngExt::random::<T>()`** em 1 site.
+- **`rand::seq::SliceRandom` substituído por `rand::seq::IndexedRandom`** para chamadas `choose` em slices (o método `choose` migrou traits em 0.9). `IteratorRandom::choose` ainda é usado para tipos `Iterator` (ex.: `slice.iter().filter().choose`).
+- **`time = "0.3.47"` fixado como dependência direta** para sobrescrever o `time 0.3.40` transitivo puxado por `cookie_store 0.22.0` → `reqwest 0.12.28` (RUSTSEC-2026-0009 stack-exhaustion DoS).
+
+### Corrigido
+- **CI: 9 jobs falhando com 10 erros E0599** (`no method named random_range/random_bool/random found for struct ThreadRng in the current scope`) causados pela reorganização de traits do `rand` 0.10 (os métodos de conveniência migraram de `Rng` para `RngExt`). Linhas `use` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs` atualizadas para importar `RngExt` em vez de `Rng`.
+- **CI: job `supply chain (audit + deny)` falhando em RUSTSEC-2026-0009** (`time 0.3.40` denial-of-service via RFC 2822 stack exhaustion, severidade 6.8 média). Resolvido com upgrade do `time` para `0.3.47` (release corrigida). O ignore defensivo no `deny.toml` para este advisory foi temporariamente adicionado (removido em v0.7.2 com o upgrade definitivo).
+
 ## [0.7.0] - 2026-06-07
 
 ### Adicionado

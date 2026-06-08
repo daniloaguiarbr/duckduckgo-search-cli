@@ -1,8 +1,175 @@
-# Migration Guide
+# Guia de Migração
 
-This guide covers version-to-version migration paths for `duckduckgo-search-cli`.
-Each section documents breaking changes, additive changes, and rollback
-instructions.
+Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`.
+Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
+e instruções de rollback.
+
+## Migração v0.7.2 → v0.7.3
+
+### O que muda
+- **QUEBRA DE AMBIENTE DE BUILD (apenas builds do código-fonte)**: A stack TLS mudou de `rustls` para BoringSSL via `wreq 6.0.0-rc.29`. Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. Binários pré-compilados do crates.io não são afetados. A matrix `.github/workflows/release.yml` instala esses pacotes automaticamente.
+- **GAP-WS-27 fechado**: O interstitial de CAPTCHA no macOS está corrigido. A mesma query que retornava `quantidade_resultados: 0` na v0.7.2 retorna 5 resultados na v0.7.3 na mesma máquina. Ver `gaps.md` e `docs/decisions/0001-tls-boring-via-wreq.md`.
+- **Novas flags CLI (aditivas)**:
+  - `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` antes da primeira query real
+  - `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco
+  - `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar
+  - `--probe-deep` — executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo
+  - `--allow-lite-fallback` — opt-in para fallback automático do endpoint `html` para `lite` quando `--probe-deep` (ou retentativas de zero resultados) detectam CAPTCHA
+- **Novo estado persistente: cookie jar**: Um arquivo `cookies.json` agora é gravado em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). Permissões Unix são `0o600` (owner read+write only). Trate este arquivo como trataria uma credencial — ver `SECURITY.pt-BR.md`. Use `--no-cookie-persistence` para desabilitar.
+- **Zero mudanças no schema JSON de saída**. Todos os campos da v0.7.2 permanecem presentes. Nenhum campo `Option<T>` novo adicionado no nível superior.
+- **Novas dependências**: `wreq 6.0.0-rc.29`, `wreq-util 3.0.0-rc.12`, mais as transitivas `boring2 4.15.11`, `webpki-root-certs 1.0.7`, e a toolchain C do BoringSSL.
+- **Dependências removidas**: `reqwest 0.12.28`. `time 0.3.47` não é mais dep direta — puramente transitiva agora.
+- **Contagem de testes: 292 lib** (era 279 na v0.7.2). +13 novos testes em `session_warmup` (5), `wreq_cookie_adapter` (3), e `probe_deep` (5). 0 warnings de clippy, 0 diff de fmt, 2 warnings de cargo-deny (RUSTSEC-2025-0057 + RUSTSEC-2025-0052, ambos já na lista de ignore).
+- **Tamanho do binário**: +20 MB (BoringSSL estaticamente vinculado). Tempo de build de release: ~40s mais longo que v0.7.2 (BoringSSL compila).
+
+### Migração passo-a-passo
+
+```bash
+# Atualize para v0.7.3 (binário pré-compilado — sem deps de source build)
+cargo install duckduckgo-search-cli --version 0.7.3 --force
+
+# Verifique a nova versão
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.3
+
+# Verifique a correção do GAP-WS-27 no macOS
+duckduckgo-search-cli "rust wreq emulation browser fingerprint" -q -f json --num 5
+# Esperado: 5 resultados em menos de 2 segundos, sem CAPTCHA
+
+# Teste o novo probe-deep (detecção de CAPTCHA)
+duckduckgo-search-cli --probe-deep -q -f json
+# Esperado: {"status": "ok", "cascata_motivo": "none", "sugestao_mitigacao": "..."}
+
+# Build do código-fonte (apenas se for compilar — não é necessário para `cargo install`)
+sudo apt install cmake perl pkg-config libclang-dev
+git checkout v0.7.3
+cargo build --release
+```
+
+### Mudanças no schema JSON
+
+Nenhuma mudança de schema. v0.7.3 preserva todos os campos da v0.7.2:
+
+| Campo                          | Status    | Notas                                       |
+|--------------------------------|-----------|---------------------------------------------|
+| `.resultados[].titulo`         | inalterado | Sempre presente quando não vazio           |
+| `.resultados[].url`            | inalterado | Sempre presente quando não vazio           |
+| `.metadados.identidade_usada`  | inalterado | `Option<String>` — v0.6.4+                |
+| `.metadados.nivel_cascata`     | inalterado | `Option<u32>` (0..=4) — v0.6.4+           |
+| `.metadados.usou_endpoint_fallback` | inalterado | `bool` — v0.6.0+                        |
+
+O arquivo `cookies.json` é estado interno e não é exposto no schema JSON de saída.
+
+### Notas de compatibilidade
+- O binário v0.7.3 é API-compatível com v0.7.2 (sem remoções de flag CLI, sem remoções de campo JSON)
+- Os alvos de build de v0.7.3 permanecem inalterados: `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`
+- Binários v0.7.2 que funcionavam em Linux/macOS continuam funcionando — sem upgrade urgente necessário **a menos que** você tenha sido afetado pelo CAPTCHA do macOS (GAP-WS-27)
+- Usuários de macOS que tiveram queries com zero resultados na v0.7.2 devem atualizar para v0.7.3 para corrigir o CAPTCHA. A correção é estrutural (fingerprint TLS), não uma solução alternativa.
+- A nova dependência `wreq 6.0.0-rc.29` é instalada automaticamente por `cargo install`.
+
+### Rollback
+
+Se precisar voltar para v0.7.2 (ex.: algum problema inesperado de build do BoringSSL):
+
+```bash
+# Instalar uma versão específica mais antiga
+cargo install duckduckgo-search-cli --version 0.7.2 --force
+```
+
+> **Nota**: v0.7.2 foi a versão afetada pelo GAP-WS-27. Voltar reintroduz o bug do CAPTCHA do macOS. Faça isso apenas se v0.7.3 tiver um problema crítico na sua plataforma.
+
+### Veja também
+
+- `CHANGELOG.pt-BR.md` — changelog completo
+- `gaps.md` — entrada do GAP-WS-27 com reprodução empírica
+- `docs/decisions/0001-tls-boring-via-wreq.md` — decisão arquitetural
+- `docs/CROSS_PLATFORM.pt-BR.md` — pré-requisitos de build do BoringSSL
+- `SECURITY.pt-BR.md` — tratamento do cookie jar
+- `README.pt-BR.md` — overview e início rápido
+
+
+## Migração v0.7.1 → v0.7.2
+
+### O que muda
+- **Zero quebras.** Todas as flags CLI, schemas JSON de saída e exit codes da v0.7.1 permanecem inalterados.
+- **Correção de advisory de segurança (RUSTSEC-2026-0009)**: `time 0.3.40` denial-of-service via RFC 2822 stack exhaustion estava sendo puxado transitivamente via `cookie_store 0.22.0` → `reqwest 0.12.28`. v0.7.2 fixa `time = "0.3.47"` como dep direta para sobrescrever a constraint transitiva.
+- **Migração `rand` 0.10**: dev-deps (proptest 1.11+, getrandom 0.4+) unificaram em rand 0.10 e os métodos de conveniência migraram de `Rng` para `RngExt`. Todos os call sites internos atualizados: `random_range`, `random_bool`, `random`, e `IndexedRandom::choose`.
+- **Bump de MSRV**: `rust-version` saltou de 1.75 para 1.88 (requerido por `time 0.3.47+` e `rand 0.10`).
+- **Correção de higiene de CI**: 6 erros latentes de clippy que estavam quebrando silenciosamente a matrix CI na v0.7.1 são capturados agora por `cargo clippy --all-targets --all-features -- -D warnings`.
+
+### Migração passo-a-passo
+
+```bash
+# Atualize para v0.7.2
+cargo install duckduckgo-search-cli --version 0.7.2 --force
+
+# Verifique a nova versão
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.2
+
+# Verifique que a migração do rand 0.10 funciona
+duckduckgo-search-cli "rust async" -q -f json | jaq '.resultados[].titulo'
+```
+
+### Mudanças no schema JSON
+
+Nenhuma mudança de schema. v0.7.2 preserva todos os campos da v0.7.1.
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.1 --force
+```
+
+
+## Migração v0.7.0 → v0.7.1
+
+### O que muda
+- **Zero quebras.** Todas as flags CLI, schemas JSON de saída e exit codes da v0.7.0 permanecem inalterados.
+- **Migração de dependência (interna)**: `rand` saltou de `0.8` para `0.9` para alinhar com `proptest 1.11+` (dev-dep). Todos os call sites internos atualizados.
+- **Bump de MSRV**: `rust-version` saltou de `1.75` para `1.85` para satisfazer MSRV de `rand 0.9` e a onda de deps transitivas edition-2024.
+- **Limpeza do builder reqwest**: chamadas `ClientBuilder::gzip(true)` e `.brotli(true)` removidas.
+- **Higiene de CI**: dois warnings de `actionlint` shellcheck corrigidos.
+- **Ignore de advisory de segurança**: `RUSTSEC-2026-0009` (time 0.3.40 DoS) adicionado à lista de ignore do `deny.toml`.
+
+### Migração passo-a-passo
+
+```bash
+# Atualize para v0.7.1
+cargo install duckduckgo-search-cli --version 0.7.1 --force
+
+# Verifique
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.1
+```
+
+### Mudanças no schema JSON
+
+Nenhuma mudança de schema. v0.7.1 preserva todos os campos da v0.7.0.
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.0 --force
+```
+
+
+## Migração v0.6.x → v0.7.0
+
+### O que muda
+- **Apenas aditivo** — v0.7.0 é totalmente retrocompatível com v0.6.x. O subcomando `buscar`, o schema JSON de configuração padrão, cada flag existente e cada exit code permanecem byte-for-byte idênticos.
+- **Novo subcomando público** `deep-research` para pesquisa multi-hop por LLM. Operadores que não invocam `deep-research` não veem mudança observável.
+- **Quatro novos módulos públicos** em `lib.rs` — `deep_research`, `decomposition`, `aggregation`, `synthesis` — composíveis a partir de crates downstream.
+- **Novas dependências diretas** em `Cargo.toml`: `url = "2"`, `regex = "1"`, e `proptest = "1"` (dev-only). As três são adições puras; nenhuma dependência foi atualizada ou removida.
+
+### O que atualizar no seu pipeline
+- Se você roteiriza contra o enum `Subcommand`, adicione um braço de match para `Subcommand::DeepResearch(DeepResearchArgs)`.
+- Se você consome `lib::run` diretamente, roteie `args.subcommand` para `lib::execute_deep_research` (o helper que constrói um `Config` padrão e chama o pipeline).
+- Se você fixa uma versão mínima suportada em `Cargo.toml` de uma crate downstream, atualize para `duckduckgo-search-cli = "0.7"`.
+- Nenhuma migração de schema JSON é necessária: os schemas `SearchOutput` e `MultiSearchOutput` permanecem inalterados.
+
+### Rollback
+- Fixe em `duckduckgo-search-cli = "0.6.5"` em crates downstream; o binário no crates.io é totalmente retrocompatível.
 
 ## Migration v0.6.4 → v0.6.5
 

@@ -1,7 +1,22 @@
-# Testing Guide
+# Guia de Testes
 
 Este guia cobre execução, categorização e integração CI para os testes
 de `duckduckgo-search-cli`.
+
+## Adições de Testes em v0.7.3
+
+A release v0.7.3 adicionou 13 testes, todos endereçando o GAP-WS-27 (CAPTCHA no macOS) e seus três fatores de causa raiz:
+
+- **`session_warmup` (5 testes unitários)** — resolução de path XDG no Linux, macOS e Windows; criação de diretório ausente; override de path via `DUCKDUCKGO_SEARCH_CLI_HOME`; estabilidade da constante `DEFAULT_COOKIES_FILENAME`.
+- **`wreq_cookie_adapter` (3 testes unitários)** — `PersistentJar::empty()` produz um `Arc<dyn CookieStore>` válido; roundtrip `parse_json` preserva cookies através da fronteira `wreq::cookie::Jar`; roundtrip `save`/`load` com permissões Unix `0o600` e semântica de escrita atômica.
+- **`probe_deep` (5 testes unitários)** — `detectar_interstitial` identifica corretamente os marcadores do Cloudflare (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`); `detectar_interstitial` identifica corretamente os marcadores `robot-detected` e `bots, we have detected` do DuckDuckGo; `sugestao_mitigacao` retorna passos concretos para cada tipo de interstitial; `InterstitialKind::None` é o default para uma resposta HTML normal; `execute_probe_deep` produz um JSON report válido.
+- **Total: 292 testes lib passando** (era 279 em v0.7.2 = +13 novos). As mudanças v0.7.3 são puramente aditivas. Nenhum teste removido, nenhuma assinatura de teste alterada, nenhuma fixture renomeada.
+
+### Gaps v0.7.3 fechados por estes testes
+
+- **`probe_deep::detectar_interstitial`** — valida que os marcadores são detectados (o custo de um falso negativo é um CAPTCHA não diagnosticado). Cinco marcadores do Cloudflare + dois do DuckDuckGo são testados em isolamento.
+- **`wreq_cookie_adapter::PersistentJar`** — valida que a ponte JSON ↔ `wreq::cookie::Jar` não perde cookies durante roundtrip. Uma regressão aqui silenciosamente descartaria cookies de sessão, reintroduzindo o GAP-WS-27.
+- **`session_warmup::default_cookies_path`** — valida que a resolução XDG está correta por plataforma. Uma regressão aqui colocaria o cookie jar no diretório errado ou falharia em setar permissões `0o600` no Unix.
 
 ## Adições de Testes em v0.6.5
 
@@ -10,25 +25,19 @@ A release v0.6.5 adicionou 11 testes, todos endereçando gaps anteriormente em a
 - **WS-11** (5 testes) — invariantes property-based para o parser HTML em
   `extraction.rs`. Valida que inputs vazios retornam `Vec` vazio, positions
   são densos e 1-based, URLs são normalizados para paths absolutos, o parser
-  é determinístico, e HTML malformado não causa panic. Estes testes teriam
-  pego regressões da migração v0.6.3 → v0.6.4.
+  é determinístico, e HTML malformado não causa panic.
 - **WS-12** (4 testes) — circuit breaker per-host em `content_fetch.rs`.
   Valida que o estado closed permite requisições, o threshold abre o breaker,
   um único sucesso reseta o contador de falhas, e o estado half-open é
   alcançável após a janela de cooldown.
 - **WS-23** (1 teste) — teste de integração wiremock para o header
-  `Retry-After` em respostas HTTP 429. Valida que o delay de backoff é
-  pelo menos `Retry-After` segundos, com 500ms de margem para overhead
-  do scheduler CI.
-- **322 testes existentes preservados** — as mudanças v0.6.5 são puramente
-  aditivas. Nenhum teste removido, nenhuma assinatura de teste alterada,
-  nenhuma fixture renomeada.
+  `Retry-After` em respostas HTTP 429.
 
 ### Gaps v0.6.5 fechados por estes testes
 - **MP-26** (Windows HANDLE) — validado por `cargo test --all-features`
-  no runner CI `windows-latest` (adicionado nesta release).
+  no runner CI `windows-latest`.
 - **CI-01** (6 erros de clippy) — `cargo clippy --all-targets --all-features -- -D warnings`
-  agora passa, o que é em si um "teste" de que nenhuma regressão de lint existe.
+  agora passa.
 - **WS-12** (circuit breaker) — coberto por 4 testes unitários em
   `src/content_fetch.rs`.
 - **WS-23** (Retry-After) — coberto por 1 teste wiremock em
@@ -39,11 +48,11 @@ A release v0.6.5 adicionou 11 testes, todos endereçando gaps anteriormente em a
 The test suite is split into four categories to balance speed, isolation,
 and coverage:
 
-| Category       | Speed      | Isolation   | Real I/O  | Count (v0.6.5) |
+| Category       | Speed      | Isolation   | Real I/O  | Count (v0.7.3) |
 |----------------|------------|-------------|-----------|----------------|
-| Unit           | < 1 s      | per-fn      | none      | 243            |
-| Integration    | < 30 s     | per-test    | localhost | 84             |
-| Doc            | < 5 s      | per-doc     | none      | 6              |
+| Unit           | < 1 s      | per-fn      | none      | 292            |
+| Integration    | < 30 s     | per-test    | localhost | 99             |
+| Doc            | < 5 s      | per-doc     | none      | 0              |
 | Loom           | n/a        | n/a         | n/a       | 0 (gated)      |
 
 ## Test Categories
@@ -164,7 +173,7 @@ cargo test ws12_
 Three CI jobs run the test suite:
 
 1. **`validate` matrix** — `cargo test --all-features --locked` on Linux, macOS, Windows
-2. **`msrv`** — `cargo check --all-targets --all-features --locked` on Rust 1.75
+2. **`msrv`** — `cargo check --all-targets --all-features --locked` on Rust 1.88 (MSRV desde v0.7.2)
 3. **`coverage`** — `cargo llvm-cov --all-features --locked --fail-under-lines 80` on Linux
 
 Plus a manual `cargo nextest` profile available locally:

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: I/O-bound (reqwest client construction and UA management)
-//! `reqwest::Client` construction and User-Agent selection.
+//! `wreq::Client` construction and User-Agent selection.
 //!
 //! The HTTP client is configured with:
 //! - TLS via `rustls-tls` (no OpenSSL dependency on any platform).
@@ -22,15 +22,16 @@
 use crate::error::CliError;
 use crate::platform;
 use rand::seq::{IndexedRandom, IteratorRandom};
-use reqwest::{
+use serde::Deserialize;
+use std::sync::Arc;
+use std::time::Duration;
+use wreq::{
     header::{
         HeaderMap, HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CACHE_CONTROL,
     },
     redirect::Policy,
     Client,
 };
-use serde::Deserialize;
-use std::time::Duration;
 
 /// Built-in User-Agent list embedded in the binary as fallback when `config/user-agents.toml`
 /// is not available.
@@ -603,7 +604,7 @@ impl ProxyConfig {
 // Client construction
 // ---------------------------------------------------------------------------
 
-/// Builds a `reqwest::Client` ready to make requests to `DuckDuckGo`.
+/// Builds a `wreq::Client` ready to make requests to `DuckDuckGo`.
 ///
 /// # Arguments
 /// * `user_agent` — User-Agent string to be sent on all requests.
@@ -634,7 +635,7 @@ pub fn build_client(
 /// Transforms `http://user:password@proxy:8080` into `http://us***@proxy:8080`.
 /// If the URL contains no credentials, returns the safe representation without userinfo.
 fn mask_proxy_url(raw_url: &str) -> String {
-    match reqwest::Url::parse(raw_url) {
+    match url::Url::parse(raw_url) {
         Ok(parsed) => {
             let user = parsed.username();
             let has_password = parsed.password().is_some();
@@ -666,7 +667,7 @@ fn mask_proxy_url(raw_url: &str) -> String {
     }
 }
 
-/// Builds a `reqwest::Client` with a browser profile and proxy configuration.
+/// Builds a `wreq::Client` with a browser profile and proxy configuration.
 ///
 /// Uses [`BrowserProfile::initial_headers`] to generate family-specific headers,
 /// including complete Sec-Fetch and Client Hints (Chrome/Edge).
@@ -687,18 +688,55 @@ pub fn build_client_with_proxy(
     country: &str,
     proxy: &ProxyConfig,
 ) -> Result<Client, CliError> {
+    build_client_with_proxy_and_cookies(profile, timeout_secs, language, country, proxy, None)
+}
+
+/// Builds a `wreq::Client` with a browser profile, proxy configuration, and
+/// an optional external cookie store.
+///
+/// When `cookie_provider` is `Some(Arc<dyn wreq::cookie::CookieStore>)`, the
+/// client's in-memory cookie store is replaced with the supplied one. This
+/// is the integration point for the [`crate::session_warmup::default_cookies_path`]
+/// module: the warm-up reads the persistent jar from disk, wraps it in
+/// [`crate::wreq_cookie_adapter::PersistentJar`], and passes it here so
+/// the request pipeline sees the persisted session cookies.
+///
+/// When `cookie_provider` is `None`, the builder falls back to
+/// `cookie_store(true)` (an in-memory jar that lives for the process).
+///
+/// # Errors
+///
+/// Returns `Err` if any header value contains invalid bytes, if the
+/// proxy URL is malformed, or if the underlying TLS backend cannot
+/// initialize (very rare on a properly configured host).
+pub fn build_client_with_proxy_and_cookies(
+    profile: &BrowserProfile,
+    timeout_secs: u64,
+    language: &str,
+    country: &str,
+    proxy: &ProxyConfig,
+    cookie_provider: Option<Arc<dyn wreq::cookie::CookieStore>>,
+) -> Result<Client, CliError> {
     let headers = profile.initial_headers(language, country)?;
 
     let mut builder = Client::builder()
         .user_agent(&profile.user_agent)
         .default_headers(headers)
-        .cookie_store(true)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
         .pool_max_idle_per_host(10)
         .connect_timeout(Duration::from_secs(10))
         .redirect(Policy::limited(5))
         .timeout(Duration::from_secs(timeout_secs));
+
+    match cookie_provider {
+        Some(provider) => {
+            builder = builder.cookie_provider(provider);
+        }
+        None => {
+            builder = builder.cookie_store(true);
+        }
+    }
 
     match proxy {
         ProxyConfig::Unset => {}
@@ -707,7 +745,7 @@ pub fn build_client_with_proxy(
             tracing::info!("proxy explicitly disabled via --no-proxy");
         }
         ProxyConfig::Url(url) => {
-            let parsed_url = reqwest::Url::parse(url).map_err(|e| CliError::ProxyError {
+            let parsed_url = url::Url::parse(url).map_err(|e| CliError::ProxyError {
                 message: format!("invalid proxy URL {}: {e}", mask_proxy_url(url)),
             })?;
             let user = parsed_url.username().to_string();
@@ -716,7 +754,7 @@ pub fn build_client_with_proxy(
                 .map(|s| s.to_string())
                 .unwrap_or_default();
 
-            let mut proxy_rq = reqwest::Proxy::all(url).map_err(|e| CliError::ProxyError {
+            let mut proxy_rq = wreq::Proxy::all(url).map_err(|e| CliError::ProxyError {
                 message: format!(
                     "failed to configure Proxy::all({}): {e}",
                     mask_proxy_url(url)
@@ -736,7 +774,7 @@ pub fn build_client_with_proxy(
     }
 
     let client = builder.build().map_err(|e| CliError::HttpError {
-        message: format!("failed to build reqwest::Client: {e}"),
+        message: format!("failed to build wreq::Client: {e}"),
         cause: None,
     })?;
 
@@ -1151,7 +1189,7 @@ mod tests {
         let headers = profile
             .initial_headers("en", "us")
             .expect("should build headers");
-        assert!(headers.get(reqwest::header::DNT).is_none());
-        assert!(headers.get(reqwest::header::REFERER).is_none());
+        assert!(headers.get(wreq::header::DNT).is_none());
+        assert!(headers.get(wreq::header::REFERER).is_none());
     }
 }

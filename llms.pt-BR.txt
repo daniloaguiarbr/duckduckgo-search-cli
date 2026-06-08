@@ -1,4 +1,15 @@
-# duckduckgo-search-cli v0.7.0 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.7.3 — Full Documentation for LLM Context
+
+## v0.7.3 Highlights (2026-06-08)
+
+- **GAP-WS-27 corrigido (CRÍTICO).** O interstitial de CAPTCHA do macOS que retornava HTTP 200 com `quantidade_resultados: 0` enquanto o Windows retornava resultados completos está fechado. Causa raiz: o `rustls` produz fingerprint TLS reconhecível pelo Cloudflare Bot Management (vetor JA4_o). v0.7.3 substitui `reqwest 0.12` + `rustls-tls` por `wreq 6.0.0-rc.29` + BoringSSL (`boring2` 4.15.11) + `wreq-util 3.0.0-rc.12`. O BoringSSL produz fingerprint JA4_o idêntico ao Chrome/Safari. Reprodução: mesma query, mesma máquina — v0.7.2 retornou 0 resultados em 1695ms; v0.7.3 retorna 5 resultados em 735ms. Ver `docs/decisions/0001-tls-boring-via-wreq.md`.
+- **Nova feature `session` (cookie persistence + warm-up).** Novas flags: `--no-warmup` (pula o warm-up `GET https://duckduckgo.com/`), `--no-cookie-persistence` (cookies em memória apenas), `--cookies-path <PATH>` (sobrescreve o XDG default). Cookie jar gravado em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`.
+- **Nova feature `probe-deep` (detecção de interstitial CAPTCHA).** Novas flags: `--probe-deep` (roda uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo), `--allow-lite-fallback` (opt-in para fallback automático `html → lite` quando CAPTCHA é detectado).
+- **Pré-requisitos de build adicionados.** Compilar do código-fonte agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Binários pré-compilados do crates.io não são afetados. Matrix CI em `.github/workflows/release.yml` instala esses pacotes nos jobs Linux.
+- **Novos módulos** — `session_warmup` (resolução de path XDG), `wreq_cookie_adapter` (bridge JSON ↔ `wreq::cookie::Jar`), `probe_deep` (detecção de interstitial).
+- **Zero quebras no schema JSON de saída** — todos os campos da v0.7.2 permanecem presentes.
+- **Contagem de testes: 292 lib** (era 279 na v0.7.2) + 18 wiremock + outras integrações. 0 warnings de clippy, 0 diff de fmt, 2 warnings de cargo-deny (RUSTSEC-2025-0057 e RUSTSEC-2025-0052, ambos já na lista de ignore).
+- **Tamanho do binário +20 MB** (BoringSSL estaticamente vinculado). Tempo de build de release +30s a +90s.
 
 ## v0.7.0 Highlights (2026-06-07)
 
@@ -111,7 +122,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Auto-pagination that just works.** When `--num` exceeds a single DuckDuckGo page, the CLI automatically crawls up to 2 pages so you always get the count you asked for.
 - **Optional readable body extraction.** `--fetch-content` downloads each URL and embeds cleaned text straight into the JSON, capped by `--max-content-length`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
-- **Pure `rustls-tls`.** No OpenSSL, no SChannel surprises, static musl builds work on the first try inside any Alpine container.
+- **Fingerprint TLS real de navegador via BoringSSL (v0.7.3+).** BoringSSL é estaticamente vinculado pelo `wreq`, produzindo fingerprint JA4_o idêntico ao Chrome/Safari. Elimina o CAPTCHA do Cloudflare que afetava o macOS na v0.7.2. Build requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Builds musl/Alpine estáticas continuam funcionando mas exigem a mesma toolchain. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `docs/CROSS_PLATFORM.md`.
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.

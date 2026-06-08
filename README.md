@@ -60,7 +60,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Auto-pagination that just works.** When `--num` exceeds a single DuckDuckGo page, the CLI automatically crawls up to 2 pages so you always get the count you asked for.
 - **Optional readable body extraction.** `--fetch-content` downloads each URL and embeds cleaned text straight into the JSON, capped by `--max-content-length`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
-- **Pure `rustls-tls`.** No OpenSSL, no SChannel surprises, static musl builds work on the first try inside any Alpine container.
+- **Real browser TLS fingerprint via BoringSSL (v0.7.3+).** BoringSSL is statically linked by `wreq`, producing a JA4_o fingerprint identical to Chrome/Safari. Eliminates the Cloudflare CAPTCHA that affected macOS in v0.7.2. Build requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. musl/Alpine static builds still work but require the same toolchain. See `docs/decisions/0001-tls-boring-via-wreq.md` and `docs/CROSS_PLATFORM.md`.
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
@@ -250,8 +250,13 @@ duckduckgo-search-cli init-config --force
 | `-v`, `--verbose`          | off        | Debug logs on stderr.                                              |
 | `-q`, `--quiet`            | off        | Error-only logs on stderr.                                         |
 | `--probe`                  | off        | Pre-flight health check (1 minimal request, JSON report).          |
+| `--probe-deep`             | off        | Real-query CAPTCHA interstitial detector (v0.7.3+).               |
 | `--identity-profile`       | `auto`     | Pin a 12-identity pool profile (`chrome-win`, `safari-mac`, ...). |
 | `--seed N`                 | (random)   | Deterministic seed for UA + identity selection.                   |
+| `--no-warmup`              | off        | Skip the `GET https://duckduckgo.com/` warm-up (v0.7.3+).         |
+| `--no-cookie-persistence`  | off        | Keep cookies in memory only; never write to disk (v0.7.3+).       |
+| `--cookies-path PATH`      | XDG config | Override the default cookie jar path (v0.7.3+).                  |
+| `--allow-lite-fallback`    | off        | Auto-fallback to `--endpoint lite` when CAPTCHA detected (v0.7.3+). |
 
 ### Environment variables
 
@@ -292,6 +297,7 @@ duckduckgo-search-cli init-config --force
 7. **Pipe to jaq/jq returns empty** — check `echo ${PIPESTATUS[*]}` after the pipe. If the first number is non-zero, the CLI errored before producing output. Common causes: DuckDuckGo rate-limiting (exit 5), global timeout (exit 4), or missing query. Always pass `-q -f json` when piping.
 8. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal. Paths targeting system directories (`/etc`, `/usr`, `/bin`, `C:\Windows`) are blocked. Use paths under your home directory, `/tmp`, or the current working directory.
 9. **Getting exit 5 (zero results) frequently** — this is usually temporary rate-limiting from DuckDuckGo, not a permanent block. Wait 60 seconds and retry. If the problem persists, add `--proxy socks5://127.0.0.1:9050` to rotate your outbound IP, or try `--endpoint lite` as a fallback. v0.6.0 browser fingerprint profiles reduce this significantly by mimicking real browser sessions.
+10. **CAPTCHA interstitial suspected (v0.7.3+)** — run `duckduckgo-search-cli --probe-deep -q -f json` to classify the response body. If `status` is `captcha`, the response is blocked. The probe also reports `sugestao_mitigacao` with concrete next steps (rotate proxy, switch endpoint, back off). Treat the cookie jar as credential: the file `cookies.json` is written with 0o600 permissions and contains session cookies from DuckDuckGo.
 
 ### Migration notes (v0.6.x → v0.7.0)
 
@@ -316,6 +322,41 @@ duckduckgo-search-cli init-config --force
   - `.github/workflows/ci.yml:520` — quoted command substitution `$(date ...)` to `"\$(date ...)"` (SC2046)
   - `.github/workflows/release.yml:505` — added `--` prefix to glob `sha256sum -- *` (SC2035)
 - **Security advisory ignore**: `RUSTSEC-2026-0009` (time 0.3.40 DoS via RFC 2822 stack exhaustion) added to `deny.toml` ignore list. The fix in `time 0.3.47` requires `rust-version 1.88+` which we cannot satisfy at the current MSRV. Impact: a CLI that only parses `Date` headers from HTTP responses under the user's explicit `--lang`/`--country` flags; the response body size cap already limits input length.
+- **392 tests passing** (279 lib + 12 doc + 101 integration). 0 clippy warnings, 0 doc warnings, 0 fmt diff, 4 cargo-deny gates green, `cargo publish --dry-run` clean.
+
+## Migration notes (v0.7.2 → v0.7.3)
+
+- **BREAKING BUILD-ENV: TLS stack changed from rustls to BoringSSL via `wreq`.** The build now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. macOS and Windows binaries are pre-built and unaffected. End users installing the pre-built binary from crates.io do not need to install these tools; the requirement applies only to operators compiling from source (and to the `release.yml` CI matrix, which now installs these packages in the Linux job).
+- **GAP-WS-27 closed.** The macOS CAPTCHA interstitial (HTTP 200 with empty body, exit 5, `quantidade_resultados: 0`) caused by Cloudflare's bot scoring of the `rustls` TLS fingerprint is fixed. Same query that returned 0 results in v0.7.2 returns 5 results in v0.7.3 on the same machine. See `gaps.md` and `docs/decisions/0001-tls-boring-via-wreq.md`.
+- **New CLI flags (additive)**:
+  - `--no-warmup` — skip the warm-up `GET https://duckduckgo.com/` before the first real query
+  - `--no-cookie-persistence` — keep cookies in memory only; never write `cookies.json` to disk
+  - `--cookies-path <PATH>` — override the default XDG cookie jar path
+  - `--probe-deep` — run a real search query and classify the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers
+  - `--allow-lite-fallback` — opt-in to automatic fallback from `html` to `lite` endpoint when `--probe-deep` (or zero-result retries) detect CAPTCHA
+- **New persistent state: cookie jar.** A `cookies.json` file is now written to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). Unix permissions are `0o600` (owner read+write only). Treat this file as you would treat a credential — see `SECURITY.md`. Use `--no-cookie-persistence` to opt out.
+- **Zero changes to JSON output schema.** All fields from v0.7.2 remain present. No new `Option<T>` fields added at the top level (the session/cookie state is internal to the pipeline, not exposed to the agent).
+- **New dependencies**: `wreq 6.0.0-rc.29`, `wreq-util 3.0.0-rc.12`, plus transitive `boring2 4.15.11`, `webpki-root-certs 1.0.7`, and the BoringSSL C toolchain.
+- **Removed dependencies**: `reqwest 0.12.28`, `time 0.3.47` (no longer a direct dep — purely transitive now).
+- **Test count: 292 lib** (was 279 in v0.7.2). +13 new tests across `session_warmup` (5), `wreq_cookie_adapter` (3), and `probe_deep` (5). 0 clippy warnings, 0 fmt diff, 2 cargo-deny warnings (RUSTSEC-2025-0057 + RUSTSEC-2025-0052, both already in ignore list).
+- **Binary size**: +20 MB (BoringSSL is statically linked). Release build time: ~40s longer than v0.7.2 (BoringSSL compiles in).
+
+## Migration notes (v0.7.1 → v0.7.2)
+
+- **Zero breaking changes.** All CLI flags, JSON output schemas, and exit codes from v0.7.1 remain unchanged.
+- **Security advisory fix (RUSTSEC-2026-0009)**: `time 0.3.40` denial-of-service via RFC 2822 stack exhaustion was being pulled in transitively via `cookie_store 0.22.0` → `reqwest 0.12.28`. v0.7.2 pins `time = "0.3.47"` as a direct dep to override the transitive constraint.
+- **`rand` 0.10 migration**: dev-deps (proptest 1.11+, getrandom 0.4+) unified on rand 0.10 and the convenience methods moved from `Rng` to `RngExt`. All internal call sites updated: `random_range`, `random_bool`, `random`, and `IndexedRandom::choose`.
+- **MSRV bump**: `rust-version` raised from 1.75 to 1.88 (required by `time 0.3.47+` and `rand 0.10`).
+- **CI hygiene fix**: 6 latent clippy errors that were silently breaking the CI matrix in v0.7.1 are caught now by `cargo clippy --all-targets --all-features -- -D warnings`.
+
+## Migration notes (v0.7.0 → v0.7.1)
+
+- **Zero breaking changes.** All CLI flags, JSON output schemas, and exit codes from v0.7.0 remain unchanged.
+- **Dependency migration (internal)**: `rand` bumped from `0.8` to `0.9` to align with `proptest 1.11+` (dev-dep). All internal call sites updated.
+- **MSRV bump**: `rust-version` raised from `1.75` to `1.85` to satisfy `rand 0.9` MSRV and the wave of edition-2024 transitive deps.
+- **reqwest builder cleanup**: removed `ClientBuilder::gzip(true)` and `.brotli(true)` calls.
+- **CI hygiene**: two `actionlint` shellcheck warnings fixed.
+- **Security advisory ignore**: `RUSTSEC-2026-0009` (time 0.3.40 DoS) added to `deny.toml` ignore list.
 - **392 tests passing** (279 lib + 12 doc + 101 integration). 0 clippy warnings, 0 doc warnings, 0 fmt diff, 4 cargo-deny gates green, `cargo publish --dry-run` clean.
 
 ## Migration notes (v0.3.x → v0.4.0)
@@ -451,7 +492,7 @@ Basta que o agente possa executar um comando de shell. Quase todo agente sério 
 - **Auto-paginação que simplesmente funciona.** Quando `--num` supera uma página única do DuckDuckGo, o CLI crawla até 2 páginas automaticamente para entregar a contagem pedida.
 - **Extração opcional de body legível.** `--fetch-content` baixa cada URL e embute texto limpo direto no JSON, limitado por `--max-content-length`.
 - **Binário único cross-platform.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — tudo a partir de um `cargo install`.
-- **`rustls-tls` puro.** Sem OpenSSL, sem surpresas no SChannel, builds musl estáticas funcionam de primeira em qualquer container Alpine.
+- **v0.7.3+: Fingerprint TLS real de navegador via BoringSSL (wreq).** BoringSSL é estaticamente vinculado e produz fingerprint JA4_o idêntico ao Chrome/Safari, eliminando o CAPTCHA do Cloudflare que afetava o macOS na v0.7.2. Build requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `docs/CROSS_PLATFORM.md`.
 - **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
 - **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
 - **Anti-bloqueio v0.6.0.** Headers `Sec-Fetch-*` por família de browser, Client Hints para Chrome/Edge, detecção de HTTP 202 anomaly e detecção de bloqueio silencioso com limiar de 5 KB.

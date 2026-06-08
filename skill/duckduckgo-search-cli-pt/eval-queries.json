@@ -279,5 +279,70 @@
     "expected_score_max": 1.0,
     "expected_exit": 0,
     "category": "v0.7.0-feature-test"
+  },
+  {
+    "id": "q36",
+    "query": "rust wreq BoringSSL Cloudflare fingerprint",
+    "expected_use": "validar a troca da stack TLS da v0.7.3 de rustls para BoringSSL via wreq. A query que retornava 0 resultados na v0.7.2 (GAP-WS-27) deve agora retornar 5 resultados com o binário v0.7.3. Inspecionar .quantidade_resultados >= 5 e .metadados.tempo_execucao_ms para wall time abaixo de 2000ms",
+    "flags": ["-q", "-f", "json", "-n", "5"],
+    "expected_json_fields": ["resultados", "quantidade_resultados", "metadados.tempo_execucao_ms"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q37",
+    "query": "duckduckgo CLI detecção CAPTCHA",
+    "expected_use": "validar a flag --probe-deep da v0.7.3. A CLI deve rodar uma busca real e classificar o corpo da resposta. Esperar que .status seja 'ok' ou 'captcha'. Esperar que os campos .cascata_motivo, .sugestao_mitigacao, .http_status, .latency_ms, .endpoint e .url estejam presentes. O probe deve completar em menos de 5 segundos",
+    "flags": ["-q", "-f", "json"],
+    "expected_json_fields": ["status", "cascata_motivo", "sugestao_mitigacao", "http_status", "latency_ms", "endpoint", "url"],
+    "expected_wall_time_max_ms": 5000,
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q38",
+    "query": "cliente http rust 2026",
+    "expected_use": "validar a flag --no-warmup da v0.7.3. Com --no-warmup, a CLI deve pular o GET https://duckduckgo.com/ de warm-up e emitir os resultados da busca diretamente. Esperar que a query complete mais rápido que o padrão (warm-up adiciona 200-400ms). Esperar 5+ resultados",
+    "flags": ["-q", "-f", "json", "-n", "5", "--no-warmup"],
+    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q39",
+    "query": "rust runtime async 2026",
+    "expected_use": "validar a flag --no-cookie-persistence da v0.7.3. Com --no-cookie-persistence, nenhum arquivo cookies.json deve ser criado ou modificado. Os cookies de sessão são mantidos em memória apenas. Esperar 5+ resultados e exit 0",
+    "flags": ["-q", "-f", "json", "-n", "5", "--no-cookie-persistence"],
+    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q40",
+    "query": "framework web rust 2026",
+    "expected_use": "validar o override --cookies-path da v0.7.3. Passar --cookies-path /tmp/ddg-test-cookies-pt.json e verificar que o arquivo é criado neste path exato com permissões Unix 0o600. Esperar 5+ resultados e exit 0",
+    "flags": ["-q", "-f", "json", "-n", "5", "--cookies-path", "/tmp/ddg-test-cookies-pt.json"],
+    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "expected_side_effects": ["criar /tmp/ddg-test-cookies-pt.json com modo 0o600"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q41",
+    "query": "rust cargo build 2026",
+    "expected_use": "validar a flag --allow-lite-fallback da v0.7.3. A flag habilita fallback automático do endpoint html para o endpoint lite quando CAPTCHA é detectado ou quando o endpoint html retorna zero resultados. Esperar exit 0 com pelo menos 1 resultado (endpoint lite geralmente retorna resultados onde html está bloqueado)",
+    "flags": ["-q", "-f", "json", "-n", "5", "--allow-lite-fallback"],
+    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q42",
+    "query": "rust async 2026 melhores práticas",
+    "expected_use": "validar que --version da v0.7.3 reporta 0.7.3 e o binário é a nova build wreq+BoringSSL. Inspecionar stdout pela string de versão. Esperado: 'duckduckgo-search-cli 0.7.3'",
+    "flags": [],
+    "expected_stdout_contains": "0.7.3",
+    "expected_exit": 0,
+    "category": "v0.7.3-smoke-test"
   }
 ]

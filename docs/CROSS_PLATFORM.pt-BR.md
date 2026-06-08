@@ -2,14 +2,15 @@
 
 
 ## Por Que Zero Dependências Importam
-- `duckduckgo-search-cli` usa exclusivamente `rustls-tls` — sem OpenSSL, sem SChannel, sem surpresas com TLS nativo
-- Instalar em um container Alpine recém-criado exige zero pacotes extras do sistema
+- **v0.7.3+**: `duckduckgo-search-cli` usa exclusivamente BoringSSL via `wreq` — TLS fingerprint real de navegador (JA4_o idêntico ao Chrome/Safari). O BoringSSL é estaticamente vinculado.
+- Instalar o binário pré-compilado em um container Alpine recém-criado exige zero pacotes extras do sistema
 - Builds musl estáticos vinculam cada byte em tempo de compilação — o binário roda em qualquer kernel Linux
 - Sem Java Virtual Machine, sem runtime Python, sem gerenciador de processos Node.js para instalar
 - O tempo de inicialização fica abaixo de 100 milissegundos porque o runtime Rust é uma camada estática fina
-- O tamanho do binário após `strip = "symbols"` e `lto = "thin"` fica entre 3 MB e 5 MB por target
+- O tamanho do binário após `strip = "symbols"` e `lto = "thin"` fica entre 20 MB e 25 MB por target (v0.7.3+ inclui BoringSSL estático)
 - A codificação UTF-8 no Windows é aplicada automaticamente via `SetConsoleOutputCP(65001)` na inicialização
 - SIGPIPE é resetado em `main.rs` para que cadeias de pipes Unix nunca produzam erros `BrokenPipe` espúrios
+- **v0.7.3+**: a compilação do BoringSSL exige `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. End users que usam `cargo install duckduckgo-search-cli` em ambiente com essas deps não precisam de ação extra. Operadores de CI devem instalar essas deps no job de build.
 
 
 ## Matriz de Suporte
@@ -28,7 +29,7 @@
 - Targeia Ubuntu 20.04+, Debian 11+, Fedora 37+, RHEL 8+
 - Requer glibc versão 2.17 ou superior — presente em todas as distribuições atuais
 - Baixe o binário pré-compilado do GitHub Releases ou instale via `cargo install`
-- Nenhuma biblioteca TLS compartilhada é necessária — `rustls-tls` vincula estaticamente em builds de release
+- **v0.7.3+**: compilar do código-fonte exige a toolchain C do BoringSSL. Instale `cmake`, `perl`, `pkg-config` e `libclang-dev` (Debian/Ubuntu: `apt install cmake perl pkg-config libclang-dev`; Fedora/RHEL: `dnf install cmake perl pkg-config clang-devel`). O build vincula BoringSSL estaticamente via `wreq 6.0.0-rc.29`. Binários pré-compilados não são afetados.
 - Funciona dentro do WSL2 (Windows Subsystem for Linux) sem nenhuma configuração extra
 ### musl — x86_64-unknown-linux-musl
 - Targeia Alpine Linux, containers Docker mínimos e ambientes embarcados
@@ -194,7 +195,7 @@ cargo install duckduckgo-search-cli
 ```
 
 - O Cargo busca a crate do crates.io, compila para a arquitetura do host e coloca o binário em `~/.cargo/bin`
-- A Versão Mínima Suportada do Rust (MSRV) é 1.75 — execute `rustup update` se seu toolchain for mais antigo
+- A Versão Mínima Suportada do Rust (MSRV) é 1.88 (desde v0.7.2) — execute `rustup update` se seu toolchain for mais antigo. v0.7.3+ adicionalmente requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux para a stack BoringSSL via `wreq 6.0.0-rc`.
 - Verifique a instalação: `duckduckgo-search-cli --version` (espere `0.6.5` para a release v0.6.5)
 ### Binários Pré-compilados
 - Binários pré-compilados para todos os cinco targets são anexados a cada GitHub Release

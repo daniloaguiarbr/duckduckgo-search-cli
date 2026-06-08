@@ -12,10 +12,11 @@ Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 ## Prerequisites
 ### Required
 - Network access to duckduckgo.com
-- Rust 1.75+ when installing via `cargo install`
-- Pre-built binaries require no Rust installation
+- Rust 1.88+ when installing via `cargo install` (MSRV since v0.7.2)
+- Pre-built binaries do not require Rust installation
+- **v0.7.3+ when compiling from source on Linux**: `cmake`, `perl`, `pkg-config`, and `libclang-dev` (BoringSSL build prerequisites via `wreq 6.0.0-rc`)
 ### Optional
-- `jaq` (Rust jq replacement) for JSON processing in pipelines
+- `jaq` (Rust replacement for `jq`) to process JSON in pipelines
 - A SOCKS5 proxy for IP rotation when rate-limited
 
 
@@ -251,6 +252,111 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - See `docs/AGENT_RULES.md` for 30+ MUST/NEVER rules for production agent use
 
 
+## v0.7.3 — Session + Probe-Deep + BoringSSL (GAP-WS-27 fix)
+
+v0.7.3 atomically closes GAP-WS-27 (CAPTCHA on macOS) by replacing the `rustls` TLS stack with embedded BoringSSL via `wreq 6.0.0-rc.29`, plus session cookie persistence and deep CAPTCHA detection.
+
+### TLS Stack Switch (wreq + BoringSSL)
+
+The CLI now uses `wreq 6.0.0-rc.29` instead of `reqwest 0.12` + `rustls-tls`. `wreq` bundles BoringSSL (via `boring2 v4.15.11`) and produces a `JA4_o` fingerprint identical to real Chrome/Safari, closing the Cloudflare Bot Management entry point that produced the CAPTCHA.
+
+- Added dependencies: `wreq = "6.0.0-rc"` with features `tokio-rt, webpki-roots, cookies, gzip, brotli, deflate, zstd, socks, form, query`; `wreq-util = "3.0.0-rc.12"`.
+- Removed dependencies: `reqwest`, `rustls`, `cookie_store`, `cookie` (in direct deps).
+- Formal ADR: `docs/decisions/0001-tls-boring-via-wreq.md`.
+
+### Build Prerequisites Changed (v0.7.3+)
+
+Compiling from source on Linux now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` (BoringSSL). Pre-built binaries from crates.io are unaffected.
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install cmake perl pkg-config libclang-dev
+# Fedora/RHEL
+sudo dnf install cmake perl pkg-config clang-devel
+# Alpine
+apk add cmake perl pkgconf clang-dev
+```
+
+### Session Cookie Persistence
+
+The `session` feature persists DuckDuckGo cookies to `cookies.json` so subsequent requests reuse the session, and performs a `GET https://duckduckgo.com/` warm-up before the first real query to populate session cookies.
+
+- Cookie jar location:
+  - macOS: `~/Library/Application Support/duckduckgo-search-cli/cookies.json`
+  - Linux: `~/.config/duckduckgo-search-cli/cookies.json`
+  - Windows: `%APPDATA%\duckduckgo-search-cli\cookies.json`
+- Unix permissions: `0o600` (owner read+write only).
+- The cookie jar contains DuckDuckGo session cookies. Treat as a credential.
+
+#### Session Flags
+
+```bash
+# Disable warm-up (skip the GET /warm-up request)
+duckduckgo-search-cli --no-warmup "query"
+
+# Keep cookies in memory only (don't write cookies.json to disk)
+duckduckgo-search-cli --no-cookie-persistence "query"
+
+# Point the cookie jar at an encrypted volume
+duckduckgo-search-cli --cookies-path /Volumes/encrypted/cookies.json "query"
+```
+
+### Deep CAPTCHA Detection (probe-deep)
+
+`--probe-deep` runs a real test query and classifies the returned body as `ok` or `captcha`:
+
+```bash
+duckduckgo-search-cli --probe-deep -q -f json
+# {"status": "ok", "endpoint": "html", "http_status": 202,
+#  "latency_ms": 97, "cascata_motivo": "none",
+#  "sugestao_mitigacao": "no interstitial detected"}
+```
+
+Use `--probe-deep` in CI before launching expensive queries, especially on macOS runners where GAP-WS-27 manifested.
+
+#### Automatic html→lite Fallback
+
+By default, probe-deep only detects and reports. To trigger automatic fallback from `html` to `lite` when CAPTCHA is detected, pass `--allow-lite-fallback`:
+
+```bash
+duckduckgo-search-cli --probe-deep --allow-lite-fallback -q -f json "query"
+```
+
+### Empirical Validation (v0.7.3)
+
+```bash
+# Before (v0.7.2): quantidade_resultados: 0, ms: 1695
+# After (v0.7.3): quantidade_resultados: 5, ms: 735
+duckduckgo-search-cli "rust wreq emulation browser fingerprint 2026" -q -f json --num 5
+```
+
+
+## v0.7.2 — rand 0.10 RngExt + time 0.3.47 RUSTSEC-2026-0009 + MSRV 1.88
+
+v0.7.2 is a maintenance release that addresses two upstream dependencies:
+
+- `time = "0.3.47"` pinned as a direct dependency to override `time 0.3.40` which arrived transitively via `cookie_store 0.22.0` and `reqwest 0.12.28`. Resolves `RUSTSEC-2026-0009` (stack exhaustion DoS in time 0.3.40).
+- `rand 0.10.1` reorganized `random_range`, `random_bool`, and `random` methods from trait `Rng` to extension trait `RngExt`. Replaced `use rand::Rng;` with `use rand::RngExt;` in `src/identity.rs`, `src/parallel.rs`, and `src/search.rs`.
+- MSRV raised from 1.85 to 1.88 (required by `time 0.3.47` and `rand 0.10`).
+
+
+## v0.7.1 — Maintenance Patch
+
+v0.7.1 is a purely maintenance release with no new CLI flags and no new JSON fields. Syncs `Cargo.lock` self-version 0.7.0 → 0.7.1 and fixes latent clippy warnings.
+
+
+## v0.7.0 — `deep-research` Subcommand
+
+v0.7.0 introduces the `deep-research` subcommand for multi-hop research with sub-query fan-out.
+
+```bash
+duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
+  --synthesize --synth-format markdown | jaq -r '.sintese'
+```
+
+New fields: `.metadados.sub_queries[]`, `.metadados.total_resultados_unicos`, `.metadados.tempo_total_ms`, `.resultados[].score`, `.resultados[].fontes[]`, `.sintese` (opt-in via `--synthesize`).
+
+
 ## v0.6.4/v0.6.5 — Adaptive Anti-Bot Identity Pool (WS-26)
 
 ### Problem
@@ -357,6 +463,22 @@ The `identidade_usada` field reports the identity that produced the successful r
 
 For multi-hop research questions, use the `deep-research` subcommand. It decomposes one query into up to 12 sub-queries, fans them out in parallel, aggregates via RRF or canonical-URL dedup, and optionally produces a Markdown report.
 
+## v0.7.3 — Session + Probe-Deep + BoringSSL
+
+The TLS stack changed from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`. This closes the GAP-WS-27 macOS CAPTCHA (Cloudflare Bot Management detected `rustls` as a non-browser fingerprint via JA4_o). BoringSSL produces a JA4_o identical to Chrome/Safari. See `docs/decisions/0001-tls-boring-via-wreq.md` for the architectural decision.
+
+### Cookie persistence + warm-up
+
+Each invocation now starts with a warm-up `GET https://duckduckgo.com/` (skippable with `--no-warmup`) that populates session cookies. The cookies are persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`. The path is overridable via `--cookies-path <PATH>`. Treat this file as a credential. Use `--no-cookie-persistence` to keep cookies in memory only.
+
+### CAPTCHA detection via probe-deep
+
+`--probe-deep` runs a real search query and classifies the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). The probe report includes `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, and `latency_ms`. Use this in CI gates for macOS runners to detect CAPTCHA early.
+
+### Auto-fallback to lite (opt-in)
+
+`--allow-lite-fallback` automatically switches from the `html` endpoint to the `lite` endpoint when `--probe-deep` (or zero-result retries) detect CAPTCHA. Off by default to avoid silently changing the content type of the response.
+
 ```bash
 # 1. Quick fan-out (no synthesis, 5 sub-queries by default).
 timeout 60 duckduckgo-search-cli -q -f json deep-research "best rust http client 2026" \
@@ -388,3 +510,42 @@ The `deep-research` subcommand inherits every global flag (`-q -f json`, `--num`
 - `--synthesize` — produce a final report
 - `--budget-tokens N` — cap the synthesis length (1 token ≈ 4 chars)
 - `--synth-format` — `markdown` (default), `plain`, or `json`
+
+
+## v0.7.3 — Session + Probe-Deep + BoringSSL — Operacional
+
+A stack TLS mudou de `rustls` para BoringSSL via `wreq 6.0.0-rc.29`. Isso fecha o GAP-WS-27 do CAPTCHA do macOS (Cloudflare Bot Management detectou `rustls` como fingerprint de não-navegador via JA4_o). BoringSSL produz JA4_o idêntico ao Chrome/Safari. Ver `docs/decisions/0001-tls-boring-via-wreq.md` para a decisão arquitetural.
+
+### Pré-requisitos de build
+
+Compilar do código-fonte no Linux agora requer:
+
+```bash
+# Debian / Ubuntu
+sudo apt install cmake perl pkg-config libclang-dev
+
+# Fedora / RHEL
+sudo dnf install cmake perl pkg-config clang-devel
+
+# Alpine
+sudo apk add cmake perl pkg-config clang-dev
+```
+
+Usuários que instalam o binário pré-compilado do crates.io não precisam dessas deps.
+
+### Sessão + cookie jar
+
+Cada invocação agora começa com um warm-up `GET https://duckduckgo.com/` (pode ser pulado com `--no-warmup`) que popula os cookies de sessão. Os cookies são persistidos em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. O path é sobrescrevível via `--cookies-path <PATH>`. Trate este arquivo como credencial. Use `--no-cookie-persistence` para manter cookies em memória apenas.
+
+### Detecção de CAPTCHA via probe-deep
+
+`--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use isto em portões de CI para runners macOS para detectar CAPTCHA cedo.
+
+```bash
+# Em CI antes de queries reais em macOS
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+```
+
+### Fallback automático para lite (opt-in)
+
+`--allow-lite-fallback` muda automaticamente do endpoint `html` para o endpoint `lite` quando `--probe-deep` (ou retentativas de zero resultados) detectam CAPTCHA. Desligado por padrão para evitar mudar silenciosamente o tipo de conteúdo da resposta.

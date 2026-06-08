@@ -279,5 +279,70 @@
     "expected_score_max": 1.0,
     "expected_exit": 0,
     "category": "v0.7.0-feature-test"
+  },
+  {
+    "id": "q36",
+    "query": "rust wreq BoringSSL Cloudflare fingerprint",
+    "expected_use": "validate the v0.7.3 TLS stack switch from rustls to BoringSSL via wreq. The query that previously returned 0 results in v0.7.2 (GAP-WS-27) must now return 5 results with the v0.7.3 binary. Inspect .quantidade_resultados >= 5 and .metadados.tempo_execucao_ms for a wall time under 2000ms",
+    "flags": ["-q", "-f", "json", "-n", "5"],
+    "expected_json_fields": ["resultados", "quantidade_resultados", "metadados.tempo_execucao_ms"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q37",
+    "query": "duckduckgo search CLI CAPTCHA detection",
+    "expected_use": "validate v0.7.3 --probe-deep flag. The CLI must run a real search and classify the response body. Expect .status to be either 'ok' or 'captcha'. Expect .cascata_motivo, .sugestao_mitigacao, .http_status, .latency_ms, .endpoint, and .url fields to be present. Probe must complete in under 5 seconds",
+    "flags": ["-q", "-f", "json"],
+    "expected_json_fields": ["status", "cascata_motivo", "sugestao_mitigacao", "http_status", "latency_ms", "endpoint", "url"],
+    "expected_wall_time_max_ms": 5000,
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q38",
+    "query": "rust http client 2026",
+    "expected_use": "validate v0.7.3 --no-warmup flag. With --no-warmup, the CLI must skip the GET https://duckduckgo.com/ warm-up and emit the search results directly. Expect the query to complete faster than the default (warm-up adds 200-400ms). Expect 5+ resultados",
+    "flags": ["-q", "-f", "json", "-n", "5", "--no-warmup"],
+    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q39",
+    "query": "rust async runtime 2026",
+    "expected_use": "validate v0.7.3 --no-cookie-persistence flag. With --no-cookie-persistence, no cookies.json file must be created or modified. The session cookies are kept in memory only. Expect 5+ resultados and exit 0",
+    "flags": ["-q", "-f", "json", "-n", "5", "--no-cookie-persistence"],
+    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q40",
+    "query": "rust web framework 2026",
+    "expected_use": "validate v0.7.3 --cookies-path override. Pass --cookies-path /tmp/ddg-test-cookies.json and verify the file is created at that exact path with Unix permissions 0o600. Expect 5+ resultados and exit 0",
+    "flags": ["-q", "-f", "json", "-n", "5", "--cookies-path", "/tmp/ddg-test-cookies.json"],
+    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "expected_side_effects": ["create /tmp/ddg-test-cookies.json with mode 0o600"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q41",
+    "query": "rust cargo build 2026",
+    "expected_use": "validate v0.7.3 --allow-lite-fallback flag. The flag enables automatic fallback from html to lite endpoint when CAPTCHA is detected or when the html endpoint returns zero results. Expect exit 0 with at least 1 result (lite endpoint usually returns results where html is blocked)",
+    "flags": ["-q", "-f", "json", "-n", "5", "--allow-lite-fallback"],
+    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "expected_exit": 0,
+    "category": "v0.7.3-feature-test"
+  },
+  {
+    "id": "q42",
+    "query": "rust async 2026 best practices",
+    "expected_use": "validate v0.7.3 --version reports 0.7.3 and the binary is the new wreq+BoringSSL build. Inspect stdout for the version string. Expected: 'duckduckgo-search-cli 0.7.3'",
+    "flags": [],
+    "expected_stdout_contains": "0.7.3",
+    "expected_exit": 0,
+    "category": "v0.7.3-smoke-test"
   }
 ]

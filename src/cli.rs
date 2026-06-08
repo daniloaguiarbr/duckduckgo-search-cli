@@ -476,6 +476,41 @@ pub struct CliArgs {
     #[arg(long = "no-color")]
     pub no_color: bool,
 
+    /// Disables the warm-up `GET https://duckduckgo.com/` request that
+    /// populates session cookies before the first real query. v0.7.3 PR2.
+    /// Default `false` (warm-up enabled). Disabling saves one request
+    /// per invocation but increases CAPTCHA risk on macOS.
+    #[arg(long = "no-warmup")]
+    pub no_warmup: bool,
+
+    /// Disables persistence of the cookie jar to disk. Cookies live only
+    /// in memory for the duration of the process. v0.7.3 PR2.
+    /// Default `false` (cookies are persisted to
+    /// `~/.config/duckduckgo-search-cli/cookies.json` on Unix or
+    /// `%APPDATA%\duckduckgo-search-cli\cookies.json` on Windows).
+    #[arg(long = "no-cookie-persistence")]
+    pub no_cookie_persistence: bool,
+
+    /// Overrides the cookie jar file path. v0.7.3 PR2.
+    /// Default is the XDG config dir joined with `cookies.json`.
+    #[arg(long = "cookies-path", value_name = "PATH")]
+    pub cookies_path: Option<PathBuf>,
+
+    /// Performs a deep health check on the configured endpoint, including
+    /// interstitial detection (Cloudflare / DDG bot challenge). v0.7.3 PR3.
+    /// Emits a JSON report on stdout and exits before running the real query.
+    /// Default `false`.
+    #[arg(long = "probe-deep")]
+    pub probe_deep: bool,
+
+    /// Allows automatic fallback to the `lite` endpoint when the
+    /// `html` endpoint returns a bot-detection interstitial (HTTP 200
+    /// with zero results). v0.7.3 PR3. Default `false` — without this
+    /// flag, the CLI emits the zero-result output and exits with code 5
+    /// as before, so users are not surprised by content changes.
+    #[arg(long = "allow-lite-fallback")]
+    pub allow_lite_fallback: bool,
+
     /// Seed for deterministic User-Agent selection (debugging reproducibility).
     #[arg(long = "seed", value_name = "N")]
     pub seed: Option<u64>,
@@ -580,7 +615,7 @@ impl CliArgs {
             return Ok(());
         };
         let parsed =
-            reqwest::Url::parse(url).map_err(|e| format!("invalid --proxy URL ({url:?}): {e}"))?;
+            url::Url::parse(url).map_err(|e| format!("invalid --proxy URL ({url:?}): {e}"))?;
         match parsed.scheme() {
             "http" | "https" | "socks5" | "socks5h" => Ok(()),
             other => Err(format!(

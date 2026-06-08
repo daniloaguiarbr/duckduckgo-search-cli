@@ -590,8 +590,32 @@ cargo install duckduckgo-search-cli
 - Legenda: one-liner = comando único / trivial · multi-passo = requer alguns comandos · JSON/YAML/TOML config = requer arquivo de config · function handler = requer função de harness
 
 
+## v0.7.3 — Session + Probe-Deep para Agentes de IA
+
+Para agentes que recebem `quantidade_resultados: 0` ou HTTP 200 com body vazio na v0.7.2 (o GAP-WS-27 do CAPTCHA do macOS), a v0.7.3 entrega:
+
+- **Persistência de cookies + warm-up (feature `session`)**: cada invocação agora começa com um `GET https://duckduckgo.com/` de warm-up que popula os cookies de sessão, persistidos em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Desabilite com `--no-warmup` ou `--no-cookie-persistence`.
+- **Detecção de interstitial CAPTCHA (feature `probe-deep`)**: `--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo. O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use esta flag em CI antes de queries reais em runners macOS para detectar sinais precoces do CAPTCHA.
+- **Fallback automático para `lite` (opt-in)**: `--allow-lite-fallback` muda automaticamente do endpoint `html` para o endpoint `lite` quando `--probe-deep` (ou retentativas de zero resultados) detectam CAPTCHA.
+
+Portão de CI recomendado para runners macOS:
+
+```bash
+# Passo 1: health check (existente)
+timeout 15 duckduckgo-search-cli --probe
+
+# Passo 2: check profundo de CAPTCHA (novo em v0.7.3)
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+
+# Passo 3: query real
+timeout 60 duckduckgo-search-cli "rust async tokio" -q -f json --num 10 | jaq '.resultados[].url'
+```
+
+Se o passo 2 reportar `status: "captcha"`, o operador deve ou mudar manualmente para `--endpoint lite`, adicionar `--allow-lite-fallback` para fallback automático, ou rotacionar o proxy via `--proxy socks5://127.0.0.1:9050`. O CLI NÃO faz fallback automático a menos que `--allow-lite-fallback` seja passado.
+
+
 ## Veja também
-- README principal: [`../README.md`](../README.md)
-- Changelog: [`../CHANGELOG.md`](../CHANGELOG.md)
+- README principal: [`../README.pt-BR.md`](../README.pt-BR.md)
+- Changelog: [`../CHANGELOG.pt-BR.md`](../CHANGELOG.pt-BR.md)
 - Issue tracker: [github.com/daniloaguiarbr/duckduckgo-search-cli/issues](https://github.com/daniloaguiarbr/duckduckgo-search-cli/issues)
 - Mantenedor: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · Licença: MIT OR Apache-2.0

@@ -21,13 +21,13 @@
 use crate::content;
 use crate::types::{Config, SearchOutput};
 use indicatif::{ProgressBar, ProgressStyle};
-use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use wreq::Client;
 
 #[cfg(feature = "chrome")]
 use crate::browser::{detect_chrome, extract_text_with_chrome, ChromeBrowser};
@@ -216,7 +216,7 @@ pub async fn get_semaphore_for_host(
 /// ```
 #[inline]
 pub fn extract_host(url: &str) -> String {
-    reqwest::Url::parse(url)
+    url::Url::parse(url)
         .ok()
         .and_then(|u| u.host_str().map(|s| s.to_lowercase()))
         .unwrap_or_else(|| "unknown".to_string())
@@ -542,6 +542,10 @@ mod tests {
             per_host_limit: 2,
             chrome_path: None,
             selectors: std::sync::Arc::new(crate::types::SelectorConfig::default()),
+            cookie_provider: None,
+            persistent_jar: None,
+            warmup_enabled: false,
+        allow_lite_fallback: false,
         }
     }
 
@@ -576,7 +580,7 @@ mod tests {
 
     #[tokio::test]
     async fn enrich_with_content_no_op_when_flag_false() {
-        let cliente = reqwest::Client::new();
+        let cliente = wreq::Client::new();
         let mut cfg = test_config(3, 1000);
         cfg.fetch_content = false;
         let mut output = empty_output();
@@ -671,7 +675,7 @@ mod tests {
 
     #[tokio::test]
     async fn enrich_with_content_cancelled_marks_failures() {
-        let cliente = reqwest::Client::builder()
+        let cliente = wreq::Client::builder()
             .timeout(std::time::Duration::from_millis(100))
             .build()
             .unwrap();

@@ -18,7 +18,6 @@ use duckduckgo_search_cli::search::{
     execute_search, execute_with_retry, search_with_pagination, RetryFailReason,
 };
 use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
-use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -26,6 +25,7 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+use wreq::Client;
 
 /// Mutex async global para serializar testes que manipulam env vars.
 fn env_lock() -> &'static TokioMutex<()> {
@@ -70,6 +70,10 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         match_platform_ua: false,
         per_host_limit: 2,
         chrome_path: None,
+        cookie_provider: None,
+        persistent_jar: None,
+        warmup_enabled: false,
+        allow_lite_fallback: false,
         selectors: std::sync::Arc::new(
             duckduckgo_search_cli::types::SelectorConfig::default(),
         ),

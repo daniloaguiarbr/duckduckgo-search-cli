@@ -94,6 +94,7 @@ pub async fn execute_pipeline(
             let mut cfg_single = config.clone();
             cfg_single.query = cfg_single.queries[0].clone();
             let output = execute_single_search(&cfg_single, &cancellation).await?;
+            persist_cookies(&cfg_single);
             Ok(PipelineResult::Single(Box::new(output)))
         }
         _ => {
@@ -101,10 +102,45 @@ pub async fn execute_pipeline(
                 return execute_pipeline_streaming(config, cancellation).await;
             }
             let queries = config.queries.clone();
+            // Persist cookies after the parallel search completes, using
+            // a clone of `config` because `config` is moved into the
+            // search call.
+            let config_for_persist = config.clone();
             let multi = parallel::execute_parallel_searches(queries, config, cancellation).await?;
+            persist_cookies(&config_for_persist);
             Ok(PipelineResult::Multi(Box::new(multi)))
         }
     }
+}
+
+/// Persists the cookie jar to disk after the search completes. v0.7.3 PR2.
+fn persist_cookies(config: &Config) {
+    if let Some(persistent_jar) = config.persistent_jar.as_ref() {
+        persistent_jar.save();
+    }
+}
+
+/// Performs the warm-up `GET https://duckduckgo.com/` request to populate
+/// session cookies. Failures are surfaced to the caller but never fatal;
+/// the caller logs and continues. v0.7.3 PR2.
+async fn do_warmup(client: &wreq::Client, cfg: &Config) -> Result<(), CliError> {
+    let warmup_url = "https://duckduckgo.com/";
+    tracing::info!(url = warmup_url, "Warming up session with cookie jar");
+    let response = client
+        .get(warmup_url)
+        .send()
+        .await
+        .map_err(|e| CliError::HttpError {
+            message: format!("warm-up request to {warmup_url} failed: {e}"),
+            cause: None,
+        })?;
+    tracing::debug!(
+        status = response.status().as_u16(),
+        url = warmup_url,
+        "warm-up response received"
+    );
+    let _ = cfg; // cfg is reserved for future per-query warm-up tuning
+    Ok(())
 }
 
 /// Pipeline in streaming mode — emits results as tasks complete.
@@ -199,13 +235,23 @@ pub async fn execute_single_search(
     let start = Instant::now();
 
     let config_proxy = ProxyConfig::from_options(cfg.proxy.as_deref(), cfg.no_proxy);
-    let client = http::build_client_with_proxy(
+    let client = http::build_client_with_proxy_and_cookies(
         &cfg.browser_profile,
         cfg.timeout_seconds,
         &cfg.language,
         &cfg.country,
         &config_proxy,
+        cfg.cookie_provider.clone(),
     )?;
+
+    // v0.7.3 PR2: warm up the session with a `GET https://duckduckgo.com/`
+    // so the cookie jar is populated before the real query. Best-effort:
+    // any failure is logged and the real query runs anyway.
+    if cfg.warmup_enabled {
+        if let Err(e) = do_warmup(&client, cfg).await {
+            tracing::warn!(error = %e, "warm-up request failed; continuing without it");
+        }
+    }
 
     tracing::info!(query = %cfg.query, endpoint = cfg.endpoint.as_str(), "Executing search");
 

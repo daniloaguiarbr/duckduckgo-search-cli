@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -59,20 +59,28 @@ harness = false
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "io-util", "fs"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
-# HTTP client — rustls-tls for universal cross-platform (no OpenSSL/SChannel dependency).
-# default-features = false removes native-tls which would pull OpenSSL on Linux.
-# "socks" feature added in iteration 5 to support --proxy socks5://... (tunnel via hyper-socks2).
-# gzip/brotli features removed in v0.7.1: they transitively require async-compression
-# HTTP client — rustls-tls for universal cross-platform (no OpenSSL/Schannel dependency).
-# default-features = false removes native-tls which would pull OpenSSL on Linux.
-# "socks" feature added in iteration 5 to support --proxy socks5://... (tunnel via hyper-socks2).
-# gzip/brotli features removed in v0.7.1: reqwest 0.12+ removed the .gzip()/.brotli() builder
-# methods. Decompression is now enabled via the Accept-Encoding header by default.
-reqwest = { version = "0.12", default-features = false, features = [
-    "rustls-tls",
+# HTTP client — wreq 6 (BoringSSL via boring2).
+# v0.7.3 transition: replaced reqwest+rustls with wreq to obtain a real
+# browser TLS fingerprint (JA4_o compatible with Chrome/Safari). BoringSSL
+# is statically linked; build requires cmake, perl, pkg-config, libclang-dev.
+# See docs/decisions/0001-tls-boring-via-wreq.md for the architectural
+# decision and ADR-0001 for trade-offs.
+# "cookies" pulls the cookie_store crate for in-memory cookie persistence.
+# "socks" feature keeps --proxy socks5://... working via tokio-socks.
+# "gzip" + "brotli" + "deflate" + "zstd" enable automatic response decompression.
+wreq = { version = "6.0.0-rc", default-features = false, features = [
+    "tokio-rt",
+    "webpki-roots",
     "cookies",
+    "gzip",
+    "brotli",
+    "deflate",
+    "zstd",
     "socks",
+    "form",
+    "query",
 ] }
+wreq-util = "3.0.0-rc"
 
 # HTML parsing — scraper uses html5ever from Servo, tolerant of malformed HTML.
 scraper = "0.20"
@@ -104,9 +112,10 @@ rand = "0.10"
 
 # Pinned in v0.7.1 to >=0.3.47 to resolve RUSTSEC-2026-0009 (denial-of-service
 # via stack exhaustion when parsing RFC 2822 date headers). The previous 0.3.40
-# was pulled transitively by cookie_store 0.22.0 -> reqwest 0.12.28. Forcing a
-# direct dependency on a patched version overrides the transitive constraint.
-# Bumped MSRV to 1.88 because time 0.3.47+ requires it.
+# was pulled transitively by cookie_store 0.22.0 -> reqwest 0.12.28 in v0.7.0.
+# v0.7.3 removed reqwest but the pin remains to ensure no transitive dep drags
+# in a vulnerable 0.3.40 via another path. Bumped MSRV to 1.88 because time
+# 0.3.47+ requires it.
 time = "0.3.47"
 
 # WS-25: ProgressBar for long crawls (--fetch-content --parallel).

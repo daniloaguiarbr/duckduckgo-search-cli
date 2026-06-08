@@ -682,3 +682,60 @@ duckduckgo-search-cli --version
 Usuários Windows não precisam mais de Visual Studio Build Tools ou patches manuais.
 
 _Fim do Livro de Receitas._
+
+
+## Receita 16 — Detecção de CAPTCHA com --probe-deep (v0.7.3+)
+- Ganho: classifique a resposta do DuckDuckGo como `ok` ou `captcha` antes de lançar pipelines custosas, especialmente em runners macOS.
+- Problema: usuários macOS da v0.7.2 recebiam HTTP 200 com `quantidade_resultados: 0` porque o fingerprint TLS do `rustls` era detectado como não-navegador pelo Cloudflare Bot Management. A v0.7.3 troca para BoringSSL (estaticamente vinculado pelo `wreq 6.0.0-rc.29`), que fecha o CAPTCHA do GAP-WS-27. Use `--probe-deep` para verificar se a correção está funcionando em CI.
+- Benefício: prova uma query real e emite um relatório JSON com `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`.
+- Benefício: evita rodar 100+ chamadas `--fetch-content` custosas antes de descobrir que a resposta era um interstitial de CAPTCHA.
+- Resultado: um portão determinístico em CI que retorna 0 em `status: "ok"` e não-zero em `status: "captcha"`.
+
+```bash
+# Verificação pré-voo de CAPTCHA (portão de CI para runners macOS)
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json \
+  | jaq -e '.status == "ok"'
+# Exit 0 = sem CAPTCHA detectado, prossiga com queries reais
+# Exit 1 = CAPTCHA detectado, aborte e siga sugestao_mitigacao
+```
+
+```bash
+# Verboso: inspecione o relatório completo do probe
+duckduckgo-search-cli --probe-deep -q -f json
+# {
+#   "type": "probe_deep",
+#   "endpoint": "html",
+#   "status": "ok",
+#   "http_status": 200,
+#   "latency_ms": 235,
+#   "cascade_level": 0,
+#   "cascata_motivo": "none",
+#   "sugestao_mitigacao": "no interstitial detected",
+#   "url": "https://html.duckduckgo.com/html/?q=rust"
+# }
+```
+
+
+## Receita 17 — Sessão persistente com cookie jar (v0.7.3+)
+- Ganho: aqueça uma sessão populando cookies de sessão do DuckDuckGo, persistidos em disco, para que invocações subsequentes comecem com uma sessão quente.
+- Problema: sessões frias (sem cookies) são mais propensas a serem marcadas como bots pelo Cloudflare. Reusar cookies de sessão entre invocações reduz a taxa de CAPTCHA.
+- Benefício: cookie jar gravado em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`.
+- Benefício: o warm-up `GET https://duckduckgo.com/` roda antes da primeira query real e leva 200-400ms. Pule com `--no-warmup` se rodando em ambiente CI stateless.
+- Resultado: uma CLI persistente de sessão que produz resultados estáveis entre invocações.
+
+```bash
+# Primeira invocação: aquece a sessão, popula cookies
+duckduckgo-search-cli "rust async" -q -f json --num 10
+# cookies.json agora está criado no path XDG
+
+# Segunda invocação: reusa os cookies
+duckduckgo-search-cli "rust async" -q -f json --num 10
+# ~200-400ms mais rápido (sem warm-up necessário)
+
+# Desabilite persistência de cookie para runs one-shot
+duckduckgo-search-cli --no-cookie-persistence "rust async" -q -f json --num 10
+
+# Realoque o cookie jar para um volume encriptado
+duckduckgo-search-cli --cookies-path /Volumes/encriptado/cookies.json "rust async" -q -f json
+```
+

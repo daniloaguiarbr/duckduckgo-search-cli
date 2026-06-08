@@ -324,4 +324,41 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - For reproducible testing use `--identity-profile <name>` not `--seed` alone (v0.6.4+, v0.6.5+)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` v0.6.4 (extended to v0.6.5 — see CHANGELOG).
+Schema contract valid for `duckduckgo-search-cli` v0.7.3 (extended across the v0.7.x line — see CHANGELOG).
+
+
+## v0.7.3 — New Flags + JSON Behaviour
+
+### New CLI Flags
+- `--probe-deep` — runs a real search query and reports `status: "ok"` or `status: "captcha"`. Use this in CI gates for macOS runners to detect Cloudflare Bot Management interstitials before launching expensive pipelines.
+- `--no-warmup` — skip the `GET https://duckduckgo.com/` warm-up that populates session cookies.
+- `--no-cookie-persistence` — keep cookies in memory only; never write `cookies.json` to disk.
+- `--cookies-path <PATH>` — override the default XDG cookie jar path.
+- `--allow-lite-fallback` — opt-in to automatic fallback from `html` to `lite` endpoint when CAPTCHA is detected.
+
+### Probe-Deep JSON Output Schema
+
+The `--probe-deep` flag emits the following JSON contract:
+
+```jsonc
+{
+  "type": "probe_deep",
+  "endpoint": "html",
+  "status": "ok",                        // "ok" | "captcha"
+  "http_status": 200,                    // HTTP status of the probe request
+  "latency_ms": 235,                     // wall clock latency of the probe
+  "cascade_level": 0,                    // 0..=4
+  "cascata_motivo": "none",              // "none" | "captcha" | "zero_results_after_retries"
+  "sugestao_mitigacao": "no interstitial detected",
+  "url": "https://html.duckduckgo.com/html/?q=rust"
+}
+```
+
+When `status` is `"captcha"`, the operator should follow `sugestao_mitigacao` for next steps (rotate proxy, switch endpoint, back off).
+
+### Cookie Jar Location
+- Linux: `~/.config/duckduckgo-search-cli/cookies.json`
+- Windows: `%APPDATA%\duckduckgo-search-cli\cookies.json`
+- macOS: `~/Library/Application Support/duckduckgo-search-cli/cookies.json`
+
+Unix permissions are `0o600` (owner read+write only). The file is internal state and is NOT exposed in the JSON output schema.
