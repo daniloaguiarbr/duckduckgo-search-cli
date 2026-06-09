@@ -92,7 +92,7 @@ clap_complete = "4"
 # Serialization — serde + serde_json for JSON, toml for configuration files.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1.1"
 
 # URL encoding/decoding (to unwrap DuckDuckGo /l/?uddg= redirects).
 urlencoding = "2"
@@ -126,7 +126,7 @@ indicatif = "0.18"
 chrono = { version = "0.4", features = ["serde"] }
 
 # XDG cross-platform for configuration directories.
-dirs = "5"
+dirs = "6"
 
 # Hashing for selectors_hash in metadata.
 blake3 = "1"
@@ -150,15 +150,15 @@ tempfile = { version = "3", optional = true }
 futures = { version = "0.3", optional = true }
 
 # Optional: tokio-console for runtime task debugging.
-console-subscriber = { version = "0.4", optional = true }
+console-subscriber = { version = "0.5", optional = true }
 
 # Windows-conditional — SetConsoleOutputCP for UTF-8 in cmd.exe and legacy PowerShell console.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [dev-dependencies]
 # Performance benchmarks — criterion for statistically valid measurements.
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 # Mock HTTP server for integration tests without real network calls.
 # Chosen in 2026-04 per trustScore 9.3 on context7; compatible with tokio runtime.
