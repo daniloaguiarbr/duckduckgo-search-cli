@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: orchestrator (config assembly, delegation to pipeline)
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.7.6")]
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.7.7")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]

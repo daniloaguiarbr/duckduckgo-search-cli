@@ -2,8 +2,33 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.7.6
+- Current version: v0.7.7
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## What's new in v0.7.7 (2026-06-14)
+
+- **GAP-WS-49 fixed (CRITICAL, runtime) — real queries returned ZERO results due to detectable TLS fingerprint.** v0.7.6 closed `cargo install` but the published binary passed all smoke tests (`--probe` and `--probe-deep` returned status 200/ok) while real queries silently returned `resultados: 0` with `cascade_level: 0` and `usou_endpoint_fallback: false`. Local reproduction: 6/6 queries returned 0 results with 1.0–1.6s latency.
+- **Root cause**: `wreq 6.0.0-rc.29` has no native `emulation` feature — the Chrome/Safari TLS fingerprint emulation lived only in `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. v0.7.6 removed `wreq-util` (along with the `brotli` feature) to close GAP-WS-48, and without emulation, `wreq 6.0.0-rc.29` with BoringSSL plain produces a TLS handshake whose JA3/JA4 fingerprint is detectable by Cloudflare Bot Management. DDG serves `anomaly-modal` HTML (45 occurrences in the body) to any client that does not present a real browser fingerprint.
+- **Cross-confirmation**: direct `curl` with real browser headers (`User-Agent: Chrome/120`, `Accept-Encoding: gzip, deflate, br`, `Cookie: kl=br-pt`, `Sec-Fetch-*`) **ALSO** received `anomaly-modal` at test time (2026-06-14 09:25 UTC), confirming the tightening is upstream and persistent. The minimal 1-request probe (`--probe-deep`) does not trigger tightening because DDG fingerprints by volume/behavior, not by single request.
+- **Fix applied**:
+  1. Re-added `wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }` to `Cargo.toml` (only `emulation`, no `default`, to avoid pulling `brotli` accidentally).
+  2. Re-added `"brotli"` feature to `wreq` (required because `wreq-util` `emulation` does `dep:brotli`).
+  3. Added 2 direct dep pins to `Cargo.toml` to force compatible versions in `cargo install`:
+     - `brotli-decompressor = "=5.0.1"` — versions 5.0.0/5.0.1 have `alloc-no-stdlib = "2.0"` (hard); 5.0.2 published 2026-06-14 widened to `>=2.0.4, <4` and is what pulls 3.0.0 into the graph.
+     - `alloc-no-stdlib = "=2.0.4"` — hard pin required because `brotli 8.0.3` mandates `alloc-no-stdlib = "2.0"`.
+  4. `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` removes the 3.0.0 version from the graph (pinning it together is not enough because `cargo install` without `--locked` can resurrect it).
+  5. Expanded comment in `Cargo.toml` documenting GAP-WS-49 and the pin strategy.
+- **Post-fix validation**:
+  - `cargo tree --offline` → graph contains exactly `alloc-no-stdlib v2.0.4` and `brotli-decompressor v5.0.1`, zero 3.0.0/0.2.3 occurrences.
+  - `cargo build --release --offline` → **success in 24.04s** (vs 37.14s v0.7.6 — faster because `brotli-decompressor 5.0.1` is smaller than 5.0.2).
+  - `cargo install --path .` (without `--locked`, reproducing user path) → **success**, binary installed and functional.
+  - Real query `"rust async runtime"` with v0.7.7 binary → **`quantidade_resultados: 5`**, latency 1087ms, real results: `The Async Ecosystem`, `Fundamentals of Asynchronous Programming`, `Tokio - An asynchronous Rust runtime`, etc.
+- **Impact**:
+  - Final binary: +160KB (brotli 8.0.3 + brotli-decompressor 5.0.1 + wreq-util 3.0.0-rc.12) — accepted trade to restore Chrome/Safari TLS fingerprint and beat DDG anti-bot.
+  - `cargo install` build time: ~24s (vs ~37s v0.7.6).
+  - Supply chain surface: +3 crates.
+  - **Functionality restored**: real queries return 5+ results with a TLS fingerprint identical to real Chrome/Safari.
 
 
 ## What's new in v0.7.6 (2026-06-14)

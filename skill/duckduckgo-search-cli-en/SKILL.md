@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-en
-description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, multi-hop research questions, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results", "deep research", "compare X vs Y", "what changed in Z". Invokes the `duckduckgo-search-cli` v0.7.6 CLI via Bash with a stable JSON contract, zero API key, 12-identity adaptive anti-bot pool with 5-level cascade rotation (HTTP 202/403/429), per-browser Sec-Fetch-* fingerprint profiles, BoringSSL TLS fingerprint (JA4_o identical to Chrome/Safari) via `wreq 6.0.0-rc.29`, cookie persistence with warm-up to XDG `cookies.json` (Unix permissions 0o600), `--probe-deep` CAPTCHA interstitial detector, path traversal validation on --output, automatic credential masking in error messages, and `identidade_usada` JSON field for diagnostic visibility. The v0.7.0 `deep-research` subcommand fans out one query into 1..=12 sub-queries, aggregates via RRF (K=60) or canonical-URL dedup, and optionally synthesises a Markdown/PlainText/JSON report with a token budget. Windows build fixed in v0.6.5 (MP-26 — `HANDLE` type-safe with `INVALID_HANDLE_VALUE`). Per-host circuit breaker (WS-12) protects against cascading failures in long crawls. indicatif ProgressBar (WS-25) visualizes long crawls. GAP-WS-27 (macOS CAPTCHA) fixed in v0.7.3 by switching from `rustls` to BoringSSL. Released 2026-06-14 (v0.7.5). See CHANGELOG.md and README.md for full notes. English version.
+description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, multi-hop research questions, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results", "deep research", "compare X vs Y", "what changed in Z". Invokes the `duckduckgo-search-cli` v0.7.7 CLI via Bash with a stable JSON contract, zero API key, 12-identity adaptive anti-bot pool with 5-level cascade rotation (HTTP 202/403/429), per-browser Sec-Fetch-* fingerprint profiles, BoringSSL TLS fingerprint (JA4_o identical to Chrome/Safari) via `wreq 6.0.0-rc.29`, cookie persistence with warm-up to XDG `cookies.json` (Unix permissions 0o600), `--probe-deep` CAPTCHA interstitial detector, path traversal validation on --output, automatic credential masking in error messages, and `identidade_usada` JSON field for diagnostic visibility. The v0.7.0 `deep-research` subcommand fans out one query into 1..=12 sub-queries, aggregates via RRF (K=60) or canonical-URL dedup, and optionally synthesises a Markdown/PlainText/JSON report with a token budget. Windows build fixed in v0.6.5 (MP-26 — `HANDLE` type-safe with `INVALID_HANDLE_VALUE`). Per-host circuit breaker (WS-12) protects against cascading failures in long crawls. indicatif ProgressBar (WS-25) visualizes long crawls. GAP-WS-27 (macOS CAPTCHA) fixed in v0.7.3 by switching from `rustls` to BoringSSL. Released 2026-06-14 (v0.7.5). See CHANGELOG.md and README.md for full notes. English version.
 ---
 
 # Skill — `duckduckgo-search-cli` (EN)
@@ -142,7 +142,7 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - Cascade level: `| jaq '.metadados.nivel_cascata // 0'` (v0.6.5+)
 - Probe health (v0.6.4+): `timeout 15 duckduckgo-search-cli --probe`.
 - Long crawl with circuit breaker (v0.6.5+): combine `--queries-file` with `--parallel 5 --retries 2 --global-timeout 580`.
-- Cross-platform install (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.6 --force` works on Linux, macOS, and Windows.
+- Cross-platform install (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.7 --force` works on Linux, macOS, and Windows.
 - Pre-flight CAPTCHA check (v0.7.3+): `timeout 15 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'` returns exit 0 only when no Cloudflare interstitial is present.
 - Persistent session with cookie jar (v0.7.3+): cookies are auto-persisted to XDG `cookies.json` with Unix mode `0o600`; pass `--cookies-path <PATH>` to redirect to an encrypted volume.
 - Bypass warm-up (v0.7.3+): add `--no-warmup` to skip the `GET https://duckduckgo.com/` GET that populates session cookies.
@@ -173,7 +173,7 @@ The `HANDLE` type changed from `isize` (windows-sys 0.52) to
 in `src/platform.rs`.
 
 **What this means for agents**:
-- The same `cargo install duckduckgo-search-cli --version 0.7.6 --force`
+- The same `cargo install duckduckgo-search-cli --version 0.7.7 --force`
   command now works on Linux, macOS AND Windows.
 - The Windows binary uses the `INVALID_HANDLE_VALUE` sentinel from
   `windows_sys::Win32::Foundation` (NOT a magic `usize::MAX` comparison).
@@ -186,7 +186,7 @@ in `src/platform.rs`.
 ```bash
 # After cargo install on Windows (PowerShell 5.1+ or 7+)
 duckduckgo-search-cli --version
-# Expected: duckduckgo-search-cli 0.7.6
+# Expected: duckduckgo-search-cli 0.7.7
 duckduckgo-search-cli --help
 # Expected: full help text in stderr, exit 0
 ```
@@ -295,7 +295,7 @@ that failed CI in all 3 SOs (Linux, macOS, Windows). The errors were:
 **What this means for agents**:
 - `cargo clippy --all-targets --all-features -- -D warnings` passes.
 - CI matrix returns success in all 3 SOs.
-- 333 tests pass (243 lib + 90 integration + 6 doc tests) as of v0.6.5. v0.7.3 ships 391 tests (292 lib + 99 integration + 0 doc). v0.7.6 ships 405 tests (current project total).
+- 333 tests pass (243 lib + 90 integration + 6 doc tests) as of v0.6.5. v0.7.3 ships 391 tests (292 lib + 99 integration + 0 doc). v0.7.7 ships 405 tests (current project total).
 - Lints `improper_ctypes`, `missing_safety_doc`, and
   `unsafe_op_in_unsafe_fn` are now `deny` to prevent regressions.
 
@@ -540,6 +540,41 @@ from 1.85 to 1.88 in this release.
 
 
 
+## v0.7.7 — TLS fingerprint emulation restored via pinned `wreq-util` (GAP-WS-49 fix)
+
+URGENT patch release published the same day (2026-06-14) because
+v0.7.6 fixed `cargo install` but real queries returned ZERO results
+silently (6/6 test queries returned 0 results, `--probe` and
+`--probe-deep` still reported status 200/ok). DDG tightened its
+anti-bot (Cloudflare Bot Management) and started serving
+`anomaly-modal` HTML to any client whose TLS fingerprint is
+detectable — `wreq 6.0.0-rc.29` with BoringSSL plain produces a
+JA3/JA4 fingerprint that is not Chrome/Safari.
+
+- **Root cause**: `wreq 6.0.0-rc.29` has no native `emulation`
+  feature. The Chrome/Safari TLS fingerprint emulation lived only
+  in `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. v0.7.6
+  removed `wreq-util` (along with the `brotli` feature) to close
+  GAP-WS-48; without emulation, the BoringSSL plain handshake is
+  detected. Direct `curl` with real browser headers ALSO received
+  `anomaly-modal` at test time (2026-06-14 09:25 UTC), confirming
+  the tightening is upstream and persistent.
+- **Fix applied**:
+  1. Re-added `wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }` (only `emulation`, no `default`).
+  2. Re-added `"brotli"` feature to `wreq` (required because `emulation` does `dep:brotli`).
+  3. Added 2 direct dep pins to `Cargo.toml` to force compatible versions in `cargo install`:
+     - `brotli-decompressor = "=5.0.1"` — versions 5.0.0/5.0.1 have `alloc-no-stdlib = "2.0"` (hard); 5.0.2 published same day widened to `>=2.0.4, <4` and is what pulls 3.0.0 into the graph.
+     - `alloc-no-stdlib = "=2.0.4"` — hard pin required because `brotli 8.0.3` mandates `alloc-no-stdlib = "2.0"`.
+  4. `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` removes the 3.0.0 version from the graph.
+- **Post-fix validation**:
+  - `cargo tree --offline` → graph contains exactly `alloc-no-stdlib v2.0.4` and `brotli-decompressor v5.0.1`.
+  - `cargo build --release --offline` → success in 24.04s.
+  - `cargo install --path .` (without `--locked`, user path) → success, binary functional.
+  - Real query `"rust async runtime"` → `quantidade_resultados: 5`, latency 1087ms, real results.
+- **Impact**: +160KB binary, +3 crates, ~24s build time. Functionality restored.
+- `Cargo.toml` version bump: 0.7.6 → 0.7.7.
+
+
 ## v0.7.6 — `wreq-util` and `brotli` feature removal (GAP-WS-48 fix)
 
 URGENT patch release published the same day (2026-06-14) because the
@@ -568,7 +603,7 @@ and `brotli 8.0.3` (not updated) collided trait-bind with
   matches).
 - **Impact**: 6 fewer crates in the graph, `cargo install` 5-10s
   faster, smaller binary surface. No CLI or JSON schema changes.
-  Re-install via `cargo install duckduckgo-search-cli --version 0.7.6
+  Re-install via `cargo install duckduckgo-search-cli --version 0.7.7
   --force`.
 
 

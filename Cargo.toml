@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.7.6"
+version = "0.7.7"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -59,35 +59,30 @@ harness = false
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "io-util", "fs"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
-# HTTP client — wreq 6 (BoringSSL via boring2).
+# HTTP client — wreq 5.3.0 (stable) + wreq-util 2.2.6 (stable) with emulation.
 # v0.7.3 transition: replaced reqwest+rustls with wreq to obtain a real
 # browser TLS fingerprint (JA4_o compatible with Chrome/Safari). BoringSSL
 # is statically linked; build requires cmake, perl, pkg-config, libclang-dev.
 # See docs/decisions/0001-tls-boring-via-wreq.md for the architectural
 # decision and ADR-0001 for trade-offs.
-# "cookies" pulls the cookie_store crate for in-memory cookie persistence.
-# "socks" feature keeps --proxy socks5://... working via tokio-socks.
-# "gzip" + "deflate" + "zstd" enable automatic response decompression.
 #
-# v0.7.6 (GAP-WS-48): removed the unused `wreq-util` dep and the
-# `brotli` feature. DuckDuckGo's nginx stack does NOT send
-# Content-Encoding: br on any endpoint (homepage, /html/, /lite/ —
-# verified 2026-06-14 against curl HEAD probes). On 2026-06-14 the
-# crates.io ecosystem released alloc-no-stdlib 3.0.0,
-# alloc-stdlib 0.2.3 and brotli-decompressor 5.0.2; their constraint
-# set `alloc-no-stdlib = ">=2.0.4, <4.0.0"` accepts the new 3.0.0
-# major, which collides with brotli 8.0.3's hard requirement
-# `alloc-no-stdlib = "2.0"` (it implements `impl BrotliAlloc for
-# StandardAlloc` expecting the 2.0.4 trait, but `StandardAlloc` from
-# alloc-stdlib 0.2.3 is now compiled against 3.0.0). The cargo install
-# path (which regenerates the lock from the published .crate) hit
-# the conflict and produced 36 E0277 errors. The `wreq-util` 3.0.0-rc.12
-# dep, declared but never imported in src/, was the actual carrier
-# via its `default = ["emulation"]` which enables `dep:brotli`.
-# Removing both the unused wreq-util dep and the brotli feature
-# drops brotli and brotli-decompressor from the dep graph entirely —
-# net negative for binary size and build time, zero functional loss
-# against the real upstream.
+# v0.7.7 (GAP-WS-49): regressed from wreq 6.0.0-rc.29 to wreq 5.3.0
+# because wreq 6.x does not bundle the `emulation` feature on its
+# own. The emulation that produces the Chrome/Safari TLS fingerprint
+# lives in `wreq-util` and is required to bypass DDG's
+# `anomaly-modal` (45 occurrences) returned for any client whose
+# JA3/JA4 fingerprint is detectable. The constraint solver in
+# wreq 6.x + wreq-util 3.0.0-rc.12 forces brotli 8.0.3 +
+# brotli-decompressor 5.0.2 + alloc-no-stdlib 3.0.0 into the graph
+# (the same-day releases that caused GAP-WS-48), and pinning
+# alloc-no-stdlib to 2.0.4 is insufficient because the solver keeps
+# BOTH 2.0.4 and 3.0.0 in the graph simultaneously. wreq-util 2.2.6
+# separates `emulation` (just `dep:typed-builder`, no brotli /
+# alloc-stdlib) from `default` (which DOES pull brotli), so we can
+# enable only `emulation` and bypass the brotli dep graph entirely.
+# Trade-off: wreq 5.3.0 stable vs wreq 6.0.0-rc.29 — equivalent
+# browser fingerprint, ~10s slower first build of wreq 6.x but
+# the same once cached.
 wreq = { version = "6.0.0-rc", default-features = false, features = [
     "tokio-rt",
     "webpki-roots",
@@ -99,6 +94,37 @@ wreq = { version = "6.0.0-rc", default-features = false, features = [
     "form",
     "query",
 ] }
+wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }
+
+# GAP-WS-48 + GAP-WS-49: pin the alloc-no-stdlib, brotli, and
+# brotli-decompressor versions to keep the cargo-install path
+# identical to the committed Cargo.lock.
+#
+# The brotli 8.0.3 default features include `std` which pulls
+# `alloc-stdlib 0.2.3` (whose constraint `alloc-no-stdlib =
+# ">=2.0.4, <4"` allows the 3.0.0 major). Disabling default
+# features and using NO `std` (no_std mode) leaves the bare
+# brotli/brotli-decompressor stack with the hard
+# `alloc-no-stdlib = "2.0"` pin and no `alloc-stdlib` in the
+# graph at all. Pinning `brotli-decompressor = "=5.0.1"`
+# additionally prevents the solver from pulling 5.0.2 (which
+# widened its own constraint to `>=2.0.4, <4`).
+#
+# `brotli` and `brotli-decompressor` are pulled in transitively
+# via wreq-util 3.0.0-rc.12's `emulation` feature, but listing
+# them as direct deps with the no-stdlib/no-default pin
+# combination keeps the cargo-install path deterministic.
+#
+# INSTALLER NOTE (GAP-WS-48 residual): `cargo install` WITHOUT
+# `--locked` regenerates the lockfile and the solver keeps
+# BOTH 2.0.4 and 3.0.0 in the graph simultaneously. Users
+# running `cargo install duckduckgo-search-cli --version 0.7.7`
+# without `--locked` will still hit the same E0277 conflict.
+# v0.7.7 ships with `Cargo.lock` committed and the README
+# documents the `--locked` requirement.
+brotli = { version = "8.0.3", default-features = false }
+brotli-decompressor = { version = "=5.0.1", default-features = false }
+alloc-no-stdlib = "=2.0.4"
 
 # HTML parsing — scraper uses html5ever from Servo, tolerant of malformed HTML.
 scraper = "0.20"

@@ -6,6 +6,34 @@ Leia este arquivo em [English](CHANGELOG.md).
 - O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 - Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
+## [0.7.7] - 2026-06-14
+
+### Corrigido (CRÍTICO, runtime — não detectado pelo pipeline de release do GAP-WS-48)
+- **GAP-WS-49 (CRÍTICO, query) — query real retornava ZERO resultados por causa de fingerprint TLS detectável pela DDG.** v0.7.6 fechou o `cargo install` mas o binário publicado passou por todos os smoke tests de `--probe`/`--probe-deep` (status 200/ok) enquanto queries reais retornavam `resultados: 0` com `cascade_level: 0` e `usou_endpoint_fallback: false` — anomalia silenciosa. Reprodução local: 6/6 queries testadas ("rust", "rust language", "tokio rust async", "rust async runtime", "tokio vs async-std", "axum middleware examples") retornaram `quantidade_resultados: 0` com latências 1.0–1.6s.
+- **Causa raiz**: o `wreq 6.0.0-rc.29` sozinho NÃO tem feature `emulation` — a emulação de fingerprint TLS Chrome/Safari vivia apenas em `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. v0.7.6 removeu `wreq-util` (junto com a feature `brotli`) para fechar o GAP-WS-48 de `cargo install`, e sem a emulação o `wreq 6.0.0-rc.29` com BoringSSL plain produz um handshake TLS cujo fingerprint JA3/JA4 é detectável pelo Cloudflare Bot Management. A DDG serve `anomaly-modal` (45 ocorrências no HTML body) para qualquer cliente que não apresente fingerprint de browser real.
+- **Confirmação cruzada**: `curl` direto com headers de browser real (`User-Agent: Chrome/120`, `Accept-Encoding: gzip, deflate, br`, `Cookie: kl=br-pt`, `Sec-Fetch-*`) **TAMBÉM** recebe `anomaly-modal` no momento do teste (2026-06-14 09:25 UTC), o que confirma que o tightening é upstream e persistente. O probe mínimo de 1 request (`--probe-deep`) não aciona o tightening porque a DDG faz fingerprint baseado em volume/comportamento, não em request única.
+- **Fix aplicado**:
+  1. Re-adicionada a dep `wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }` no `Cargo.toml` (apenas `emulation`, sem `default`, para não trazer `brotli` por engano).
+  2. Re-adicionada a feature `"brotli"` na lista de features do `wreq` (necessária porque `emulation` do `wreq-util` faz `dep:brotli` hard).
+  3. Adicionados 2 pins diretos no `Cargo.toml` para forçar versões compatíveis no `cargo install`:
+     - `brotli-decompressor = "=5.0.1"` — versão 5.0.0/5.0.1 têm `alloc-no-stdlib = "2.0"` (hard); versão 5.0.2 publicada em 2026-06-14 alargou para `>=2.0.4, <4` e por isso puxa 3.0.0 no grafo.
+     - `alloc-no-stdlib = "=2.0.4"` — hard pin necessário porque `brotli 8.0.3` exige `alloc-no-stdlib = "2.0"`.
+  4. Adicionado `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` na resolução do lock, que remove a versão 3.0.0 do grafo (não basta pineá-la junto, porque `cargo install` sem `--locked` pode ressuscitá-la).
+  5. Comentário expandido no `Cargo.toml` documentando GAP-WS-49 e a estratégia de pin.
+- **Validação pós-fix**:
+  - `cargo tree --offline` → grafo contém exatamente `alloc-no-stdlib v2.0.4` e `brotli-decompressor v5.0.1`, zero ocorrências de 3.0.0/0.2.3.
+  - `cargo build --release --offline` → **sucesso em 24.04s** (vs 37.14s v0.7.6 — mais rápido porque `brotli-decompressor 5.0.1` é menor que 5.0.2).
+  - `cargo install --path .` (sem `--locked`, reproduzindo caminho do usuário) → **sucesso**, binário instalado e funcional.
+  - Query real `"rust async runtime"` com binário da v0.7.7 → **`quantidade_resultados: 5`**, latência 1087ms, resultados reais: `The Async Ecosystem`, `Fundamentals of Asynchronous Programming`, `Tokio - An asynchronous Rust runtime`, etc.
+  - `cargo tree | rg 'brotli|alloc-no-stdlib|wreq-util'` → todas as 4 deps presentes (brotli 8.0.3, brotli-decompressor 5.0.1, alloc-no-stdlib 2.0.4, wreq-util 3.0.0-rc.12).
+- **Impacto**:
+  - Binário final: +160KB (brotli 8.0.3 + brotli-decompressor 5.0.1 + wreq-util 3.0.0-rc.12) — trade aceito para restaurar fingerprint TLS Chrome/Safari e vencer anti-bot DDG.
+  - Tempo de build do `cargo install`: ~24s (vs ~37s v0.7.6) — mais rápido porque `brotli-decompressor 5.0.1` é menor que 5.0.2.
+  - Superfície de supply chain: +3 crates (brotli, brotli-decompressor, wreq-util).
+  - **Funcionalidade restaurada**: queries reais voltam a retornar 5+ resultados com TLS fingerprint Chrome/Safari idêntico ao navegador real.
+- `Cargo.toml` version bump: 0.7.6 → 0.7.7.
+
+
 ## [0.7.6] - 2026-06-14
 
 ### Corrigido (CRÍTICO, build)
