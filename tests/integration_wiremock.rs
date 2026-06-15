@@ -44,7 +44,7 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         timeout_seconds: 5,
         language: "pt".to_string(),
         country: "br".to_string(),
-        verbose: false,
+        verbose: 0,
         quiet: true,
         user_agent: "Mozilla/5.0 (teste)".to_string(),
         browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
@@ -124,17 +124,6 @@ fn html_with_vqd_tokens_and_results(vqd: &str, s: &str, dc: &str, titles: &[&str
     }
     html.push_str("</div></body></html>");
     html
-}
-
-fn empty_html_without_result() -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
-    // HTML sem `.result` para testar o caminho de zero resultados.
-    let padding =
-        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
-            .repeat(60);
-    format!(
-        r#"<html><head><title>DuckDuckGo sem resultados</title></head><body>{padding}<div id="links"><p>Nenhum resultado para esta busca específica foi encontrado aqui.</p></div></body></html>"#
-    )
 }
 
 fn html_lite_tabela() -> String {
@@ -219,7 +208,13 @@ async fn test_strategy_1_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: Empty HTML → fallback to Lite → results extracted via Strategy 3.
+// Test 2: HTML com interstitial anti-bot + flag ON → fallback Lite ativa.
+//
+// v0.7.8 (GAP-WS-52): o fallback Lite deixou de ser incondicional em HTML
+// vazio. Agora SÓ dispara quando (a) `cfg.allow_lite_fallback == true` E
+// (b) `detectar_interstitial` classifica a resposta como Cloudflare/DDG.
+// Para preservar a intenção do teste (Lite fallback funciona), usamos um
+// body HTML com marker `cf-challenge` (Cloudflare) e ligamos a flag.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_fallback_lite_when_html_empty() {
@@ -227,11 +222,18 @@ async fn test_fallback_lite_when_html_empty() {
     let mock_server_html = MockServer::start().await;
     let mock_server_lite = MockServer::start().await;
 
+    // HTML com marker Cloudflare para o detector classificar como interstitial.
+    let padding_cf =
+        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
+            .repeat(60);
+    let html_interstitial = format!(
+        r#"<html><head><title>Just a moment...</title></head><body>{padding_cf}<div class="cf-challenge"><h1>Attention Required! | Cloudflare</h1></div></body></html>"#
+    );
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(empty_html_without_result())
+                .set_body_string(html_interstitial)
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_server_html)
@@ -255,7 +257,9 @@ async fn test_fallback_lite_when_html_empty() {
     ]);
 
     let cliente = test_client();
-    let cfg = base_config(Endpoint::Html, 1, 0);
+    let mut cfg = base_config(Endpoint::Html, 1, 0);
+    // v0.7.8 (GAP-WS-52): flag deve estar LIGADA para o fallback Lite disparar.
+    cfg.allow_lite_fallback = true;
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 

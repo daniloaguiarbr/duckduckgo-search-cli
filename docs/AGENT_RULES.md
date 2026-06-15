@@ -1,7 +1,7 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v0.4.4 · Schema: stable · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v0.7.8 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.7.6+ (cargo install), v0.7.7+ (probes profundos) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
 - ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
@@ -981,7 +981,7 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.7.5.
+End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.7.7/v0.7.8.
 
 
 ## v0.7.3 — New Rules (MUST/NEVER additions)
@@ -1024,3 +1024,44 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 - NEVER claim cargo install duckduckgo-search-cli just works on Windows. It requires four build tools, three of which are not part of the C++ workload by default.
 - NEVER file a Windows build bug report without first running scripts/check-windows-toolchain.ps1 --json and attaching the output.
 - NEVER modify scripts/install-windows.ps1 to attempt MSVC auto-install. The download is 5+ GB, requires admin, and is too invasive for a one-shot script. Point users to the Visual Studio Installer instead.
+
+
+## v0.7.6 — New Rules (MUST/NEVER additions)
+
+### MUST
+- MUST install via `cargo install duckduckgo-search-cli --locked` to respect the pinned `alloc-no-stdlib = "=2.0.4"` constraint.
+- MUST understand that `brotli` decoding was removed from the dependency tree (DDG never sends `Content-Encoding: br`).
+- MUST verify zero `alloc-no-stdlib` collisions in `cargo tree` after install.
+
+### NEVER
+- NEVER run `cargo install duckduckgo-search-cli` without `--locked` on a fresh system; the lockfile regeneration triggers GAP-WS-48.
+- NEVER assume the v0.7.6 build is functionally equivalent to v0.7.5 in supply chain; the brotli toolchain was dropped.
+
+
+## v0.7.7 — New Rules (MUST/NEVER additions)
+
+### MUST
+- MUST run real-query smoke tests after install to confirm TLS fingerprint emulation works (5+ results expected).
+- MUST pin `wreq-util 3.0.0-rc.12` indirectly via the v0.7.7 lockfile for `emulation` feature.
+- MUST check that `wreq 6.0.0-rc.29` BoringSSL stack is present in the binary (restores GAP-WS-49).
+
+### NEVER
+- NEVER downgrade from v0.7.7 to v0.7.6 without checking `gaps.md` and `docs/decisions/0001-tls-boring-via-wreq.md` — the GAP-WS-27 macOS CAPTCHA returns.
+- NEVER skip the post-install `cargo tree` validation that confirms `alloc-no-stdlib v2.0.4` is in the graph.
+
+
+## v0.7.8 — New Rules (MUST/NEVER additions, anti-bot detector overhaul)
+
+### MUST
+- MUST understand that `detectar_interstitial` now recognizes `anomaly-modal` and `anomaly.js?cc=botnet` from the post-2026 DDG templates.
+- MUST pass `-vv` or `-vvv` to increase stderr verbosity to debug or trace; the flag is `ArgAction::Count` since v0.7.8.
+- MUST know that `--retries N` is now honored end-to-end (was hard-coded to 1 in `execute_with_retry` pre-v0.7.8).
+- MUST trust that `--allow-lite-fallback` only triggers when the detector classifies an interstitial, not on any zero-result page.
+- MUST know the probe-deep calibration query is the 9-word pangram `the quick brown fox jumps over the lazy dog` since v0.7.8.
+- MUST run probe-deep on macOS runners to catch the new `anomaly-modal` interstitial before launching pipelines.
+
+### NEVER
+- NEVER treat silent zero-result outcomes (exit 5) as a query problem; check if the detector flagged an interstitial and run `--probe-deep` first.
+- NEVER assume `-v` is a boolean flag in v0.7.8+; it accepts multiple occurrences (`-vv`, `-vvv`) per Unix convention.
+- NEVER pass `--retries` above 10; the v0.7.8+ clamp in `src/parallel.rs` rejects it.
+- NEVER attempt to invoke the `buscar` subcommand from CI scripts that parse `--help` output; it is hidden since v0.7.8.

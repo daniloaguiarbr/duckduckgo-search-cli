@@ -1,7 +1,35 @@
-# duckduckgo-search-cli v0.7.5 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.7.8 — Full Documentation for LLM Context
 
+
+## v0.7.8 Highlights (2026-06-15)
+
+- **GAP-WS-50 (CRITICAL, detector) — `detectar_interstitial` em `src/probe_deep.rs` agora reconhece o interstitial DDG `anomaly-modal` de 2026-06-14.** Listas `CLOUDFLARE_MARKERS` (com `anomaly-modal`, `anomaly.js`, `botnet`, `Unfortunately, bots`) e `DDG_MARKERS` (com `anomaly-modal__title`) expandidas. Markers legados preservados. 8 testes unitários novos em `src/probe_deep.rs::tests`.
+- **GAP-WS-51 (HIGH, probe-deep) — query de calibração longa `the quick brown fox jumps over the lazy dog` substitui o hard-coded `q=rust`.** Query curta de 1 palavra retornava a home page que não aciona o detector. Constante `PROBE_CALIBRATION_QUERY` em `src/lib.rs`.
+- **GAP-WS-52 (HIGH, fallback) — `--allow-lite-fallback` agora consulta `detectar_interstitial` antes de decidir.** Decisão em `src/search.rs:559` migrou de `accumulated_results.is_empty()` para `detectar_interstitial(&first_html) != InterstitialKind::None`. Detecta interstitial → fallback lite imediato → `exit 3` com `cascata_motivo` preenchido.
+- **GAP-WS-53 (LOW, UX) — `-v` aceita múltiplas ocorrências via `ArgAction::Count`.** Mapeamento: `-v` → `info`, `-vv` → `debug`, `-vvv` → `trace`. Convenção Unix respeitada.
+- **GAP-WS-54 (MEDIUM, supply chain) — `scraper` bumped de 0.20.0 para 0.27.0.** Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057). Gate `cargo audit --deny warnings` adicionado em CI. `async-std` continua apenas na feature `chrome`.
+- **GAP-WS-55 (LOW, docs drift) — comentário sobre `wreq` no `Cargo.toml:69-86` reescrito.** Texto antigo mencionava regressão inexistente. Texto novo documenta pin real em `wreq 6.0.0-rc.29` + 3 pins diretos.
+- **GAP-WS-56 (LOW, UX) — subcomando `buscar` agora tem `#[command(hide = true)]`.** Help de `buscar --help` deixou de duplicar help global. Subcomando continua invocável.
+- **GAP-WS-57 (MEDIUM, retries) — flag `--retries N` agora é honrada em `src/parallel.rs:644`.** Bug: valor vinha hard-coded como 1. Fix propagou `cfg.retries` com clamp `[1, 10]`.
+- **Validation**: 305 testes (292 lib + 13 integration), 100% passing, `cargo audit` zero advisories, zero breaking changes no schema JSON.
 
 ## v0.7.5 Highlights (2026-06-14)
+## v0.7.7 Highlights (2026-06-14)
+
+- **GAP-WS-49 (CRITICAL, query) — query real retornava ZERO resultados por fingerprint TLS detectável.** v0.7.6 fechou `cargo install` mas o binário publicado passou todos os smoke tests de `--probe`/`--probe-deep` (status 200/ok) enquanto queries reais retornavam `resultados: 0`. Reprodução local: 6/6 queries retornaram 0 resultados em 1.0–1.6s.
+- **Causa raiz**: `wreq 6.0.0-rc.29` sozinho NÃO tem feature `emulation` — a emulação de fingerprint TLS Chrome/Safari vivia em `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. v0.7.6 removeu `wreq-util` para fechar GAP-WS-48, e sem emulação o `wreq` com BoringSSL plain produz handshake cujo fingerprint JA3/JA4 é detectável pela Cloudflare Bot Management. DDG serve `anomaly-modal` (45 ocorrências) para clientes sem fingerprint de browser real.
+- **Fix aplicado**: re-adicionada dep `wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }`. Re-adicionada feature `"brotli"` no `wreq` (necessária para `emulation`). Pins diretos: `brotli-decompressor = "=5.0.1"`, `alloc-no-stdlib = "=2.0.4"`. `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` na resolução do lock.
+- **Residual GAP-WS-48**: `cargo install` SEM `--locked` regenera o lock e cai na mesma colisão. Usar `cargo install duckduckgo-search-cli --version 0.7.7 --locked` para respeitar o `Cargo.lock` commitado.
+- **Impacto**: binário +160KB (brotli 8.0.3 + brotli-decompressor 5.0.1 + wreq-util). `cargo install` ~24s (vs ~37s v0.7.6). +3 crates no grafo. Queries reais voltam a retornar 5+ resultados com fingerprint TLS idêntico a Chrome/Safari.
+
+## v0.7.6 Highlights (2026-06-14)
+
+- **GAP-WS-48 (CRITICAL, install) — `cargo install` quebrou em 2026-06-14 por conflito `alloc-no-stdlib 2.0.4 vs 3.0.0`.** Mesmo dia, crates.io publicou `alloc-no-stdlib 3.0.0`, `alloc-stdlib 0.2.3` (depende de `alloc-no-stdlib = ">=2.0.4, <4.0.0"`) e `brotli-decompressor 5.0.2`. `cargo install <crate>@<version>` (sem `--locked`) regenera o lock e cai nessas versões; `brotli 8.0.3` (não atualizado, ainda requer `alloc-no-stdlib = "2.0"`) implementa `impl BrotliAlloc for StandardAlloc` esperando trait da 2.0.4, mas `StandardAlloc` de `alloc-stdlib 0.2.3` é compilada contra 3.0.0 — colisão produz 36 erros `E0277` em `enc/reader.rs`, `enc/writer.rs`, `enc/combined_alloc.rs`.
+- **Causa raiz em 2 camadas**: (1) `wreq-util 3.0.0-rc.12` (declarado direto, NUNCA importado em `src/`) tem `default = ["emulation"]` que ativa `dep:brotli` — esse era o portador real do `brotli` no grafo de produção. (2) A feature `brotli` do `wreq` foi mantida mesmo sabendo que DDG não envia `Content-Encoding: br` (verificado em 2026-06-14 contra `/html/`, `/lite/` via `curl -I`).
+- **Fix aplicado**: removida dep `wreq-util = "3.0.0-rc"` (era dead code). Removida feature `"brotli"` do `wreq`. `gzip`+`deflate`+`zstd` continuam habilitados; DDG nunca envia brotli, zero impacto funcional.
+- **Validação**: `cargo tree | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` → 0 matches. `cargo install --path . --offline` (sem `--locked`) → sucesso em 35.7s. `cargo build --release` → sucesso em 37.14s (5.92s mais rápido que v0.7.5).
+- **Impacto**: -6 crates no grafo de deps. `cargo install` -5 a -10s. Binário menor. Sem mudanças de CLI ou schema JSON.
+
 
 - **GAP-WS-29/30/31/32/33/34/35/36/37 closed (build experience and documentation).** Extended the v0.7.4 NASM preflight to also detect CMake (the `cmake` crate 0.1.58 needs `cmake.exe` in PATH BEFORE `enable_language(ASM_NASM)` is evaluated), MSVC compiler and linker (`cl.exe`/`link.exe` — need `Launch-VsDevShell.ps1` to set PATH, INCLUDE, LIB), and Perl (`perl.exe` for BoringSSL's perlasm generator). New `build.rs` preflight aborts in seconds with the exact fix for each of the four tools. Escape hatches: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`. Root cause: the C++ CMake tools for Windows sub-component of the Visual Studio Installer is deselected by default — installing only the C++ workload does NOT provide CMake.
 - **New helper `scripts/install-windows.ps1`** — extended to detect and auto-install CMake (`winget install -e --id Kitware.CMake`) and Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`); reports exact MSVC install instructions.

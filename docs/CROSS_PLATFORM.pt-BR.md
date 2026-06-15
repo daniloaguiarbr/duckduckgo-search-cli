@@ -198,7 +198,8 @@ cargo install duckduckgo-search-cli
 
 - O Cargo busca a crate do crates.io, compila para a arquitetura do host e coloca o binário em `~/.cargo/bin`
 - A Versão Mínima Suportada do Rust (MSRV) é 1.88 (desde v0.7.2) — execute `rustup update` se seu toolchain for mais antigo. v0.7.3+ adicionalmente requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux para a stack BoringSSL via `wreq 6.0.0-rc`.
-- Verifique a instalação: `duckduckgo-search-cli --version` (espere `0.6.5` para a release v0.6.5)
+- Verifique a instalação: `duckduckgo-search-cli --version` (espere `0.7.7` para a release v0.7.7; `0.7.8` na working tree)
+- **SEMPRE passe `--locked`** para evitar o GAP-WS-48 residual: `cargo install duckduckgo-search-cli --locked` (ou fixe a versão: `cargo install duckduckgo-search-cli --version 0.7.7 --locked`). O `Cargo.lock` da v0.7.7 foi preparado com `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` para manter o grafo de dependências limpo.
 ### Binários Pré-compilados
 - Binários pré-compilados para todos os cinco targets são anexados aos GitHub Releases quando o pipeline de release os publica (`cargo install` sempre compila do source)
 - Cada release inclui um arquivo `SHA256SUMS.txt` para verificação de integridade antes da execução
@@ -211,9 +212,171 @@ sha256sum --check SHA256SUMS.txt
 tar -xzf duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
 chmod +x duckduckgo-search-cli
 sudo mv duckduckgo-search-cli /usr/local/bin/
-duckduckgo-search-cli --version   # espere 0.6.5
+duckduckgo-search-cli --version   # espere 0.7.7 (0.7.8 na working tree)
 ```
 
 - Reporte problemas específicos de plataforma no rastreador de issues do repositório no GitHub
+
+
+## v0.7.6 — Correção do `cargo install` (GAP-WS-48)
+
+**A v0.7.5 era impossível de compilar via `cargo install` em máquinas
+limpas.** Em 2026-06-14, `cargo install duckduckgo-search-cli` falhava
+com 36 erros do tipo `E0277 the trait bound 'StandardAlloc: alloc::Allocator<T> is not satisfied`
+porque o solver puxava `alloc-no-stdlib 3.0.0` (transitivamente de
+`brotli-decompressor 5.0.2`) que colide com a expectativa do
+`brotli 8.0.3` de `alloc-no-stdlib = "2.0"`.
+
+**A v0.7.6 corrige isto** removendo a dep não utilizada `wreq-util` e
+abandonando a feature `brotli` do `wreq` (DuckDuckGo nunca serve
+`Content-Encoding: br`). O grafo de dependências volta ao estado limpo
+e `cargo install` sucede em ~35,7s.
+
+**GAP-WS-48 residual — NÃO totalmente fechado sem `--locked`**: mesmo
+com o fix da v0.7.6, `cargo install` sem `--locked` ainda pode quebrar
+em 2026-06-14+ porque o solver pode escolher a `alloc-stdlib 0.2.3`
+publicada recentemente (que depende de `alloc-no-stdlib >=2.0.4, <4`) e
+regenerar o lockfile com a versão conflitante 3.0.0. A receita robusta é:
+
+```bash
+# Sempre use --locked para respeitar o Cargo.lock commitado
+cargo install duckduckgo-search-cli --locked
+
+# Fixe a versão E o lock
+cargo install duckduckgo-search-cli --version 0.7.7 --locked
+```
+
+A v0.7.7 commita um `Cargo.lock` preparado com
+`cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` para que
+`--locked` rejeite a resolução ruim. Sem `--locked`, o solver é livre
+para reintroduzir o conflito.
+
+
+## v0.7.7 — Correção do Fingerprint TLS (GAP-WS-49)
+
+**A v0.7.6 publicou um binário que passava em todos os smoke tests mas
+retornava ZERO resultados reais.** O `wreq 6.0.0-rc.29` sozinho NÃO
+inclui a feature `emulation`; a emulação de fingerprint JA3/JA4 vivia
+no `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. A v0.7.6
+havia removido o `wreq-util` para fechar o GAP-WS-48 de `cargo install`,
+e o handshake BoringSSL-sem-emulação tornou-se trivialmente detectável
+pelo Cloudflare Bot Management. A DDG servia `anomaly-modal` (45
+ocorrências no HTML body) para cada query real.
+
+**A v0.7.7 corrige isto** re-adicionando `wreq-util 3.0.0-rc.12` com
+`default-features = false, features = ["emulation"]` e três pins diretos
+no `Cargo.toml`:
+
+- `brotli-decompressor = "=5.0.1"` (a 5.0.2 publicada em 2026-06-14
+  alarga o range de `alloc-no-stdlib` e puxa 3.0.0)
+- `alloc-no-stdlib = "=2.0.4"` (5.0.1+ exige esta versão exata)
+- Feature `"brotli"` do `wreq` re-habilitada (mandatória para `emulation`)
+
+O resultado: queries reais voltam a retornar 5+ resultados com fingerprint
+TLS JA3/JA4 idêntico ao Chrome/Safari, correspondendo à sonda de
+navegador que a DDG espera. `cargo build --release --offline` sucede em
+24,04s (mais rápido que v0.7.6 porque `brotli-decompressor 5.0.1` é
+menor que 5.0.2).
+
+**Ressalva para `cargo install`**: use `--locked` (veja nota do GAP-WS-48
+residual acima). Sem `--locked`, o solver pode puxar
+`alloc-stdlib 0.2.3` e o conflito retorna.
+
+
+## v0.7.8 — Renovação do Detector Anti-Bot + Verbose Acumulado (8 gaps)
+
+**A v0.7.8 (working tree, aguardando tag)** fecha 8 gaps na superfície
+de detecção anti-bot. Ver `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md`
+para a decisão arquitetural completa. Mudanças principais:
+
+- **`detectar_interstitial` expandido** (GAP-WS-50): `CLOUDFLARE_MARKERS`
+  cresceu para 8 entradas (`anomaly-modal`, `anomaly-modal__mask`,
+  `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`,
+  `cf-spinner`, `Just a moment`, `cf-mitigated`) mais 1 marcador DDG
+  novo (`Unfortunately, bots use DuckDuckGo too.`). O detector agora
+  captura o interstitial `anomaly-modal` pós-2026 que a v0.7.7 perdeu.
+- **Probe-deep usa query de calibração longa** (GAP-WS-51): o literal
+  `q=rust` (4 chars) foi substituído pelo pangrama de 9 palavras
+  `the quick brown fox jumps over the lazy dog` exposto como
+  `PROBE_CALIBRATION_QUERY` em `src/lib.rs:91, 509`. Queries longas
+  acionam o bot scoring upstream de forma confiável, tornando o probe
+  honesto.
+- **`--allow-lite-fallback` agora consulta o detector** (GAP-WS-52): o
+  predicado em `src/search.rs:559` migrou de
+  `accumulated_results.is_empty()` para
+  `detectar_interstitial(&first_html) != InterstitialKind::None`. Quando
+  a flag está OFF e o detector ainda flagra interstitial, um
+  `tracing::warn!` estruturado é emitido com
+  `kind = interstitial_kind.as_str()`.
+- **Verbose agora é cumulativo** (GAP-WS-53): `-v` → `info`, `-vv` →
+  `debug`, `-vvv` → `trace`. `RUST_LOG` continua sobrescrevendo.
+- **`scraper` bumpado para 0.27** (GAP-WS-54): fecha RUSTSEC-2025-0057
+  (`fxhash 0.2.1` unmaintained). `cargo audit --deny warnings` agora é
+  gate de CI em `ci.yml` e `release.yml`.
+- **Comentário do `wreq` reescrito** (GAP-WS-55): o texto anterior
+  alegava uma "regressão para 5.3.0" que nunca aconteceu. O novo
+  comentário documenta o pin real em `wreq 6.0.0-rc.29` e os três pins
+  diretos.
+- **Subcomando `buscar` escondido** (GAP-WS-56): `#[command(hide = true)]`
+  mantém invocável mas remove do `--help` para reduzir ruído.
+- **`--retries` agora é honrado** (GAP-WS-57): o valor estava hard-coded
+  para 1 em `src/parallel.rs:644`; corrigido para ler `cfg.retries` com
+  clamp `[1, 10]` para que `--retries 999` não acione anti-bot.
+
+**Impacto multiplataforma**: zero breaking changes. Schema JSON e exit
+codes inalterados. Tamanho do binário inalterado. Delta de tempo de
+build dentro de ±5% em todos os targets. O novo `scraper 0.27` pode
+serializar `Selector` levemente diferente, mas nenhum call site
+precisou de refactor.
+
+
+## Matriz Comparativa v0.7.5 → v0.7.8
+
+| Concern | v0.7.5 | v0.7.7 | v0.7.8 |
+|---|---|---|---|
+| `cargo install` no Linux | Quebrado (GAP-WS-48) | Funciona com `--locked` | Funciona com `--locked` |
+| Queries reais retornam resultados | Sim | Sim (restaurado via fix TLS) | Sim (com markers melhores) |
+| Detecta DDG `anomaly-modal` | Não | Não | Sim (8 markers novos) |
+| Probe-deep sinal honesto | Query curta `rust` | Query curta `rust` | Pangrama 9-palavras |
+| Fallback opt-in honrado | Predicado invertido | Predicado invertido | Guiado por detector |
+| `-vv` flag de debug | Não suportado | Não suportado | Sim (`ArgAction::Count`) |
+| `cargo audit` limpo | 1 advisory transitivo | 1 advisory transitivo | Limpo (RUSTSEC-2025-0057 fechado) |
+| Subcomando `buscar` | Visível no `--help` | Visível no `--help` | Escondido |
+| `--retries N` honrado | Não (hard-coded 1) | Não (hard-coded 1) | Sim (clamp `[1, 10]`) |
+
+
+## GAP-WS-48 Residual — Quando o Sintoma Retorna
+
+Se um usuário reportar `E0277 the trait bound 'StandardAlloc: alloc::Allocator<T> is not satisfied`
+em `cargo install` da v0.7.7 ou v0.7.8, a causa é quase sempre uma
+destas:
+
+1. **Faltou `--locked`**: o solver regenerou o lockfile e puxou
+   `alloc-stdlib 0.2.3` → `alloc-no-stdlib 3.0.0`. Correção:
+   `cargo install duckduckgo-search-cli --locked`.
+2. **Misturando lock da v0.7.6 com source da v0.7.7**: alguns usuários
+   cachearam o lock da v0.7.6 e esqueceram de atualizar. Correção:
+   `cargo update` ou remova `Cargo.lock` e reconstrua com `--locked`.
+3. **Mirror de registry customizado**: o mirror pode estar desatualizado
+   e servir `brotli-decompressor 5.0.2` em vez de 5.0.1. Correção:
+   configure o mirror para upstream crates.io, ou use um `Cargo.lock`
+   mais recente.
+
+A receita robusta para máquinas limpas é:
+
+```bash
+# Linux/macOS — versão explícita + lock travado
+cargo install duckduckgo-search-cli --version 0.7.7 --locked
+
+# Windows MSVC — o mesmo, mais developer shell para cl.exe
+cargo install duckduckgo-search-cli --version 0.7.7 --locked
+```
+
+Verifique após a instalação:
+
+```bash
+duckduckgo-search-cli --version          # espere 0.7.7 (ou 0.7.8)
+duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
+```
 
 Leia este documento em [English](CROSS_PLATFORM.md).

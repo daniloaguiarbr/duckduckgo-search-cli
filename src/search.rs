@@ -16,6 +16,7 @@
 
 use crate::error::CliError;
 use crate::extraction;
+use crate::probe_deep::{detectar_interstitial, InterstitialKind};
 use crate::types::{Config, Endpoint, SafeSearch, SearchResult, TimeFilter};
 use rand::RngExt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -555,9 +556,49 @@ pub async fn search_with_pagination(
     let mut effective_endpoint = initial_endpoint;
     let mut pages_fetched: u32 = 1;
 
-    // Se HTML retornou zero E estamos no endpoint HTML → tentar Lite como fallback.
-    if accumulated_results.is_empty() && initial_endpoint == Endpoint::Html {
-        tracing::warn!("HTML returned zero results — trying Lite fallback");
+    // Se HTML retornou zero E estamos no endpoint HTML → tentar Lite como fallback
+    // SOMENTE se a flag `allow_lite_fallback` estiver habilitada E o detector
+    // classificar a resposta como interstitial anti-bot (Cloudflare / DDG).
+    // GAP-WS-52 (v0.7.8): fallback deixa de ser incondicional — só dispara
+    // quando há evidência estrutural de bloqueio. Sem flag, mantemos o
+    // comportamento legado (zero resultados = sem fallback) e logamos
+    // uma sugestão estruturada para o operador.
+    let interstitial_kind = detectar_interstitial(&first_html);
+    let should_attempt_lite_fallback = accumulated_results.is_empty()
+        && initial_endpoint == Endpoint::Html
+        && cfg.allow_lite_fallback
+        && matches!(
+            interstitial_kind,
+            InterstitialKind::Cloudflare | InterstitialKind::DuckDuckGo
+        );
+
+    if accumulated_results.is_empty()
+        && initial_endpoint == Endpoint::Html
+        && !should_attempt_lite_fallback
+    {
+        // Logar sugestão estruturada apenas quando o detector flagrou
+        // interstitial mas a flag está desabilitada — para que o operador
+        // saiba que existe um caminho de mitigação (`--allow-lite-fallback`).
+        if !cfg.allow_lite_fallback
+            && matches!(
+                interstitial_kind,
+                InterstitialKind::Cloudflare | InterstitialKind::DuckDuckGo
+            )
+        {
+            tracing::warn!(
+                kind = interstitial_kind.as_str(),
+                "interstitial detected; re-run with --allow-lite-fallback to enable automatic Lite fallback"
+            );
+        } else {
+            tracing::warn!("HTML returned zero results — no interstitial detected");
+        }
+    }
+
+    if should_attempt_lite_fallback {
+        tracing::warn!(
+            kind = interstitial_kind.as_str(),
+            "interstitial detected — trying Lite fallback"
+        );
         let url_lite = build_search_url(
             query,
             &cfg.language,

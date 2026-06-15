@@ -45,16 +45,37 @@ impl InterstitialKind {
 }
 
 /// String markers that indicate a Cloudflare interstitial.
+///
+/// Includes both legacy (pre-2026) and post-2026 markers. Cloudflare
+/// rolled out Turnstile, the `cf-spinner` placeholder and the
+/// `Just a moment` interstitial while `cf-mitigated` appears in
+/// post-mitigation pages. We match on any of these to be safe.
 const CLOUDFLARE_MARKERS: &[&str] = &[
     "cf-chl-bypass",
     "cf-challenge",
     "challenge-platform",
     "Attention Required",
     "__cf_chl_jschl_tk__",
+    "anomaly-modal",
+    "anomaly-modal__mask",
+    "anomaly-modal__title",
+    "anomaly.js?cc=botnet",
+    "cf-turnstile",
+    "cf-spinner",
+    "Just a moment",
+    "cf-mitigated",
 ];
 
 /// String markers that indicate a `DuckDuckGo` bot-detection interstitial.
-const DDG_MARKERS: &[&str] = &["robot-detected", "bots, we have detected"];
+///
+/// The pre-2026 `robot-detected` template is still observed in some
+/// locales, while the post-2026 anomaly-modal copy replaces the older
+/// "bots, we have detected" sentence on the main path.
+const DDG_MARKERS: &[&str] = &[
+    "robot-detected",
+    "bots, we have detected",
+    "Unfortunately, bots use DuckDuckGo too.",
+];
 
 /// Detects whether the given HTML body is a bot-detection interstitial
 /// or a real search result page.
@@ -163,6 +184,58 @@ mod tests {
         assert_eq!(InterstitialKind::None.as_str(), "none");
         assert_eq!(InterstitialKind::Cloudflare.as_str(), "cloudflare");
         assert_eq!(InterstitialKind::DuckDuckGo.as_str(), "duckduckgo");
+    }
+
+    #[test]
+    fn cloudflare_anomaly_modal_detected() {
+        let html = "<html><body><div class=\"anomaly-modal__mask\"></div></body></html>";
+        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+    }
+
+    #[test]
+    fn cloudflare_anomaly_modal_title_detected() {
+        let html =
+            "<html><body><h1 class=\"anomaly-modal__title\">Verify you are human</h1></body></html>";
+        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+    }
+
+    #[test]
+    fn cloudflare_anomaly_js_botnet_detected() {
+        let html =
+            "<html><body><script src=\"/.well-known/anomaly.js?cc=botnet\"></script></body></html>";
+        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+    }
+
+    #[test]
+    fn cloudflare_turnstile_detected() {
+        let html =
+            "<html><body><div class=\"cf-turnstile\" data-sitekey=\"0x4AAA\"></div></body></html>";
+        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+    }
+
+    #[test]
+    fn cloudflare_spinner_detected() {
+        let html = "<html><body><div class=\"cf-spinner\"></div></body></html>";
+        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+    }
+
+    #[test]
+    fn cloudflare_just_a_moment_detected() {
+        let html = "<html><body><h1>Just a moment...</h1></body></html>";
+        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+    }
+
+    #[test]
+    fn cloudflare_mitigated_detected() {
+        let html = "<html><body><div id=\"cf-mitigated\">success</div></body></html>";
+        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+    }
+
+    #[test]
+    fn duckduckgo_unfortunately_bots_detected() {
+        let html =
+            "<html><body>Unfortunately, bots use DuckDuckGo too. Please complete the challenge below.</body></html>";
+        assert_eq!(detectar_interstitial(html), InterstitialKind::DuckDuckGo);
     }
 
     #[test]

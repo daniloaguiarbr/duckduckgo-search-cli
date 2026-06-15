@@ -1354,3 +1354,106 @@ cargo install duckduckgo-search-cli --version 0.7.5 --force
 - **See also**: docs/INSTALL-WINDOWS.md for 5 installation methods; gaps.md GAP-WS-29/30/31 for the underlying analysis; docs/HOW_TO_USE.md for the canonical preflight mention.
 ```
 
+
+
+## Recipe 25 — Anti-bot detector overhaul with --probe-deep (v0.7.8+)
+- Gain: detect the new `anomaly-modal` interstitial from DDG.
+- Problem: v0.7.7 detector only knew legacy CF markers.
+- Benefit: probe-deep now returns honest `captcha` status.
+- Benefit: CI gates fail loudly on macOS when blocked.
+- Result: 8 new unit tests in `src/probe_deep.rs::tests`.
+
+```bash
+# Run this
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json
+
+# Expect this on clean environment
+# {
+#   "type": "probe_deep",
+#   "status": "ok",
+#   "http_status": 200,
+#   "cascata_motivo": "none",
+#   "sugestao_mitigacao": "no interstitial detected"
+# }
+
+# Verify the calibration query is the 9-word pangram
+duckduckgo-search-cli --probe-deep -q -f json | jaq -r '.url'
+# Expect: ends with q=the%20quick%20brown%20fox%20jumps%20over%20the%20lazy%20dog
+```
+
+```bash
+# Run this when probe reports captcha
+duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+# Exit 0 = proceed with real queries
+# Exit 1 = abort and follow sugestao_mitigacao
+```
+
+
+## Recipe 26 — Verbose levels with -v, -vv, -vvv (v0.7.8+)
+- Gain: control log verbosity per Unix convention.
+- Problem: v0.7.7 had a single `verbose: bool` flag.
+- Benefit: `-v` maps to info, `-vv` to debug, `-vvv` to trace.
+- Benefit: `RUST_LOG` env var still overrides the CLI flag.
+- Result: surgical verbosity for diagnosing cascade paths.
+
+```bash
+# Run this at info level
+duckduckgo-search-cli -v "rust async" -q -f json --num 5 2> /tmp/ddg.log
+# Expect in stderr
+# INFO duckduckgo_search_cli::search: starting query endpoint=Html
+# INFO duckduckgo_search_cli::search: cascade_level=0 latency_ms=180
+
+# Verify level count
+rg -c "^(INFO|DEBUG|TRACE|WARN|ERROR)" /tmp/ddg.log
+# Expect: at least 2 lines
+```
+
+```bash
+# Run this at debug level
+duckduckgo-search-cli -vv "rust async" -q -f json --num 5 2> /tmp/ddg.log
+# Expect in stderr (now with DEBUG)
+# DEBUG duckduckgo_search_cli::probe_deep: probe_calibration_query="the quick brown fox..."
+# DEBUG duckduckgo_search_cli::search: interstitial detection result kind=None
+
+# Run this at trace level
+duckduckgo-search-cli -vvv "rust async" -q -f json --num 5 2> /tmp/ddg.log
+# Expect: full TLS handshake and HTML parsing
+# WARNING: trace is verbose; redirect to a file
+```
+
+
+## Recipe 27 — Retries honored with --retries N (v0.7.8+)
+- Gain: `--retries N` is now actually honored.
+- Problem: v0.7.7 hard-coded `retries: 1` in `src/parallel.rs:644`.
+- Benefit: operators configure retry budget without env vars.
+- Benefit: regression test in `tests/integration_search_retry.rs` validates.
+- Result: captcha-retry pipeline with correct attempt count.
+
+```bash
+# Run this
+timeout 120 duckduckgo-search-cli "rust async" -q -f json --retries 5 --num 10
+
+# Expect this on transient failures
+# {
+#   "metadados": {
+#     "retentativas": 5,
+#     "tempo_execucao_ms": 12500,
+#     "quantidade_resultados": 10
+#   }
+# }
+
+# Verify the retries value lands in metadata
+duckduckgo-search-cli "rust async" -q -f json --retries 5 --num 5 \
+  | jaq -r '.metadados.retentativas // 0'
+# Expect: 5 (or 0..=5 if first attempt succeeded)
+```
+
+```bash
+# Run this to test the clamp guard
+duckduckgo-search-cli "rust" -q -f json --retries 999 --num 1 2>&1 | head -5
+# Expect: warning about clamp to 10
+
+# Run this with lite fallback
+duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 5
+# Expect: html path retry then lite fallback on captcha
+```

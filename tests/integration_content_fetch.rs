@@ -23,7 +23,7 @@ fn cfg(parallelism: u32) -> Config {
         timeout_seconds: 5,
         language: "pt".into(),
         country: "br".into(),
-        verbose: false,
+        verbose: 0,
         quiet: true,
         user_agent: "Mozilla/5.0 (teste)".into(),
         browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),

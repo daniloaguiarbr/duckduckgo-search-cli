@@ -30,7 +30,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 4  global timeout  → raise --global-timeout; reduce --parallel
 5  zero results    → refine query or try different --lang
 
-# Current version: v0.7.5
+# Current version: v0.7.7 (v0.7.8 em desenvolvimento no branch main)
 ```
 
 ## v0.7.3 Highlights for Integrations
@@ -53,7 +53,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
   - Cookie jar persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`.
   - Warm-up adds one `GET https://duckduckgo.com/` before the first real query to populate session cookies.
 - **`probe-deep` feature (CAPTCHA interstitial detection)**:
-  - New flags: `--probe-deep` (run a real search query and classify the body as `ok` or `captcha`), `--allow-lite-fallback` (opt-in to automatic `html → lite` fallback when CAPTCHA detected).
+  - New flags: `--probe-deep` (run a real search query and classify the body as `ok` or `captcha`), `--allow-lite-fallback` (opt-in: only takes effect when the `detectar_interstitial` predicate reports `captcha`; in v0.7.8+ the fallback condition is honored end-to-end via GAP-WS-52).
   - New JSON report fields on the probe response: `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`.
 - **Zero breaking changes to JSON output schema**. All v0.7.2 fields remain present.
 
@@ -83,3 +83,65 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 
 See `CHANGELOG.md` for the complete v0.6.5 changelog and migration notes
 from earlier versions.
+
+
+## v0.7.6 Highlights for Integrations
+
+- **GAP-WS-48 closed (HIGH, build experience)**: `cargo install` was breaking
+  on certain platforms due to a `cargo` resolver conflict between
+  `alloc-no-stdlib 2.0.4` and `alloc-no-stdlib 3.0.0` brought in transitively
+  by the `wreq` stack. v0.7.6 pins `alloc-no-stdlib =2.0.4` directly in
+  `Cargo.toml`. Reinstalling from crates.io now works without manual
+  dependency cleanup.
+- **No CLI contract changes**: All v0.7.5 flags, JSON fields, and exit codes
+  remain present. Drop-in replacement.
+- **CI change**: The `pre-publish` job now resolves the dependency graph
+  during release — if the pin ever drifts again, the release will fail
+  before reaching crates.io.
+
+
+## v0.7.7 Highlights for Integrations
+
+- **GAP-WS-49 closed (CRITICAL, runtime regression)**: A `wreq-util`
+  resolution failure in v0.7.6 broke BoringSSL TLS fingerprint emulation
+  on certain Linux distributions. The result was silent CAPTCHA
+  interception on hosts that previously worked. v0.7.7 pins `wreq-util`
+  directly in `Cargo.toml` — no more resolution drift.
+- **No CLI contract changes**: All v0.7.6 flags, JSON fields, and exit
+  codes remain present. Drop-in replacement.
+- **Recommended upgrade path**: v0.7.5 → v0.7.7 is the cleanest jump
+  for users who skipped v0.7.6. The v0.7.6 → v0.7.7 delta is
+  dependency-only.
+
+
+## v0.7.8 Highlights for Integrations
+
+- **GAP-WS-50**: `probe-deep` interstitial list expanded — 8 Cloudflare
+  markers plus 1 DDG anomaly marker. False-negative rate on CAPTCHA
+  detection dropped measurably in benchmark runs.
+- **GAP-WS-52**: `--allow-lite-fallback` now reads the real detector
+  result. When the detector flags a CAPTCHA but the flag is off, the CLI
+  emits a structured `tracing::warn!` and exits with the appropriate
+  code instead of silently degrading. Surfaces the trade-off to
+  integrators.
+- **GAP-WS-53**: `-vv` (debug) and `-vvv` (trace) levels added. Operators
+  investigating failed searches can escalate verbosity without
+  recompiling. The flag `conflicts_with = "quiet"`.
+- **GAP-WS-54**: `scraper` bumped to `0.27.0`. Removes the transitive
+  `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). `cargo audit
+  --deny warnings` is now a blocking gate in CI and release.
+- **GAP-WS-55**: `wreq` block in `Cargo.toml` rewritten to match the
+  actual pin in use (`6.0.0-rc.29` plus three direct pins). Eliminates
+  documentation-vs-code drift.
+- **GAP-WS-56**: Legacy `Buscar` subcommand hidden from `--help` via
+  `#[command(hide = true)]`. Remains callable for backward compatibility.
+- **GAP-WS-57**: `--retries` flag now honored end-to-end in
+  `src/parallel.rs:644`. The previous behavior silently dropped the
+  value in the `error_output` path. Integrators relying on retry
+  behavior will see it actually take effect.
+- **No breaking changes to JSON output schema**. All v0.7.7 fields
+  remain present. Drop-in replacement once v0.7.8 is published.
+
+See `CHANGELOG.md` for the complete v0.7.6/v0.7.7/v0.7.8 changelog and
+the ADR at `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md`
+for the full design rationale of the v0.7.8 overhaul.

@@ -9,12 +9,7 @@ all-features = true
 version = 2
 yanked = "deny"
 ignore = [
-    # RUSTSEC-2025-0057 — `fxhash 0.2.1` marcado como unmaintained em 2025-06.
-    # Dependência transitiva via `scraper 0.20` → `selectors 0.25` → `fxhash`.
-    # Não há upgrade seguro: `selectors` ainda não migrou para `rustc-hash`.
-    # Impacto: nenhum — função hash não-criptográfica; sem uso em autenticação/segurança.
-    # Revisar quando `scraper` for atualizado (monitorar https://github.com/causal-agent/scraper).
-    "RUSTSEC-2025-0057",
+
     # RUSTSEC-2025-0052 — `async-std` descontinuado em 2025 (recomendação: migrar para `smol`).
     # Dependência transitiva via `chromiumoxide 0.7` → `async-tungstenite 0.27` → `async-std`.
     # Aparece APENAS quando o build ativa a feature opcional `chrome`; build default não puxa.
@@ -76,13 +71,7 @@ skip-tree = [
     #   tonic 0.13+ (which requires tower 0.5+) and hdrhistogram 8+ (base64 0.22).
     { crate = "console-subscriber@0.4.1", reason = "tonic 0.12/tower 0.4/hdrhistogram/base64 0.21 duplicates; awaiting console-subscriber upgrade to tonic 0.13+" },
 
-    # Root cause 3 — scraper 0.20.0
-    #   Uses selectors 0.25 which depends on phf 0.10 / phf_codegen 0.10 / phf_generator 0.10 /
-    #   phf_shared 0.10 / siphasher 0.3 / heck 0.4 / indexmap 1.x / linux-raw-sys 0.4 /
-    #   rustix 0.38 and getrandom 0.2 (via rand 0.8 build-dep chain).
-    #   Also pulls r-efi 5.x (via getrandom 0.3 → ahash 0.8 → scraper).
-    #   Review when scraper 0.21+ migrates selectors to phf 0.11+ and rustix 0.47+.
-    { crate = "scraper@0.20.0", reason = "phf 0.10/siphasher 0.3/heck 0.4/indexmap 1.x/rustix 0.38/linux-raw-sys 0.4 duplicates; awaiting scraper 0.21+ upgrade" },
+
 ]
 
 [sources]

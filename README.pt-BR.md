@@ -332,6 +332,23 @@ Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo de versões.
 - **Zero breaking changes.** Todas as flags CLI existentes, schemas JSON de `SearchOutput` e `MultiSearchOutput`, e exit codes de v0.6.x permanecem byte-for-byte idênticos em v0.7.0.
 
 
+## Notas de Migração (v0.7.7 → v0.7.8)
+
+- **Zero mudanças quebrantes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.7.7 permanecem inalterados.
+- **Renovação do detector anti-bot (GAP-WS-50, WS-51, WS-52)**: a função `detectar_interstitial` agora reconhece o novo interstitial DDG anomaly-modal (classes CSS `anomaly-modal__mask` e `anomaly-modal__title`, texto do marker `Unfortunately, bots use DuckDuckGo too.`, URL do challenge `anomaly.js?cc=botnet`). O subcomando `--probe-deep` agora usa uma query de calibração longa (`the quick brown fox jumps over the lazy dog`) em vez de `rust` curto, para realmente acionar o bot scoring upstream. A flag `--allow-lite-fallback` agora consulta o detector antes de cair para lite, então um bloqueio anti-bot real retorna `exit 3` com `cascata_motivo` preenchido em vez de `exit 5` silencioso com zero resultados.
+- **Verbose `-vv` e `-vvv` agora suportados (GAP-WS-53)**: `--verbose` trocou de `ArgAction::SetTrue` para `ArgAction::Count". Use `-v` para `info`, `-vv` para `debug`, `-vvv` para `trace`. A env var `RUST_LOG` continua sobrescrevendo. Exemplos:
+  - `duckduckgo-search-cli -v "rust async"` — logs nível info
+  - `duckduckgo-search-cli -vv "rust async"` — logs nível debug (corpo de request/response)
+  - `duckduckgo-search-cli -vvv "rust async" 2>debug.log` — logs nível trace para forense profunda
+- **`--retries N` agora é honrado (GAP-WS-57)**: antes o valor estava hard-coded em 1, então `--retries 5` silenciosamente se comportava como `--retries 1`. A flag agora é lida de `Config.retries` com clamp em `[1, 10]` para evitar abuso (`--retries 999` dispara anti-bot). Exemplo: `duckduckgo-search-cli --retries 5 --allow-lite-fallback "rust async runtime"` agora retentativa 5 vezes e cai para lite na detecção de interstitial.
+- **`--allow-lite-fallback` agora funciona de verdade (GAP-WS-52)**: pipeline de exemplo que antes retornava zero resultados silenciosos agora retorna resposta de fallback com captcha detectado:
+  - `duckduckgo-search-cli --probe-deep --allow-lite-fallback -q -f json` — pre-flight check com opt-in de auto-fallback
+  - `duckduckgo-search-cli --allow-lite-fallback --retries 3 "long tail query" 2>cascata.log` — auto-fallback ativado, 3 retentativas por request, log do motivo da cascata em stderr
+- **Subcomando `buscar` agora é hidden (GAP-WS-56)**: a forma canônica continua sendo a invocação top-level (`duckduckgo-search-cli "query"`). O subcomando `buscar` continua funcional mas não aparece em `--help`. O help de `buscar --help` deixou de duplicar o help global.
+- **Supply chain (GAP-WS-54)**: `scraper` bumped de 0.20 para 0.27, o que remove transitivamente o `fxhash 0.2.1` unmaintained (RUSTSEC-2025-0057). `cargo audit --deny warnings` agora é gate rígido de CI em `ci.yml` e `release.yml`. `async-std` (RUSTSEC-2025-0052) continua apenas na feature opcional `chrome`.
+- **Fix de drift de doc (GAP-WS-55)**: o comentário sobre `wreq` no `Cargo.toml` foi reescrito para refletir a decisão real (pin em `wreq 6.0.0-rc.29` mais os três pins diretos para `wreq-util`, `brotli-decompressor`, `alloc-no-stdlib`), não a regressão que nunca aconteceu mencionada no comentário obsoleto.
+- **Contagem de testes: 305 (292 lib + 13 integration)**, 0 clippy warnings, 0 fmt diff, 0 cargo-deny warnings, `cargo doc --offline --no-deps` limpo.
+
 ## Notas de Migração (v0.7.0 → v0.7.1)
 
 - **Zero breaking changes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.7.0 permanecem inalterados.

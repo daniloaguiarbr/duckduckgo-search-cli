@@ -1250,7 +1250,7 @@ For agents that hit `quantidade_resultados: 0` or HTTP 200 with empty body in v0
 
 - **Cookie persistence + warm-up (session feature)**: each invocation now starts with a `GET https://duckduckgo.com/` warm-up that populates session cookies, persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`. Opt out with `--no-warmup` or `--no-cookie-persistence`.
 - **CAPTCHA interstitial detection (probe-deep feature)**: `--probe-deep` runs a real search query and classifies the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers. The probe report includes `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, and `latency_ms`. Use this flag in CI before launching real queries on macOS to detect early signs of the CAPTCHA.
-- **Auto-fallback to `lite` (opt-in)**: `--allow-lite-fallback` automatically switches from the `html` endpoint to the `lite` endpoint when `--probe-deep` (or zero-result retries) detect CAPTCHA.
+- **Auto-fallback to `lite` (opt-in)**: `--allow-lite-fallback` automatically switches from the `html` endpoint to the `lite` endpoint when `detectar_interstitial` (v0.7.8+) classifies the first HTML response as `Cloudflare` or `DuckDuckGo`. Use `--probe-deep` first to check the upstream state before enabling the auto-fallback.
 
 Recommended CI gate for macOS runners:
 
@@ -1323,4 +1323,64 @@ Escape hatches for non-standard installations:
 - DDG_SKIP_PERL_CHECK=1 — skip Perl preflight
 
 Never use these as first-line workarounds. They exist for hermetic build environments where the tool is intentionally outside the scanned PATH.
+## v0.7.6 — cargo install fix (GAP-WS-48)
+
+`cargo install duckduckgo-search-cli --version 0.7.6` broke on 2026-06-14 due to a transitive `alloc-no-stdlib 2.0.4 vs 3.0.0` conflict in the freshly-resolved lock. Reproduction: 36 `E0277` errors at `enc/reader.rs`, `enc/writer.rs`, `enc/combined_alloc.rs` when DDG's request reached the brotli alloc trait boundary.
+
+The CLI shipped with the fix already applied: dead `wreq-util` direct dep removed; `brotli` feature dropped from `wreq` because DDG never sends `Content-Encoding: br`. Validation: `cargo tree | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` returns 0 matches; `cargo install --path . --offline` succeeds in 35.7s.
+
+Impact for AI agents:
+
+```bash
+# CI / fresh machine workflow (no lock yet on target)
+cargo install duckduckgo-search-cli --version 0.7.6 --locked
+# --locked is mandatory: without it, the solver pulls the 2026-06-14
+# broken versions and reproduces the original failure.
+```
+
+- 6 fewer crates in the dep graph (~-160KB binary surface)
+- `cargo install` 5–10 seconds faster than v0.7.5
+- Zero CLI changes, zero JSON schema changes
+- gz/deflate/zstd still enabled; Accept-Encoding still advertises them
+
+For agent pipelines: prefer the `cargo install … --locked` pattern whenever a `--version` pin is required to prevent the solver from re-introducing the broken transitive state.
+
+
+## v0.7.7 — TLS fingerprint restoration (GAP-WS-49)
+
+v0.7.6 closed `cargo install` but the published binary passed all smoke tests while real queries returned `resultados: 0` with `cascade_level: 0` — silent TLS fingerprint regression. Root cause: `wreq 6.0.0-rc.29` has no native `emulation` feature; the Chrome/Safari TLS fingerprint emulation lived only in `wreq-util 3.0.0-rc.12`. Without it, BoringSSL produces a JA3/JA4 fingerprint detectable by Cloudflare Bot Management; DDG serves `anomaly-modal` (45 occurrences in HTML body).
+
+Cross-confirmation: direct `curl` with real browser headers (Chrome/120 UA, br Accept-Encoding, kl=br-pt cookie, Sec-Fetch-*) ALSO received `anomaly-modal` on 2026-06-14 09:25 UTC — the tightening is upstream and persistent. The 1-request `--probe-deep` does NOT trigger it because DDG fingerprints by volume/behavior, not single request.
+
+For AI agents:
+
+```bash
+# Re-add the emulation deps the v0.7.6 cleanup deleted
+cargo install duckduckgo-search-cli --version 0.7.7 --locked
+# --locked is mandatory; v0.7.7's Cargo.lock pins
+# brotli-decompressor =5.0.1, alloc-no-stdlib =2.0.4
+```
+
+- 8/8 local queries restored to 5+ results
+- Binary +160KB (brotli 8.0.3 + brotli-decompressor 5.0.1 + wreq-util 3.0.0-rc.12)
+- `cargo install` build time ~24s (faster than v0.7.6 because 5.0.1 is smaller than 5.0.2)
+- 3 new crates in the supply chain (brotli family + wreq-util)
+
+
+## v0.7.8 — Anti-bot detector overhaul (GAP-WS-50..57)
+
+v0.7.8 closes 8 gaps clustered around the anti-bot detector chain. The headline change: `detectar_interstitial` in `src/probe_deep.rs` now recognizes the `anomaly-modal` interstitial DDG rolled out on 2026-06-14 (was returning exit 5 with `resultados: 0` silently). New markers: `anomaly-modal`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-mitigated`, `Unfortunately, bots use DuckDuckGo too.`; legacy markers preserved for compatibility with pre-2026 templates.
+
+Related fixes:
+
+- **GAP-WS-51**: probe-deep calibration query is now the 9-word `the quick brown fox jumps over the lazy dog` (constant `PROBE_CALIBRATION_QUERY` in `src/lib.rs`). The previous `q=rust` short query did not trigger upstream bot scoring and gave false-positive `ok` status.
+- **GAP-WS-52**: `--allow-lite-fallback` now consults `detectar_interstitial(&first_html) != InterstitialKind::None` instead of `accumulated_results.is_empty()`. When the detector classifies an interstitial AND the flag is enabled, fallback to `lite` is immediate; without the flag, the CLI logs a structured `tracing::warn!` with `kind` and returns `exit 3` with `cascata_motivo` filled. The previous predicate misclassified interstitials as "zero results" (exit 5).
+- **GAP-WS-53**: `-v` now accepts multiple occurrences via `ArgAction::Count`. Mapping: `-v` info, `-vv` debug, `-vvv` trace. Unix convention respected; `RUST_LOG` still overrides.
+- **GAP-WS-54**: `scraper` bumped 0.20.0 → 0.27.0. Resolves transitive `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). `cargo audit --deny warnings` gate added to `ci.yml` and `release.yml`.
+- **GAP-WS-55**: stale comment about a non-existent `wreq 5.3.0` regression rewritten in `Cargo.toml:69-86`. New text documents the real pin strategy (6.0.0-rc.29 + 3 direct pins).
+- **GAP-WS-56**: `buscar` subcommand now has `#[command(hide = true)]`. Top-level invocation path remains canonical; help output no longer duplicated.
+- **GAP-WS-57**: `--retries N` flag is now honored in `src/parallel.rs:644`. Previously the value was hard-coded to 1; now `cfg.retries` is propagated with clamp `[1, 10]` to prevent `--retries 999` from triggering anti-bot defenses.
+
+For AI agents: zero breaking changes to the JSON schema or exit codes. 305 tests (292 lib + 13 integration) all passing. The detector update is the only behavioral change visible to operator-facing JSON: `metadados.cascata_motivo` may now contain `interstitial_cloudflare` or `interstitial_ddg` on exit 3 responses.
+
 - Maintainer: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · License: MIT OR Apache-2.0

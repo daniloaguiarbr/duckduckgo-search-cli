@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-pt
-description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, perguntas de pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". Invoca a CLI `duckduckgo-search-cli` v0.7.7 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, fingerprint TLS BoringSSL (JA4_o idêntico ao Chrome/Safari) via `wreq 6.0.0-rc.29`, persistência de cookies com warm-up em `cookies.json` XDG (permissões Unix 0o600), detector de interstitial CAPTCHA via `--probe-deep`, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. O subcomando `deep-research` da v0.7.0 faz fan-out de uma query em 1..=12 sub-queries, agrega via RRF (K=60) ou dedup por URL canônica, e opcionalmente sintetiza um relatório Markdown/PlainText/JSON com orçamento de tokens. Versão em português brasileiro. Build Windows corrigido em v0.6.5 (MP-26 — `HANDLE` type-safe com `INVALID_HANDLE_VALUE`). Circuit breaker per-host (WS-12) protege contra falhas em cascata em crawls longos. ProgressBar indicatif (WS-25) visualiza crawls longos. GAP-WS-27 (CAPTCHA do macOS) corrigido em v0.7.3 com troca de `rustls` para BoringSSL. Lançada em 2026-06-14 (v0.7.7). Veja CHANGELOG.pt-BR.md e README.pt-BR.md para notas completas.
+description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, perguntas de pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". Invoca a CLI `duckduckgo-search-cli` v0.7.8 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, fingerprint TLS BoringSSL (JA4_o idêntico ao Chrome/Safari) via `wreq 6.0.0-rc.29`, persistência de cookies com warm-up em `cookies.json` XDG (permissões Unix 0o600), detector de interstitial CAPTCHA via `--probe-deep`, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. O subcomando `deep-research` da v0.7.0 faz fan-out de uma query em 1..=12 sub-queries, agrega via RRF (K=60) ou dedup por URL canônica, e opcionalmente sintetiza um relatório Markdown/PlainText/JSON com orçamento de tokens. Versão em português brasileiro. Build Windows corrigido em v0.6.5 (MP-26 — `HANDLE` type-safe com `INVALID_HANDLE_VALUE`). Circuit breaker per-host (WS-12) protege contra falhas em cascata em crawls longos. ProgressBar indicatif (WS-25) visualiza crawls longos. GAP-WS-27 (CAPTCHA do macOS) corrigido em v0.7.3 com troca de `rustls` para BoringSSL. Lançada em 2026-06-15 (v0.7.8). Veja CHANGELOG.pt-BR.md e README.pt-BR.md para notas completas.
 ---
 
 # Skill — `duckduckgo-search-cli` (PT-BR)
@@ -142,7 +142,7 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - Nível de cascata: `| jaq '.metadados.nivel_cascata // 0'` (v0.6.5+)
 - Probe de saúde (v0.6.4+): `timeout 15 duckduckgo-search-cli --probe`.
 - Crawl longo com circuit breaker (v0.6.5+): combine `--queries-file` com `--parallel 5 --retries 2 --global-timeout 580`.
-- Install cross-platform (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.7 --force` funciona em Linux, macOS e Windows.
+- Install cross-platform (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.8 --force` funciona em Linux, macOS e Windows.
 - Verificação pré-voo de CAPTCHA (v0.7.3+): `timeout 15 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'` retorna exit 0 somente quando nenhum interstitial do Cloudflare está presente.
 - Sessão persistente com cookie jar (v0.7.3+): cookies são auto-persistidos em `cookies.json` XDG com modo Unix `0o600`; passe `--cookies-path <PATH>` para redirecionar para um volume encriptado.
 - Pular warm-up (v0.7.3+): adicione `--no-warmup` para pular o `GET https://duckduckgo.com/` que popula os cookies de sessão.
@@ -186,7 +186,7 @@ em `src/platform.rs`.
 ```bash
 # Após cargo install no Windows (PowerShell 5.1+ ou 7+)
 duckduckgo-search-cli --version
-# Esperado: duckduckgo-search-cli 0.7.7
+# Esperado: duckduckgo-search-cli 0.7.8
 duckduckgo-search-cli --help
 # Esperado: texto de help completo em stderr, exit 0
 ```
@@ -298,7 +298,7 @@ erros eram:
 **O que isso significa para os agentes**:
 - `cargo clippy --all-targets --all-features -- -D warnings` passa.
 - CI matrix retorna success em todos os 3 SOs.
-- 333 testes passam (243 lib + 90 integration + 6 doc tests) em v0.6.5. A v0.7.3 entrega 391 testes (292 lib + 99 integration + 0 doc). A v0.7.7 entrega 405 testes (total atual do projeto).
+- 333 testes passam (243 lib + 90 integration + 6 doc tests) em v0.6.5. A v0.7.3 entrega 391 testes (292 lib + 99 integration + 0 doc). A v0.7.8 entrega 305 testes (total atual do projeto: 292 lib + 13 integration).
 - Lints `improper_ctypes`, `missing_safety_doc` e
   `unsafe_op_in_unsafe_fn` agora são `deny` para prevenir regressões.
 
@@ -541,6 +541,60 @@ de 1.85 para 1.88 nesta release.
 - MSRV agora é 1.88 — agentes construindo do source precisam de toolchain
   que satisfaça este mínimo.
 
+
+
+
+
+## v0.7.8 — Repensar do detector anti-bot + níveis verbose + retries honrados (correções GAP-WS-50 a WS-57)
+
+Lançada em 2026-06-15. Fecha 8 gaps (WS-50 a WS-57) herdados da v0.7.7. Zero breaking changes no schema JSON. Agentes devem reconhecer os novos markers, a query de calibração do probe, a semântica aditiva de verbose, e o clamp de `--retries`.
+
+### GAP-WS-50 — Markers de Interstitial Atualizados
+- `CLOUDFLARE_MARKERS` e `DDG_MARKERS` em `src/probe_deep.rs` agora incluem 5 entradas novas ao lado das legadas: `anomaly-modal`, `anomaly.js`, `botnet`, `Unfortunately, bots`, `anomaly-modal__title`.
+- `--probe-deep` agora emite corretamente `status: "captcha"` no interstitial atual do anti-bot da DDG.
+- Markers legados são preservados para compatibilidade retroativa.
+
+### GAP-WS-51 — Query de Calibração do Probe
+- `--probe-deep` não envia mais a probe fixa de uma palavra `q=rust`.
+- Substituída por `PROBE_CALIBRATION_QUERY = "the quick brown fox jumps over the lazy dog"` (9 palavras) que aciona o tightening upstream da DDG.
+- O probe agora reflete o cenário real de bot scoring em vez de retornar uma home page limpa.
+
+### GAP-WS-52 — `--allow-lite-fallback` Honrado
+- A decisão de fallback em `src/search.rs:559` agora consulta `detectar_interstitial(&first_html) != InterstitialKind::None` em vez de depender de `accumulated_results.is_empty()`.
+- Exit code 3 (anti-bot) com `cascata_motivo` preenchido agora substitui o exit 5 silencioso quando um interstitial é detectado e o fallback lite está habilitado.
+- Operadores que habilitam `--allow-lite-fallback` em ambientes bloqueados agora recebem JSON acionável com `cascata_motivo: "cloudflare_anomaly_modal"`.
+
+### GAP-WS-53 — Níveis Verbose Multi-Ocorrência
+- `-v` `ArgAction::SetTrue` foi substituído por `ArgAction::Count` em `src/cli.rs`.
+- Mapeamento: `-v` → info, `-vv` → debug, `-vvv` → trace.
+- Múltiplas ocorrências são aditivas — agentes podem rodar `duckduckgo-search-cli -vv query` para debug logging sem re-invocar a CLI.
+
+### GAP-WS-54 — Cargo Audit Limpo
+- `scraper` atualizado de `0.20` para `0.27` em `Cargo.toml`.
+- Transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057) não é mais alcançável.
+- `async-std` permanece apenas na feature opcional `chrome`.
+- Gate de CI `cargo audit --deny warnings` adicionado tanto em `ci.yml` quanto em `release.yml` — zero advisories obrigatório para merge.
+
+### GAP-WS-55 — Comentário do Cargo.toml Verídico
+- O bloco de comentário em `Cargo.toml:69-86` não referencia mais uma regressão fantasma `v0.7.7 → wreq 5.3.0`.
+- Documenta agora a decisão real: `wreq 6.0.0-rc.29` pinado para BoringSSL + 3 pins diretos (`wreq-util`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
+
+### GAP-WS-56 — Subcomando `buscar` Oculto
+- O subcomando `buscar` em português em `src/cli.rs` agora carrega `#[command(hide = true)]`.
+- `--help` no nível top não lista mais; invocação direta `buscar --help` continua funcionando.
+- Elimina texto de help duplicado na superfície de descoberta.
+
+### GAP-WS-57 — `--retries` Honrado
+- `src/parallel.rs:644` `execute_with_retry` agora lê `cfg.retries` em vez de ignorar a flag.
+- Valores são clampados em `[1, 10]` para prevenir abuso — valores acima de 10 continuam disparando anti-bot.
+- Teste de regressão em `tests/integration_search_retry.rs` confirma que `--retries 5` produz `metadados.retentativas == 5`.
+- **O que isso significa para os agentes**: NÃO faça loop de `--retries` em shell. A flag agora é genuinamente honrada pelo executor paralelo.
+
+### OBRIGATÓRIO — Adições de Referência Rápida (v0.7.8)
+- Níveis verbose: `-v` info, `-vv` debug, `-vvv` trace (aditivos).
+- `--retries N` clampado em `[1, 10]` e honrado por `execute_with_retry` — `--retries 5` produz `metadados.retentativas == 5`.
+- `--probe-deep` usa uma query de calibração de 9 palavras que aciona o bot scoring upstream.
+- `--allow-lite-fallback` agora aciona de fato o endpoint lite em interstitials novos (com `cascata_motivo` populado).
 
 
 ## v0.7.7 — Emulação de fingerprint TLS restaurada via `wreq-util` pinado (correção GAP-WS-49)

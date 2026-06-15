@@ -93,6 +93,46 @@ cargo install duckduckgo-search-cli --version 0.7.2 --force
 ## Migration v0.7.1 → v0.7.2
 
 
+## Migration v0.7.3 → v0.7.4
+
+### What Changes
+- **Build-experience release** — same flags, same JSON output schema, no breaking changes
+- **GAP-WS-28 fixed** — `build.rs` preflight detects the NASM assembler on PATH before invoking the BoringSSL CMake build
+- Without NASM, the build fails in seconds with the exact fix instead of after minutes of cryptic CMake errors
+- New env var `DDG_SKIP_NASM_CHECK=1` as an escape hatch for custom build environments
+- CI matrix in `.github/workflows/release.yml` now installs NASM via Chocolatey on the Windows-2022 image
+
+### Step-by-Step Migration
+
+```bash
+# Update to v0.7.4
+cargo install duckduckgo-search-cli --version 0.7.4 --force
+
+# Verify
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.4
+```
+
+### JSON Schema Changes
+
+None. v0.7.4 preserves all v0.7.3 fields, all v0.7.2 fields, and all v0.6.x fields. The preflight runs at build time only and does not affect the runtime JSON contract.
+
+### Compatibility Notes
+- v0.7.4 binary is API-compatible with v0.7.3, v0.7.2, and v0.6.x
+- v0.7.4 build targets are unchanged from v0.7.3
+- v0.7.3 binaries continue to work — upgrade is optional, recommended only for Windows MSVC users who hit the NASM build error
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.3 --force
+```
+
+### See Also
+- `gaps.md` — GAP-WS-28 (Windows NASM build failure)
+- `CHANGELOG.md` — v0.7.4 release notes
+
+
 ## Migration v0.7.4 → v0.7.5
 
 ### What Changes
@@ -452,3 +492,162 @@ New field: `.metadados.user_agent` (string). Always present from v0.6.0 onwards.
 ```bash
 cargo install duckduckgo-search-cli --version 0.5.0 --force
 ```
+
+
+## Migration v0.7.5 → v0.7.6
+
+### What Changes
+- **GAP-WS-48 (CRITICAL, install) — same-day `cargo install` fix** for an `alloc-no-stdlib 2.0.4` vs `3.0.0` version conflict that broke fresh installs.
+- No breaking changes to CLI flags, JSON output schemas, or exit codes.
+- No changes to runtime behavior from v0.7.5; the only diff is in dependency resolution at `cargo install` time.
+- See `gaps.md` entry GAP-WS-48 for the conflict trace.
+
+### Step-by-Step Migration
+
+```bash
+# Update to v0.7.6
+cargo install duckduckgo-search-cli --version 0.7.6 --force
+
+# Verify the new version
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.6
+```
+
+### JSON Schema Changes
+
+No schema changes. v0.7.6 preserves all v0.7.5 fields, all v0.7.4 fields, and all v0.6.x fields.
+
+### Compatibility Notes
+- v0.7.6 binary is API-compatible with v0.7.5, v0.7.4, v0.7.3, and v0.6.x
+- v0.7.6 build targets are unchanged from v0.7.5
+- v0.7.5 binaries continue to work — upgrade is optional, recommended for users who hit the install conflict
+
+### Validation
+- `cargo install --version 0.7.6 --force` succeeds on a clean toolchain
+- `duckduckgo-search-cli --version` reports 0.7.6
+- `duckduckgo-search-cli "rust" -q -f json` returns the expected JSON envelope
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.5 --force
+```
+
+### See Also
+- `gaps.md` — GAP-WS-48 (same-day install fix)
+- `CHANGELOG.md` — v0.7.6 release notes
+
+
+## Migration v0.7.6 → v0.7.7
+
+### What Changes
+- **GAP-WS-49 (CRITICAL, query) — TLS fingerprint emulation restored** via `wreq 6.0.0-rc.29` + `wreq-util 3.0.0-rc.12` (feature `emulation`).
+- v0.7.6 resolved `cargo install` but the published binary produced zero-result queries because BoringSSL without emulation gives a JA3/JA4 fingerprint that Cloudflare Bot Management flags.
+- v0.7.7 re-adds `wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }` plus the `brotli` feature on `wreq` and 2 direct pins to make `cargo install` reproducible.
+- See `gaps.md` entry GAP-WS-49 for the full root cause and reproduction steps.
+
+### Step-by-Step Migration
+
+```bash
+# Update to v0.7.7
+cargo install duckduckgo-search-cli --version 0.7.7 --force
+
+# Verify the new version
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.7
+
+# Verify a real query returns non-zero results
+duckduckgo-search-cli "rust async runtime" -q -f json | jaq '.quantidade_resultados'
+# Expect: >0
+```
+
+### JSON Schema Changes
+
+No schema changes. v0.7.7 preserves all v0.7.6 fields, all v0.7.5 fields, and all v0.6.x fields.
+
+### Compatibility Notes
+- v0.7.7 binary is API-compatible with v0.7.6, v0.7.5, v0.7.4, v0.7.3, and v0.6.x
+- v0.7.7 build targets are unchanged from v0.7.6
+- v0.7.6 binaries continue to work but produce empty result sets due to GAP-WS-49
+
+### Validation
+- `cargo install --version 0.7.7 --force` succeeds on a clean toolchain
+- `duckduckgo-search-cli --probe-deep -q -f json` reports `status: "ok"`
+- 5/5 sample queries return `quantidade_resultados > 0`
+- `duckduckgo-search-cli --version` reports 0.7.7
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.6 --force
+```
+
+### See Also
+- `gaps.md` — GAP-WS-49 (TLS fingerprint regression)
+- `CHANGELOG.md` — v0.7.7 release notes
+- `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` — context for the v0.7.8 follow-up
+
+
+## Migration v0.7.7 → v0.7.8
+
+### What Changes
+- **Anti-bot detector overhaul (GAP-WS-50, CRITICAL)** — `CLOUDFLARE_MARKERS` and `DDG_MARKERS` in `src/probe_deep.rs` expanded to recognize the new `anomaly-modal` interstitial that DDG rolled out in 2026-06-14.
+- **Probe-deep calibration (GAP-WS-51, HIGH)** — query `q=rust` replaced with the 9-word pangram `the quick brown fox jumps over the lazy dog` via constant `PROBE_CALIBRATION_QUERY` in `src/lib.rs`.
+- **Lite fallback opt-in (GAP-WS-52, HIGH)** — `--allow-lite-fallback` now consults `detectar_interstitial` before triggering; no more silent Lite fallback when the user did not opt in.
+- **Verbose levels (GAP-WS-53, LOW)** — `-v` is now `ArgAction::Count`; `-vv` and `-vvv` work per Unix convention.
+- **Supply chain (GAP-WS-54, MEDIUM)** — `scraper` bumped 0.20.0 → 0.27.0 to clear RUSTSEC-2025-0057 transitively via `fxhash 0.2.1`.
+- **Docs drift (GAP-WS-55, LOW)** — `Cargo.toml` wreq comment rewritten to reflect the actual pin on `wreq 6.0.0-rc.29`.
+- **Hidden subcommand (GAP-WS-56, LOW)** — `buscar` gets `#[command(hide = true)]`; no more duplicate `--help`.
+- **Retries honored (GAP-WS-57, MEDIUM)** — `--retries N` propagates to `execute_with_retry` with `[1, 10]` clamp; `--retries 999` no longer triggers anti-bot.
+- See `gaps.md` entries WS-50 through WS-57 for the full chain.
+
+### Step-by-Step Migration
+
+```bash
+# Update to v0.7.8
+cargo install duckduckgo-search-cli --version 0.7.8 --force
+
+# Verify the new version
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.8
+
+# Verify the new probe-deep behavior
+duckduckgo-search-cli --probe-deep -q -f json | jaq '.status'
+# Expect: "ok" or "captcha" (honest classification)
+
+# Verify the verbose levels
+duckduckgo-search-cli -vvv --version
+# Expect: prints version AND trace-level logs to stderr
+```
+
+### JSON Schema Changes
+
+No schema changes. v0.7.8 preserves all v0.7.7 fields, all v0.7.6 fields, and all v0.6.x fields. The `metadados.retentativas` field is now populated correctly when `--retries N` is used.
+
+### Compatibility Notes
+- v0.7.8 binary is API-compatible with v0.7.7, v0.7.6, v0.7.5, v0.7.4, v0.7.3, and v0.6.x
+- v0.7.8 build targets are unchanged from v0.7.7
+- `buscar` subcommand still works when invoked directly; only hidden from `--help`
+- `--retries` values above 10 are now clamped with a warning instead of triggering anti-bot
+- v0.7.7 binaries continue to work but miss the `anomaly-modal` interstitial detection
+
+### Validation
+- `cargo install --version 0.7.8 --force` succeeds on a clean toolchain
+- `cargo audit --deny warnings` reports 0 advisories
+- `duckduckgo-search-cli --probe-deep -q -f json` returns `status: "ok"` in clean environments
+- 5/5 sample queries return `quantidade_resultados > 0`
+- `duckduckgo-search-cli -vv "rust" -q -f json` emits DEBUG-level logs to stderr
+- `duckduckgo-search-cli "rust" -q -f json --retries 5` populates `metadados.retentativas = 5`
+- 305 lib + 18 integration tests pass; 0 advisories unignored
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.7 --force
+```
+
+### See Also
+- `gaps.md` — GAP-WS-50 through GAP-WS-57 (anti-bot detector overhaul chain)
+- `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` — ADR for the 8 gaps
+- `CHANGELOG.md` — v0.7.8 release notes
+- `docs/COOKBOOK.md` — Recipe 25 (detector), Recipe 26 (verbose), Recipe 27 (retries)

@@ -10,7 +10,7 @@
 //! since when no subcommand is passed, the previous search behavior is preserved
 //! via `#[command(subcommand)]` with `Option<Subcommand>`.
 
-use clap::{Args, Parser, Subcommand as ClapSubcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand as ClapSubcommand, ValueEnum};
 use std::path::PathBuf;
 
 // Shell completion generation (MP-04).
@@ -160,7 +160,8 @@ pub struct RootArgs {
 /// many clap-derived fields).
 #[derive(Debug, Clone, ClapSubcommand)]
 pub enum Subcommand {
-    /// Search on `DuckDuckGo` (equivalent to the no-subcommand mode).
+    /// Search on `DuckDuckGo` (equivalent to the no-subcommand mode). Hidden from --help to avoid duplication with the no-subcommand mode.
+    #[command(hide = true)]
     Buscar(Box<CliArgs>),
     /// Initializes configuration files (`selectors.toml`, `user-agents.toml`)
     /// in the default OS configuration directory.
@@ -412,9 +413,10 @@ pub struct CliArgs {
     #[arg(long = "stream")]
     pub stream_mode: bool,
 
-    /// Enables detailed logs on stderr (`tracing::debug` and `tracing::info`).
-    #[arg(short = 'v', long = "verbose", conflicts_with = "quiet")]
-    pub verbose: bool,
+    /// Sets the verbosity level of stderr logs (repeatable).
+    /// 0 = INFO (default), 1+ = DEBUG, 2+ = TRACE. Use `-v`, `-vv`, `-vvv` to accumulate.
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count, conflicts_with = "quiet")]
+    pub verbose: u8,
 
     /// Suppresses all stderr logs, keeping only the main output on stdout.
     #[arg(short = 'q', long = "quiet", conflicts_with = "verbose")]
@@ -722,7 +724,7 @@ mod tests {
         assert_eq!(args.safe_search, CliSafeSearch::Moderate);
         assert!(!args.stream_mode);
         assert!(args.queries_file.is_none());
-        assert!(!args.verbose);
+        assert_eq!(args.verbose, 0);
         assert!(!args.quiet);
         assert!(!args.fetch_content);
         assert_eq!(args.max_content_length, DEFAULT_MAX_CONTENT_LENGTH);
@@ -908,7 +910,7 @@ mod tests {
         assert_eq!(args.language, "en");
         assert_eq!(args.country, "us");
         assert_eq!(args.parallelism, 8);
-        assert!(args.verbose);
+        assert_eq!(args.verbose, 1);
     }
 
     #[test]
@@ -944,6 +946,19 @@ mod tests {
     fn verbose_e_quiet_sao_mutuamente_exclusivos() {
         let result = parse_buscar(&["bin", "--verbose", "--quiet", "query qualquer"]);
         assert!(result.is_err(), "verbose + quiet deve falhar a validação");
+    }
+
+    #[test]
+    fn verbose_curto_acumula_via_arg_action_count() {
+        let v1 = parse_buscar(&["bin", "-v", "q"]).expect("-v deve parsear");
+        assert_eq!(v1.verbose, 1, "-v único deve produzir verbose == 1");
+        let vv = parse_buscar(&["bin", "-vv", "q"]).expect("-vv deve parsear");
+        assert_eq!(vv.verbose, 2, "-vv deve produzir verbose == 2");
+        let vvv = parse_buscar(&["bin", "-vvv", "q"]).expect("-vvv deve parsear");
+        assert_eq!(vvv.verbose, 3, "-vvv deve produzir verbose == 3");
+        let long = parse_buscar(&["bin", "--verbose", "--verbose", "q"])
+            .expect("--verbose repetido deve parsear");
+        assert_eq!(long.verbose, 2, "--verbose repetido deve acumular para 2");
     }
 
     #[test]
@@ -1050,5 +1065,28 @@ mod tests {
         assert!(args.validate_timeout_seconds().is_ok());
         args.timeout_seconds = 15;
         assert!(args.validate_timeout_seconds().is_ok());
+    }
+
+    #[test]
+    fn buscar_subcommand_hidden_from_root_help() {
+        // GAP-WS-56: Buscar inflates the --help output because it flattens
+        // every CliArgs flag. Hiding it removes the duplicate listing since
+        // the no-subcommand invocation already exposes all those flags.
+        let mut cmd = RootArgs::command();
+        let help = cmd.render_long_help().to_string();
+        assert!(
+            !help.contains("buscar"),
+            "buscar subcommand must be hidden from root --help, found: {help}"
+        );
+
+        // The subcommand must still be invokable even though hidden from --help.
+        let root = RootArgs::try_parse_from(["bin", "buscar", "rust"])
+            .expect("buscar subcommand must remain invokable when explicit");
+        match root.subcomando {
+            Some(Subcommand::Buscar(args)) => {
+                assert_eq!(args.queries, vec!["rust".to_string()]);
+            }
+            other => panic!("expected Buscar subcommand, got {other:?}"),
+        }
     }
 }

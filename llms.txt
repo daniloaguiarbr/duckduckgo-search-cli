@@ -2,8 +2,21 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.7.7
+- Current version: v0.7.8
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## What's new in v0.7.8 (2026-06-15)
+
+- **GAP-WS-50 (CRITICAL, detector) — `detectar_interstitial` agora reconhece o interstitial `anomaly-modal` da DDG de 2026-06-14.** Lista `CLOUDFLARE_MARKERS` expandida com `anomaly-modal`, `anomaly.js`, `botnet`, `Unfortunately, bots`. Lista `DDG_MARKERS` com `anomaly-modal__title`. Markers legados preservados.
+- **GAP-WS-51 (HIGH, probe-deep) — query de calibração longa `the quick brown fox jumps over the lazy dog` substitui `q=rust` curto.** Query curta de 1 palavra retornava a home page que não aciona detector de bot. Constante `PROBE_CALIBRATION_QUERY` em `src/lib.rs`.
+- **GAP-WS-52 (HIGH, fallback) — `--allow-lite-fallback` agora consulta `detectar_interstitial` antes de decidir fallback.** Decisão em `src/search.rs:559` migrou de `accumulated_results.is_empty()` para `detectar_interstitial(&first_html) != InterstitialKind::None`. Detecta interstitial → fallback lite imediato → `exit 3` com `cascata_motivo` preenchido.
+- **GAP-WS-53 (LOW, UX) — `-v` aceita múltiplas ocorrências via `ArgAction::Count`.** Mapeamento: `-v` → `info`, `-vv` → `debug`, `-vvv` → `trace`. Convenção Unix agora respeitada.
+- **GAP-WS-54 (MEDIUM, supply chain) — `scraper` bumped de 0.20.0 para 0.27.0.** Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em CI.
+- **GAP-WS-55 (LOW, docs drift) — comentário sobre `wreq` no `Cargo.toml:69-86` reescrito.** Texto antigo mencionava regressão inexistente para `wreq 5.3.0`. Texto novo documenta o pin real em `wreq 6.0.0-rc.29`.
+- **GAP-WS-56 (LOW, UX) — subcomando `buscar` agora tem `#[command(hide = true)]`.** Help de `buscar --help` deixou de duplicar help global. Subcomando continua invocável mas some de `--help`.
+- **GAP-WS-57 (MEDIUM, retries) — flag `--retries N` agora é honrada em `src/parallel.rs:644`.** Bug: valor lido por `execute_with_retry` vinha hard-coded como 1. Fix propagou `cfg.retries` com clamp `[1, 10]`.
+- **Validation**: 305 testes (292 lib + 13 integration), 100% passing, `cargo audit` zero advisories.
 
 
 ## What's new in v0.7.7 (2026-06-14)

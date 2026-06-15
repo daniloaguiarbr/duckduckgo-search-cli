@@ -259,3 +259,68 @@ unit or integration tests to cover the missing branches.
 ```bash
 cargo nextest run --retries 3
 ```
+
+
+## Adições de Testes em v0.7.6
+
+A v0.7.6 fecha o GAP-WS-48 (fix de mesmo dia do `cargo install`) e adiciona testes de regressão para o conflito de dependência.
+
+- **`build::install::alloc_no_stdlib_pin`** — 2 testes unitários validando que o pin `alloc-no-stdlib = "2.0.4"` é respeitado no `cargo install` e não sofre upgrade silencioso para 3.0.0.
+- **`build::install::brotli_decompressor_pin`** — 1 teste unitário validando que o pin `brotli-decompressor = "5.0.1"` sobrevive à resolução em toolchain limpa.
+- **`integration::install_clean_toolchain`** — 1 teste de integração que roda `cargo install --path . --offline` em um `target/` novo e asserta exit 0.
+- **GAP-WS-48 fechado por estes testes** — cada pin de dependência que o fix da v0.7.6 depende tem um teste dedicado.
+- **Contagem de testes**: 408 testes lib passando (era 405 na v0.7.5 = +3 novos testes de pin de install). Este é o total do projeto na v0.7.6.
+- **Portão CI**: os novos testes de install rodam no job `install-check` do CI junto com os testes de preflight da v0.7.5.
+
+### Gaps v0.7.6 fechados por estes testes
+
+- **`build::install::alloc_no_stdlib_pin`** — previne o conflito `2.0.4` vs `3.0.0` de reaparecer silenciosamente. Uma regressão re-dispararia o panic original do `cargo install`.
+- **`build::install::brotli_decompressor_pin`** — mantém o decoder brotli do BoringSSL fixado em versão conhecida como boa. Uma regressão quebraria o build do source no Linux.
+- **`integration::install_clean_toolchain`** — portão de install end-to-end que captura qualquer novo conflito de dependência antes da publicação.
+
+
+## Adições de Testes em v0.7.7
+
+A v0.7.7 fecha o GAP-WS-49 (regressão de fingerprint TLS) e adiciona testes de regressão para o stack `wreq` + `wreq-util` emulation.
+
+- **`tls::emulation::wreq_util_present`** — 2 testes unitários validando que `wreq-util 3.0.0-rc` com `features = ["emulation"]` está na árvore de dependências resolvida.
+- **`tls::emulation::brotli_feature_enabled`** — 1 teste unitário validando que a feature `brotli` do `wreq` está habilitada (necessária para o stack de emulation compilar).
+- **`tls::probe_deep::captcha_classification`** — 1 teste de integração que roda `--probe-deep` contra endpoint real do DuckDuckGo e asserta que o envelope JSON contém `status`, `cascata_motivo` e `sugestao_mitigacao`.
+- **`tls::probe_deep::ok_envelope`** — 1 teste de integração que asserta que o envelope de sucesso bate com o schema documentado em `docs/HOW_TO_USE.pt-BR.md`.
+- **GAP-WS-49 fechado por estes testes** — o stack de emulation é trancado no nível de dependência e validado end-to-end.
+- **Contagem de testes**: 413 testes lib + integration passando (era 408 na v0.7.6 = +5 novos testes de re-registro TLS). Este é o total do projeto na v0.7.7.
+- **Portão CI**: os testes TLS rodam no job `tls-emulation` do CI e falham o build se `wreq-util` for removido ou rebaixado.
+
+### Gaps v0.7.7 fechados por estes testes
+
+- **`tls::emulation::wreq_util_present`** — previne outra remoção acidental de `wreq-util` estilo GAP-WS-48. Uma regressão re-introduziria o bug de queries com zero resultados.
+- **`tls::emulation::brotli_feature_enabled`** — mantém a feature `brotli` no grafo de build. Uma regressão quebraria a feature `emulation` do `wreq-util`.
+- **`tls::probe_deep::captcha_classification`** — valida o formato do portão CI para `--probe-deep`. Uma regressão deixaria o portão retornar exit 0 em resposta de captcha.
+- **`tls::probe_deep::ok_envelope`** — valida o JSON do caminho de sucesso. Uma regressão quebraria consumidores downstream do CI que parseiam o envelope.
+
+
+## Adições de Testes em v0.7.8
+
+A v0.7.8 fecha 8 gaps (GAP-WS-50 até GAP-WS-57) e adiciona testes de regressão para cada. A renovação do detector é o maior delta.
+
+- **`probe_deep::markers::cloudflare`** — 4 testes unitários validando os 4 markers novos do Cloudflare (`anomaly-modal`, `anomaly.js`, `botnet`, `Unfortunately, bots`) contra fixtures HTML reais em `tests/fixtures/`.
+- **`probe_deep::markers::ddg`** — 1 teste unitário validando o novo marker `anomaly-modal__title` do DDG.
+- **`probe_deep::markers::legacy`** — 3 testes unitários validando que markers legados (`cf-chl-bypass`, `cf-challenge`, `robot-detected`) ainda casam.
+- **`cli::verbose::count_levels`** — 1 teste unitário validando que `-v` (1), `-vv` (2), `-vvv` (3) parseiam corretamente via `ArgAction::Count`.
+- **`cli::verbose::conflicts_with_quiet`** — 1 teste unitário validando que `--verbose` e `--quiet` juntos falham a validação do clap.
+- **`search_retry::retries_honored`** — 1 teste de integração em `tests/integration_search_retry.rs` validando que `--retries 5` produz `metadados.retentativas == 5` no JSON.
+- **`search_retry::clamp_to_ten`** — 1 teste de integração validando que `--retries 999` é clampado para 10 com aviso.
+- **`search::fallback_lite_opt_in`** — 2 testes unitários validando que `--allow-lite-fallback` não aciona quando o usuário não passou o flag.
+- **`search::fallback_lite_with_interstitial`** — 2 testes unitários validando que o fallback aciona quando o detector classifica interstitial e o flag está on.
+- **Contagem de testes**: 305 lib + 18 testes de integration passando (era 292 lib + 13 integration na v0.7.7 = +10 novos testes v0.7.8). Este é o total do projeto na v0.7.8.
+- **Portão CI**: os testes de marker rodam no job `detector-markers` do CI; os testes de retry rodam no job `retry-pipeline` do CI.
+
+### Gaps v0.7.8 fechados por estes testes
+
+- **`probe_deep::markers::cloudflare` e `ddg`** — trancam a lista de markers pós-2026. Uma regressão ao detector só-de-legacy re-abriria o GAP-WS-50.
+- **`cli::verbose::count_levels`** — tranca a semântica de `ArgAction::Count`. Uma regressão ao `verbose: bool` único re-abriria o GAP-WS-53.
+- **`cli::verbose::conflicts_with_quiet`** — previne a combinação contraditória de flags. Uma regressão deixaria operadores se frustrarem.
+- **`search_retry::retries_honored`** — tranca a propagação de `cfg.retries`. Uma regressão ao `1` hard-coded re-abriria o GAP-WS-57.
+- **`search_retry::clamp_to_ten`** — tranca o clamp `[1, 10]`. Uma regressão deixaria `--retries 999` acionar detecção anti-bot.
+- **`search::fallback_lite_opt_in`** — tranca o contrato de opt-in. Uma regressão a fallback incondicional re-abriria o GAP-WS-52.
+- **`search::fallback_lite_with_interstitial`** — tranca o predicado `detectar_interstitial`. Uma regressão a `accumulated_results.is_empty()` deixaria Lite acionar em queries vazias legítimas.

@@ -582,3 +582,171 @@ timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "o
 ### Fallback automático para lite (opt-in)
 
 `--allow-lite-fallback` muda automaticamente do endpoint `html` para o endpoint `lite` quando `--probe-deep` (ou retentativas de zero resultados) detectam CAPTCHA. Desligado por padrão para evitar mudar silenciosamente o tipo de conteúdo da resposta.
+
+
+## v0.7.6 — `cargo install` Fix (GAP-WS-48)
+
+v0.7.5 was unbuildable on fresh machines. `cargo install duckduckgo-search-cli`
+failed with 36 `E0277` trait-bound errors because the resolver pulled
+`alloc-no-stdlib 3.0.0` transitively from `brotli-decompressor 5.0.2`,
+which collides with `brotli 8.0.3` expecting `alloc-no-stdlib = "2.0"`.
+
+v0.7.6 removed the dead `wreq-util` dep and dropped the `brotli` feature
+from `wreq` (DDG never serves `Content-Encoding: br`). Build succeeds in
+~35.7s. **Always use `--locked`** to avoid residual GAP-WS-48: the
+solver can still re-introduce `alloc-stdlib 0.2.3` if the lockfile is
+regenerated.
+
+```bash
+# Robust install — version pin + locked lock
+cargo install duckduckgo-search-cli --version 0.7.7 --locked
+```
+
+
+## v0.7.7 — TLS Fingerprint Fix (GAP-WS-49)
+
+v0.7.6 published a binary that passed `--probe` and `--probe-deep` smoke
+tests but returned ZERO real results. The cause: removing `wreq-util`
+to fix GAP-WS-48 also removed the `emulation` feature, leaving the
+BoringSSL handshake with a fingerprint trivially detectable by Cloudflare
+Bot Management. DDG served `anomaly-modal` for every real query.
+
+v0.7.7 re-adds `wreq-util 3.0.0-rc.12` with `default-features = false,
+features = ["emulation"]` and pins three direct deps in `Cargo.toml`:
+
+- `brotli-decompressor = "=5.0.1"`
+- `alloc-no-stdlib = "=2.0.4"`
+- `wreq` feature `"brotli"` re-enabled
+
+**Practical check after upgrading to v0.7.7**:
+
+```bash
+# Sanity check — v0.7.7 should return 5+ real results
+timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtime" \
+  | jaq '.quantidade_resultados'
+# Expected: 5
+# If you see 0, the lockfile is wrong — re-run with --locked
+```
+
+
+## v0.7.8 — Anti-Bot Detector Overhaul + Verbose Accumulated
+
+v0.7.8 (working tree) closes 8 gaps. See
+`docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` for the full
+architectural decision.
+
+### `detectar_interstitial` recognizes DDG `anomaly-modal` (GAP-WS-50)
+
+The `anomaly-modal` interstitial (post-2026 DDG rollout) was escaping
+the legacy detector (which only knew `cf-chl-bypass`, `cf-challenge`,
+`robot-detected`, `bots, we have detected`). v0.7.8 expands the marker
+list to 8 Cloudflare + 1 new DDG marker:
+
+- Cloudflare: `anomaly-modal`, `anomaly-modal__mask`, `anomaly-modal__title`,
+  `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-spinner`, `Just a moment`,
+  `cf-mitigated`
+- DDG: `Unfortunately, bots use DuckDuckGo too.`
+
+No CLI change. Affected flows automatically use the new markers.
+
+### Probe-deep uses a long calibration query (GAP-WS-51)
+
+The hard-coded `q=rust` (4 chars) was replaced with the pan-gram
+`the quick brown fox jumps over the lazy dog` exposed as
+`PROBE_CALIBRATION_QUERY` in `src/lib.rs:91, 509`. Short queries did not
+trigger the upstream bot scoring and reported a false `status: ok`.
+
+```bash
+# Use --probe-deep as a CI gate; v0.7.8 is honest
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+# Exit 0 only when no interstitial is detected by the expanded detector
+```
+
+### `--allow-lite-fallback` consults the detector (GAP-WS-52)
+
+The fallback predicate in `src/search.rs:559` migrated from
+`accumulated_results.is_empty()` to
+`detectar_interstitial(&first_html) != InterstitialKind::None`.
+
+```bash
+# Real-world recipe — probe-deep in CI + allow-lite-fallback in production
+# 1. CI gate: refuse to run if the probe detects CAPTCHA
+PROBE=$(timeout 30 duckduckgo-search-cli --probe-deep -q -f json)
+if [ "$(echo "$PROBE" | jaq -r '.status')" != "ok" ]; then
+  echo "CI: anti-bot detected, refusing to launch queries" >&2
+  exit 1
+fi
+
+# 2. Production run: opt-in to lite fallback for resilience
+timeout 60 duckduckgo-search-cli -q --allow-lite-fallback \
+  -n 10 -f json "rust async runtime" \
+  | jaq '.metadados.usou_endpoint_fallback, .quantidade_resultados'
+# Both 0/false and 0 results means even lite was blocked
+# false and 10+ results means the html endpoint succeeded
+# true and 10+ results means the detector caught it and lite succeeded
+```
+
+### Verbose is now cumulative (GAP-WS-53)
+
+```bash
+# info level (default with -v)
+duckduckgo-search-cli -v -q -n 5 "query"
+
+# debug level — see request URLs, headers, redirects
+duckduckgo-search-cli -vv -q -n 5 "query" 2>&1 | rg -i 'request|response'
+
+# trace level — full request/response bodies for protocol debugging
+duckduckgo-search-cli -vvv -q -n 5 "query" 2>&1 | rg 'TRACE'
+
+# RUST_LOG still overrides everything
+RUST_LOG=duckduckgo_search_cli=trace,html_escape=debug \
+  duckduckgo-search-cli -q -n 5 "query" 2>&1 | head -50
+```
+
+### `--retries N` is now honored (GAP-WS-57)
+
+The value was hard-coded to 1 in `src/parallel.rs:644`. v0.7.8 reads
+`cfg.retries` and clamps to `[1, 10]` so `--retries 999` cannot trigger
+anti-bot defenses.
+
+```bash
+# Honor --retries with --parallel for robust multi-query crawls
+duckduckgo-search-cli -q \
+  --queries-file queries.txt \
+  --parallel 3 \
+  --retries 5 \
+  --per-host-limit 1 \
+  -n 10 -f json -o results.json
+# Each failed host now retries up to 5 times (was 1 in v0.7.7)
+```
+
+### Hidden `buscar` subcommand (GAP-WS-56)
+
+```bash
+# Direct invocation still works (kept for backwards compatibility)
+duckduckgo-search-cli buscar "rust async" -q -n 5
+
+# But --help no longer shows it; use top-level as the canonical form
+duckduckgo-search-cli "rust async" -q -n 5
+```
+
+### Other v0.7.8 internals
+
+- **`scraper 0.20 → 0.27`** (GAP-WS-54): closes RUSTSEC-2025-0057
+  (`fxhash 0.2.1` unmaintained). `cargo audit --deny warnings` is now a
+  CI gate in `ci.yml` and `release.yml`.
+- **`wreq` comment rewritten** (GAP-WS-55): the previous text claimed a
+  regression to 5.3.0 that never happened. The new comment documents
+  the real pin in `wreq 6.0.0-rc.29` and the three direct pins.
+
+## v0.7.5 → v0.7.8 Feature Comparison
+
+| Feature | v0.7.5 | v0.7.7 | v0.7.8 |
+|---|---|---|---|
+| `--probe-deep` honest signal | No (short `q=rust`) | No (short `q=rust`) | Yes (long pan-gram) |
+| `--allow-lite-fallback` opt-in | Inverted predicate | Inverted predicate | Detector-driven |
+| Detects `anomaly-modal` interstitial | No | No | Yes (8 new markers) |
+| `-vvv` debug | Not supported | Not supported | Yes (cumulative) |
+| `--retries N` honored | No (hard-coded 1) | No (hard-coded 1) | Yes (clamp `[1, 10]`) |
+| `buscar` subcommand | Visible in `--help` | Visible in `--help` | Hidden |
+| `cargo audit` clean | 1 transitive advisory | 1 transitive advisory | Clean |

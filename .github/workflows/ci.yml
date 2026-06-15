@@ -446,7 +446,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo audit --deny yanked
+          # RUSTSEC-2025-0052 (async-std unmaintained) ignorado: dependência transitiva
+          # via chromiumoxide 0.7.0 opcional (feature `chrome`); build default não puxa.
+          # Justificativa completa em deny.toml.
+          cargo audit --deny warnings --ignore RUSTSEC-2025-0052
 
       - name: cargo deny check (gate 8)
         shell: bash

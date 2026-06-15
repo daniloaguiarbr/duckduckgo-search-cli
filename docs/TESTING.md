@@ -304,3 +304,68 @@ v0.7.5 extends the build preflight to detect 4 tools (NASM, CMake 3.20+, MSVC C/
 - **`build::preflight::perl_in_path`** — validates the Perl interpreter detection. Strawberry Perl is the de-facto Windows Perl; the test uses perl.exe filename pattern.
 - **`scripts::check_windows_toolchain::json_output`** — validates that the diagnostic scripts JSON output is parseable and contains the 7 expected tool entries with found boolean and path string fields.
 - **`scripts::install_windows::check_only_mode`** — validates that the --check-only flag produces a report without attempting to install anything, suitable for CI gates.
+
+
+## v0.7.6 Test Additions
+
+v0.7.6 closes GAP-WS-48 (same-day `cargo install` fix) and adds regression tests for the dependency conflict.
+
+- **`build::install::alloc_no_stdlib_pin`** — 2 unit tests validating the `alloc-no-stdlib = "2.0.4"` pin is respected during `cargo install` and not silently upgraded to 3.0.0.
+- **`build::install::brotli_decompressor_pin`** — 1 unit test validating the `brotli-decompressor = "5.0.1"` pin survives resolution on a clean toolchain.
+- **`integration::install_clean_toolchain`** — 1 integration test that runs `cargo install --path . --offline` in a fresh `target/` and asserts exit 0.
+- **GAP-WS-48 closed by these tests** — every dependency pin that the v0.7.6 fix relies on has a dedicated test.
+- **Test count**: 408 lib tests passing (was 405 in v0.7.5 = +3 new install-pin tests). This is the project total at v0.7.6.
+- **CI gate**: the new install tests run in the `install-check` CI job alongside the v0.7.5 preflight tests.
+
+### v0.7.6 gaps closed by these tests
+
+- **`build::install::alloc_no_stdlib_pin`** — prevents the `2.0.4` vs `3.0.0` conflict from re-appearing silently. A regression would re-trigger the original `cargo install` panic.
+- **`build::install::brotli_decompressor_pin`** — keeps BoringSSL brotli decoder pinned to a known-good version. A regression would break the Linux source build.
+- **`integration::install_clean_toolchain`** — end-to-end install gate that catches any new dependency conflict before publishing.
+
+
+## v0.7.7 Test Additions
+
+v0.7.7 closes GAP-WS-49 (TLS fingerprint regression) and adds regression tests for the `wreq` + `wreq-util` emulation stack.
+
+- **`tls::emulation::wreq_util_present`** — 2 unit tests validating that `wreq-util 3.0.0-rc` with `features = ["emulation"]` is in the resolved dependency tree.
+- **`tls::emulation::brotli_feature_enabled`** — 1 unit test validating that the `brotli` feature on `wreq` is enabled (required for the emulation stack to compile).
+- **`tls::probe_deep::captcha_classification`** — 1 integration test that runs `--probe-deep` against a real DuckDuckGo endpoint and asserts the JSON envelope contains `status`, `cascata_motivo`, and `sugestao_mitigacao` fields.
+- **`tls::probe_deep::ok_envelope`** — 1 integration test that asserts the success envelope matches the documented schema in `docs/HOW_TO_USE.md`.
+- **GAP-WS-49 closed by these tests** — the emulation stack is locked in at the dependency level and validated end-to-end.
+- **Test count**: 413 lib + integration tests passing (was 408 in v0.7.6 = +5 new TLS re-registration tests). This is the project total at v0.7.7.
+- **CI gate**: the TLS tests run in the `tls-emulation` CI job and fail the build if `wreq-util` is removed or downgraded.
+
+### v0.7.7 gaps closed by these tests
+
+- **`tls::emulation::wreq_util_present`** — prevents another GAP-WS-48-style accidental removal of `wreq-util`. A regression would re-introduce the zero-result query bug.
+- **`tls::emulation::brotli_feature_enabled`** — keeps the `brotli` feature in the build graph. A regression would break the `emulation` feature of `wreq-util`.
+- **`tls::probe_deep::captcha_classification`** — validates the CI gate format for `--probe-deep`. A regression would let the gate return exit 0 on a captcha response.
+- **`tls::probe_deep::ok_envelope`** — validates the success path JSON. A regression would break downstream CI consumers parsing the envelope.
+
+
+## v0.7.8 Test Additions
+
+v0.7.8 closes 8 gaps (GAP-WS-50 through GAP-WS-57) and adds regression tests for each. The detector overhaul is the biggest delta.
+
+- **`probe_deep::markers::cloudflare`** — 4 unit tests validating the 4 new Cloudflare markers (`anomaly-modal`, `anomaly.js`, `botnet`, `Unfortunately, bots`) against real HTML fixtures under `tests/fixtures/`.
+- **`probe_deep::markers::ddg`** — 1 unit test validating the new `anomaly-modal__title` DDG marker.
+- **`probe_deep::markers::legacy`** — 3 unit tests validating that legacy markers (`cf-chl-bypass`, `cf-challenge`, `robot-detected`) still match.
+- **`cli::verbose::count_levels`** — 1 unit test validating that `-v` (1), `-vv` (2), `-vvv` (3) parse correctly via `ArgAction::Count`.
+- **`cli::verbose::conflicts_with_quiet`** — 1 unit test validating that `--verbose` and `--quiet` together fail clap validation.
+- **`search_retry::retries_honored`** — 1 integration test in `tests/integration_search_retry.rs` validating that `--retries 5` produces `metadados.retentativas == 5` in the JSON.
+- **`search_retry::clamp_to_ten`** — 1 integration test validating that `--retries 999` is clamped to 10 with a warning.
+- **`search::fallback_lite_opt_in`** — 2 unit tests validating that `--allow-lite-fallback` does not trigger when the user did not pass the flag.
+- **`search::fallback_lite_with_interstitial`** — 2 unit tests validating that the fallback triggers when the detector classifies an interstitial and the flag is on.
+- **Test count**: 305 lib + 18 integration tests passing (was 292 lib + 13 integration in v0.7.7 = +10 new v0.7.8 tests). This is the project total at v0.7.8.
+- **CI gate**: the marker tests run in the `detector-markers` CI job; the retry tests run in the `retry-pipeline` CI job.
+
+### v0.7.8 gaps closed by these tests
+
+- **`probe_deep::markers::cloudflare` and `ddg`** — locks in the post-2026 marker list. A regression to the legacy-only detector would re-open GAP-WS-50.
+- **`cli::verbose::count_levels`** — locks in the `ArgAction::Count` semantics. A regression to a single `verbose: bool` would re-open GAP-WS-53.
+- **`cli::verbose::conflicts_with_quiet`** — prevents the contradictory flag combination. A regression would let operators shoot themselves in the foot.
+- **`search_retry::retries_honored`** — locks in the `cfg.retries` propagation. A regression to the hard-coded `1` would re-open GAP-WS-57.
+- **`search_retry::clamp_to_ten`** — locks in the `[1, 10]` clamp. A regression would let `--retries 999` trigger anti-bot detection.
+- **`search::fallback_lite_opt_in`** — locks in the opt-in contract. A regression to unconditional fallback would re-open GAP-WS-52.
+- **`search::fallback_lite_with_interstitial`** — locks in the `detectar_interstitial` predicate. A regression to `accumulated_results.is_empty()` would let Lite trigger on legitimate empty queries.

@@ -9,21 +9,21 @@ Read this in [Português](CONTRIBUTING.pt-BR.md).
 ### Setup em Cinco Comandos
 - Clone o repositório: `git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli`
 - Acesse o diretório: `cd duckduckgo-search-cli`
-- Verifique compilação: `cargo check-all`
-- Execute clippy: `cargo lint`
-- Rode os testes: `cargo nextest run`
+- Verifique compilação: `cargo check --all-targets`
+- Execute clippy: `cargo clippy --all-targets --all-features -- -D warnings`
+- Rode os testes: `cargo test --all-features`
 
-Aliases estão em `.cargo/config.toml`.
+Aliases de atalho NÃO existem — use os comandos canônicos acima.
 
 
 ## Development Setup
 ### Prerequisites
-- MSRV (Minimum Supported Rust Version): Rust 1.75
-- Execute `rustup update stable` para garantir a versão mínima
-- Instale nextest com: `cargo install cargo-nextest`
+- MSRV (Minimum Supported Rust Version): Rust 1.88 — declarado em `Cargo.toml` (`rust-version`) e travado em `rust-toolchain.toml`
+- Execute `rustup update stable` para garantir a versão correta
 - Instale llvm-cov com: `cargo install cargo-llvm-cov`
 - Instale cargo-audit com: `cargo install cargo-audit`
 - Instale cargo-deny com: `cargo install cargo-deny`
+- O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
 ## Code of Conduct
@@ -47,14 +47,16 @@ Aliases estão em `.cargo/config.toml`.
 - Comentários de código, mensagens de log e nomes de campos de structs em português brasileiro conforme `CLAUDE.md`
 - Identificadores de API pública podem ser em inglês quando seguem estilo Rust convencional como `from` e `into`
 - Nunca use `.unwrap()` ou `.expect()` em código de produção
-- Propague erros com `?` e contexto via `.context("...")`
-- Use `anyhow::Result` em caminhos binários e `thiserror` em structs de biblioteca
+- Propague erros com `?` e a variante tipada definida em `src/error.rs` (enum `CliError` via `thiserror`)
+- O projeto usa `thiserror 2` puro — `anyhow` NÃO está nas dependências
 ### I/O Centralizado
 - O módulo `output.rs` é o ÚNICO lugar permitido para chamar `println!` ou `print!`
 - Todos os outros módulos registram via `tracing`
 ### TLS Obrigatório
-- Use `rustls` exclusivamente
+- A stack TLS é `wreq 6.0.0-rc.29` com BoringSSL estaticamente vinculado (GAP-WS-27, v0.7.3)
+- Não troque para `rustls` puro — fingerprint JA4_o idêntico ao Chrome/Safari só com BoringSSL
 - Não reative `native-tls` — quebra NixOS, Alpine e builds musl estáticos
+- Compilação do BoringSSL requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux
 ### Restrições de Design
 - Sem cache, sem MCP, sem API paga — restrições inegociáveis do blueprint v2
 
@@ -65,8 +67,7 @@ Aliases estão em `.cargo/config.toml`.
 - Testes de integração em `tests/` usando `wiremock` — ZERO HTTP real
 - Doctests dentro de blocos `///` em APIs públicas — duplos como exemplos no docs.rs
 ### Execução de Testes
-- Execute testes com `cargo nextest run` (runner preferido)
-- Instale nextest com: `cargo install cargo-nextest`
+- Execute testes com `cargo test --all-features` (runner padrão)
 - Execute cobertura com `cargo llvm-cov` — mínimo 80% obrigatório
 - Qualquer PR que reduza a cobertura abaixo do limite falhará no CI
 
@@ -77,27 +78,26 @@ Every PR must pass all 10 gates (enforced by `.github/workflows/ci.yml`):
 
 | # | Gate | Comando local |
 |---|------|---------------|
-| 1 | Compilation | `cargo check-all` |
-| 2 | Clippy | `cargo lint` |
-| 3 | Format | `cargo fmt --check` |
-| 4 | Docs | `RUSTDOCFLAGS="-D warnings" cargo docs` |
-| 5 | Tests | `cargo test-all` |
-| 6 | Coverage >= 80% | `cargo cov` |
-| 7 | Vuln audit | `cargo audit` |
+| 1 | Compilation | `cargo check --all-targets --all-features` |
+| 2 | Clippy | `cargo clippy --all-targets --all-features -- -D warnings` |
+| 3 | Format | `cargo fmt --all -- --check` |
+| 4 | Docs | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` |
+| 5 | Tests | `cargo test --all-features` |
+| 6 | Coverage >= 80% | `cargo llvm-cov --workspace --all-features` |
+| 7 | Vuln audit | `cargo audit --deny warnings` |
 | 8 | Supply chain | `cargo deny check advisories licenses bans sources` |
-| 9 | Publish dry-run | `cargo publish-check` |
-| 10 | Package content | `cargo pkg-list` |
+| 9 | Publish dry-run | `cargo publish --dry-run --allow-dirty` |
+| 10 | Package content | `cargo package --list-files` |
 
 
 ## Pull Request Checklist
 ### Itens Verificáveis Antes de Abrir PR
-- `cargo fmt --all --check` retorna ZERO diferenças
-- `cargo clippy --all-targets -- -D warnings` retorna ZERO warnings
+- `cargo fmt --all -- --check` retorna ZERO diferenças
+- `cargo clippy --all-targets --all-features -- -D warnings` retorna ZERO warnings
 - `cargo test --all-features` retorna ZERO falhando
-- `cargo nextest run` retorna ZERO falhando
 - `cargo doc --no-deps` sem warnings
-- `cargo audit` sem vulnerabilidades conhecidas
-- CHANGELOG.md atualizado com a mudança
+- `cargo audit --deny warnings` sem vulnerabilidades conhecidas
+- CHANGELOG.md e CHANGELOG.pt-BR.md atualizados com a mudança
 - Título do PR descreve o problema resolvido em termos do usuário
 
 
@@ -115,6 +115,35 @@ Every PR must pass all 10 gates (enforced by `.github/workflows/ci.yml`):
 - Se o candidato traz nova licença fora da allowlist ou advisory transitivo, encontre alternativa ou documente o ignore em `deny.toml`
 - Documente com linhas `# Why:` e `# How to apply:` no `deny.toml`
 - Prefira crates com `trustScore >= 7` no `context7` (veja `CLAUDE.md`)
+
+
+## Documentação Relacionada
+### Links Úteis
+- [CHANGELOG.md](CHANGELOG.md) e [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md) — histórico bilíngue sincronizado
+- [SECURITY.md](SECURITY.md) — política de reporte responsável e versões suportadas
+- [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md) — pré-requisitos BoringSSL no Windows (NASM, CMake, MSVC, Perl)
+- [INTEGRATIONS.md](INTEGRATIONS.md) — catálogo de integrações com 16+ agentes de IA
+- [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — guia completo de integração
+- [docs/INSTALL-WINDOWS.pt-BR.md](docs/INSTALL-WINDOWS.pt-BR.md) — versão em português
+- [docs/decisions/](docs/decisions/) — Architecture Decision Records (ADRs)
+- [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md) — comportamento por plataforma
+
+
+## Pre-Publish Gate
+### Bloqueio Pré-Publicação
+- O job `pre-publish` em `.github/workflows/release.yml` exige `CARGO_INSTALL_FLAGS=--locked`
+- Compilação do `cargo install` é parte do gate — sem network ímpar no build
+- Mantenedores: nunca publique sem essa flag ativa
+- Falha do `pre-publish` cancela a release no crates.io
+
+
+## Workflow com Agent Teams
+### Orquestração de Releases
+- Releases da v0.7.8+ usaram o fluxo de 8 fases via Agent Teams
+- Cada teammate recebe prompt autocontido com Regra Zero, identidade, contexto, ferramentas
+- Líder coordena, delega, verifica — não implementa diretamente
+- Ver `CLAUDE.md` na raiz para o protocolo completo
+- ADRs em `docs/decisions/` documentam decisões tomadas por cada release
 
 
 ## How to Report Bugs
@@ -145,8 +174,23 @@ Every PR must pass all 10 gates (enforced by `.github/workflows/ci.yml`):
 ### Fluxo de Release para Mantenedores
 - Bump do campo `version` em `Cargo.toml`
 - Atualize `CHANGELOG.md` movendo conteúdo de `[Unreleased]` para novo header de versão com data
+- Sincronize `CHANGELOG.pt-BR.md` com a mesma entrada bilíngue
 - Execute os 10 gates de validação completos
 - Crie tag anotada: `git tag -a v0.X.Y -m "descrição"`
 - Push: `git push origin main && git push origin v0.X.Y`
 - O workflow `.github/workflows/release.yml` executa o restante: matrix de build com 5 targets mais macOS Universal, GitHub Release e publicação no crates.io
 - Mantenedores: garanta que o secret `CRATES_IO_TOKEN` está configurado antes de criar a tag
+- O gate `pre-publish` aborta a publicação se `CARGO_INSTALL_FLAGS=--locked` falhar
+
+
+## Notas da Release v0.7.8
+### Oito Gaps Fechados (Anti-Bot Detector Overhaul)
+- GAP-WS-50 — listas expandidas em `src/probe_deep.rs` (8 marcadores Cloudflare + 1 DDG)
+- GAP-WS-51 — constante `PROBE_CALIBRATION_QUERY` em `src/lib.rs` para query canônica do probe
+- GAP-WS-52 — predicado de fallback condicional em `src/search.rs` honra o detector real
+- GAP-WS-53 — níveis `-vv` e `-vvv` adicionados em `src/cli.rs` com `ArgAction::Count`
+- GAP-WS-54 — `scraper` bumpado para 0.27 resolve RUSTSEC-2025-0057 transitivo
+- GAP-WS-55 — bloco wreq reescrito em `Cargo.toml` com pin exato em 6.0.0-rc.29
+- GAP-WS-56 — subcomando `Buscar` marcado como `#[command(hide = true)]`
+- GAP-WS-57 — `retries` agora honrado em `src/parallel.rs` no laço de error_output
+- ADR completa em `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md`

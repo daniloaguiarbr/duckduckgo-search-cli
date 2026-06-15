@@ -3,14 +3,18 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version 0.7.5 is the current supported version (GAP-WS-29/30/31/32/33/34/35/36/37 closed; see CHANGELOG)
+- Version 0.7.7 is the current published version (GAP-WS-49 closed — TLS fingerprint regression restored via pinned `wreq-util`)
+- Version 0.7.8 is in development on `main` (8 anti-bot detector gaps closed, see ADR `0002-anti-bot-detector-overhaul-v0-7-8.md`)
 
 | Version | Supported |
 |---|---|
-| 0.7.5 | yes (current; build prereq preflight covers NASM/CMake/MSVC/Perl) |
-| 0.7.4 | yes (v0.7.4 is the previous minor) |
-| 0.7.3 | yes (v0.7.4 is recommended for the Windows NASM build preflight, GAP-WS-28) |
-| 0.7.2 | yes (security backports; v0.7.3 is recommended for the TLS stack fix) |
+| 0.7.8 | yes (in development; 8 anti-bot detector gaps closed, `scraper` 0.27 resolves RUSTSEC-2025-0057) |
+| 0.7.7 | yes (current published; GAP-WS-49 fixed TLS fingerprint regression via pinned `wreq-util`) |
+| 0.7.6 | yes (GAP-WS-48 closed — `cargo install` build conflict via `alloc-no-stdlib =2.0.4` downgrade) |
+| 0.7.5 | yes (build prereq preflight covers NASM/CMake/MSVC/Perl on Windows) |
+| 0.7.4 | yes (Windows NASM build preflight, GAP-WS-28) |
+| 0.7.3 | yes (TLS stack fix — `rustls` replaced by BoringSSL via `wreq 6.0.0-rc.29`, GAP-WS-27) |
+| 0.7.2 | partial (security backports only) |
 | 0.7.1 | partial (security fixes only; MSRV 1.85) |
 | 0.7.0 | no |
 | 0.6.x | no |
@@ -54,7 +58,8 @@
 - All external inputs (query strings, output paths) are validated before use
 - Path traversal attacks are blocked: output paths with `..` components are rejected with exit code 2
 - Proxy URLs are masked in logs: credentials are replaced with `[...]` before any output
-- **v0.7.3+**: A cookie jar is persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). The file is written with Unix permissions `0o600` (owner read+write only). On Windows, the directory inherits the user's profile ACL. The cookies are session cookies issued by `duckduckgo.com` and `html.duckduckgo.com`. **Treat this file as you would treat any credential.** Use `--no-cookie-persistence` to keep cookies in memory only. Use `--cookies-path <PATH>` to relocate the file to an encrypted volume.
+- **v0.7.3+**: A cookie jar is persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). The file is written with Unix permissions `0o600` (owner read+write only). On Windows, the directory inherits the user's profile ACL. The cookies are session cookies issued by `duckduckgo.com` and `html.duckduckgo.com`. **Treat this file as you would treat any credential.** Use `--no-cookie-persistence` to keep cookies in memory only. Use `--cookies-path <PATH>` to relocate the file to an encrypted volume (e.g., a LUKS-mounted directory or a tmpfs restricted to your UID).
+- **v0.7.8+**: Verbose flag surface expanded. `-v` is info, `-vv` is debug, `-vvv` is trace (GAP-WS-53). Operators investigating anomalies can escalate log detail without recompiling. The flag `conflicts_with = "quiet"` prevents contradictory intent. Use this when reporting a suspected vulnerability — `-vvv` output is the most useful diagnostic the maintainers can receive.
 - The binary does not execute subprocesses or shell commands based on search results
 - **v0.7.3+**: TLS is enforced via BoringSSL (statically linked by `wreq 6.0.0-rc.29`). No plain HTTP connections to the search endpoint. The BoringSSL build is reproducible; deviations in cipher suite selection are reported via `cargo deny check`.
 - **v0.7.3+**: The CLI is no longer fully stateless. Cookie jar persistence adds state across invocations. This is a deliberate trade-off to reduce CAPTCHA rate on the DuckDuckGo server. The warm-up request (`GET https://duckduckgo.com/`) is idempotent and does not persist any user-identifying data beyond the cookies themselves.
@@ -113,3 +118,54 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
   themselves. See `gaps.md` GAP-WS-28/29/30/31 and `docs/INSTALL-WINDOWS.md`
   for the full prerequisite list and step-by-step setup.
 - **MSRV unchanged from v0.7.2**: `rust-version = "1.88"`.
+
+
+## v0.7.8 Security Improvements
+
+- **RUSTSEC-2025-0057 (fxhash unmaintained) RESOLVED**: The transitive
+  dependency `fxhash 0.2.1` (RUSTSEC-2025-0057, marked unmaintained by the
+  RustSec advisory database) is gone in v0.7.8. The bump from `scraper
+  0.20.0` to `scraper 0.27.0` removed the transitive path through
+  `fxhash`. The `cargo audit --deny warnings` gate now runs clean for this
+  advisory. `deny.toml` no longer needs the `RUSTSEC-2025-0057` ignore
+  exception. Only the `async-std` (RUSTSEC-2025-0052) ignore remains,
+  scoped to the optional `chrome` feature.
+- **Supply chain gate hardened**: `cargo audit --deny warnings` is now a
+  blocking gate in `.github/workflows/ci.yml` and
+  `.github/workflows/release.yml`. Any new RUSTSEC advisory above
+  `MEDIUM` severity will fail the PR build. The previous
+  `cargo audit` invocation only warned.
+- **Anti-bot detector rebalance (GAP-WS-52)**: The fallback predicate
+  in `src/search.rs:567-572` now reads the real detector result instead
+  of a fixed assumption. When `--allow-lite-fallback` is off but the
+  detector flags a CAPTCHA interstitial, the CLI emits a structured
+  `tracing::warn!` and continues to exit with the appropriate code —
+  it does NOT silently fall back. This removes a covert behavior
+  channel that could surprise integrators expecting explicit opt-in.
+- **Verbose level surface (GAP-WS-53)**: `-vv` and `-vvv` flags added
+  to `src/cli.rs` via `ArgAction::Count`. Operators can now escalate
+  log verbosity without recompiling. The flag `conflicts_with = "quiet"`
+  prevents contradictory intent.
+- **`Buscar` subcommand hidden (GAP-WS-56)**: The legacy `Buscar`
+  subcommand is marked `#[command(hide = true)]`. It remains callable
+  for backward compatibility but disappears from `--help`. Reduces
+  surface area for confused-deputy attacks against CI scripts that
+  parse `--help` output.
+- **`--retries` honored end-to-end (GAP-WS-57)**: The retry counter
+  in `src/parallel.rs:644` now reads `config.retries` instead of a
+  hard-coded constant. The previous behavior silently dropped the
+  user-supplied `--retries` value in the `error_output` path.
+- **Pinned `wreq 6.0.0-rc.29` (GAP-WS-55)**: The `wreq` block in
+  `Cargo.toml` was rewritten. The previous release claimed
+  `wreq 5.3.0` but the actual pin in use is `6.0.0-rc.29` with three
+  direct pins (`wreq-util`, `brotli-decompressor =5.0.1`,
+  `alloc-no-stdlib =2.0.4`). The Cargo.toml manifest now matches
+  reality — eliminates a documentation-vs-code drift that made supply
+  chain audits misleading.
+- **MSRV unchanged from v0.7.7**: `rust-version = "1.88"`.
+
+For vulnerabilities introduced or surfaced by v0.7.7 specifically, the
+TLS fingerprint regression (GAP-WS-49) was the most prominent: a
+`wreq-util` resolution failure that broke BoringSSL emulation on certain
+Linux distributions. v0.7.7 ships the pinned-`wreq-util` fix and
+restored normal operation.

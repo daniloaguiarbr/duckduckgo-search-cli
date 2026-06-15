@@ -3,140 +3,247 @@
     "id": "q01",
     "query": "tutorial Rust async tokio 2026 português",
     "expected_use": "resumir os 5 melhores resultados para extrair conceitos-chave e links sobre desenvolvimento async em Rust",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "technical"
   },
   {
     "id": "q02",
     "query": "reqwest vs ureq cliente HTTP Rust desempenho comparação",
     "expected_use": "comparar abordagens mencionadas nos resultados e produzir tabela de decisão com trade-offs",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "comparison"
   },
   {
     "id": "q03",
     "query": "novidades Rust linguagem programação semana",
     "expected_use": "extrair as principais manchetes e links com as notícias mais recentes do ecossistema Rust",
-    "flags": ["-n", "10", "-f", "json", "--time-filter", "d"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json",
+      "--time-filter",
+      "d"
+    ],
     "category": "news"
   },
   {
     "id": "q04",
     "query": "DuckDuckGo busca privacidade alternativas API 2026",
     "expected_use": "listar APIs de busca que respeitam privacidade com informações de preço e limites de requisição",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "research"
   },
   {
     "id": "q05",
     "query": "melhores ferramentas CLI Rust desenvolvedor 2026",
     "expected_use": "extrair nomes das ferramentas, nomes dos crates e descrições resumidas dos principais resultados",
-    "flags": ["-n", "15", "-f", "json"],
+    "flags": [
+      "-n",
+      "15",
+      "-f",
+      "json"
+    ],
     "category": "tools"
   },
   {
     "id": "q06",
     "query": "cargo nextest vs cargo test velocidade comparação benchmark",
     "expected_use": "extrair números de benchmark e diferenças principais para produzir uma recomendação fundamentada",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "technical"
   },
   {
     "id": "q07",
     "query": "integração agentes LLM busca web padrões arquitetura 2026",
     "expected_use": "resumir padrões arquiteturais para integrar busca web em pipelines de agentes LLM",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "research"
   },
   {
     "id": "q08",
     "query": "tratamento erros Rust anyhow vs thiserror quando usar",
     "expected_use": "comparar os dois crates e extrair critérios de decisão para bibliotecas versus aplicações",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "comparison"
   },
   {
     "id": "q09",
     "query": "compilação cruzada Rust Linux macOS Windows targets tutorial",
     "expected_use": "extrair instruções passo a passo e target triples dos principais resultados",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "technical"
   },
   {
     "id": "q10",
     "query": "segurança supply chain Rust cargo audit cargo deny boas práticas",
     "expected_use": "extrair ferramentas recomendadas, passos de configuração e integração com pipeline de CI",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "security"
   },
   {
     "id": "q11",
     "query": "novos crates crates.io semana ecossistema Rust",
     "expected_use": "listar crates novos ou atualizados com números de versão e descrições resumidas",
-    "flags": ["-n", "10", "-f", "json", "--time-filter", "d"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json",
+      "--time-filter",
+      "d"
+    ],
     "category": "news"
   },
   {
     "id": "q12",
     "query": "scraping DuckDuckGo HTML detecção bot técnicas evasão",
     "expected_use": "extrair estratégias anti-detecção e resumir quais são éticas e utilizáveis em ferramentas CLI",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "research"
   },
   {
     "id": "q13",
     "query": "análise estática Rust clippy alternativas linter ferramentas 2026",
     "expected_use": "listar ferramentas de análise estática disponíveis com capacidades e instruções de integração",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "tools"
   },
   {
     "id": "q14",
     "query": "configuração timeout reqwest client builder Rust exemplos",
     "expected_use": "extrair exemplos de código e opções de configuração para timeouts e conexões no reqwest",
-    "flags": ["-n", "10", "-f", "json", "--fetch-content", "--max-content-length", "5000"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json",
+      "--fetch-content",
+      "--max-content-length",
+      "5000"
+    ],
     "category": "technical"
   },
   {
     "id": "q15",
     "query": "serde_json vs simd-json desempenho JSON Rust benchmark comparação",
     "expected_use": "extrair dados de benchmark e produzir tabela comparativa com recomendações por caso de uso",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "comparison"
   },
   {
     "id": "q16",
     "query": "framework CLI Rust clap argh structopt comparação 2026",
     "expected_use": "comparar conjuntos de funcionalidades, ergonomia e status de manutenção a partir dos resultados",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "research"
   },
   {
     "id": "q17",
     "query": "tokio spawn blocking tarefas CPU intensivas boas práticas Rust async",
     "expected_use": "extrair diretrizes e padrões de código para delegar trabalho CPU fora do runtime assíncrono",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "technical"
   },
   {
     "id": "q18",
     "query": "Rust edição 2024 novidades funcionalidades guia migração",
     "expected_use": "resumir as novas funcionalidades da linguagem e os passos de migração para crates existentes",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "news"
   },
   {
     "id": "q19",
     "query": "fd ripgrep bat eza ferramentas CLI modernas Rust substituição",
     "expected_use": "extrair lista de ferramentas com comandos de instalação e descrição de caso de uso para cada uma",
-    "flags": ["-n", "15", "-f", "json"],
+    "flags": [
+      "-n",
+      "15",
+      "-f",
+      "json"
+    ],
     "category": "tools"
   },
   {
     "id": "q20",
     "query": "boas práticas web scraping agente IA ético 2026",
     "expected_use": "extrair diretrizes éticas, padrões de rate limiting e ferramentas recomendadas para agentes de IA que fazem pesquisa web",
-    "flags": ["-n", "10", "-f", "json"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json"
+    ],
     "category": "research"
   },
   {
@@ -151,16 +258,35 @@
     "id": "q22",
     "query": "rust pool identidades anti-bot 12 identidades rotação cascata",
     "expected_use": "validar o pool adaptativo de identidades anti-bot v0.6.4. Executar com --seed 42 para rotação determinística. Inspecionar stdout JSON metadados.identidade_usada para tag família-plataforma-hex16 e metadados.nivel_cascata para nível de cascata (0..=4)",
-    "flags": ["-n", "10", "-f", "json", "--seed", "42"],
-    "expected_json_fields": ["metadados.identidade_usada", "metadados.nivel_cascata"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json",
+      "--seed",
+      "42"
+    ],
+    "expected_json_fields": [
+      "metadados.identidade_usada",
+      "metadados.nivel_cascata"
+    ],
     "category": "v0.6.4-feature-test"
   },
   {
     "id": "q23",
     "query": "duckduckgo CLI identity-profile chrome-linux fixado",
     "expected_use": "validar que --identity-profile chrome-linux fixa a sessão em uma identidade específica do pool de 12. Esperar que metadados.identidade_usada case com a tag chrome-linux e o seed determinístico 0x33333333cccc0003",
-    "flags": ["-n", "5", "-f", "json", "--identity-profile", "chrome-linux"],
-    "expected_json_fields": ["metadados.identidade_usada"],
+    "flags": [
+      "-n",
+      "5",
+      "-f",
+      "json",
+      "--identity-profile",
+      "chrome-linux"
+    ],
+    "expected_json_fields": [
+      "metadados.identidade_usada"
+    ],
     "expected_value_contains": "chrome-linux",
     "category": "v0.6.4-feature-test"
   },
@@ -168,8 +294,22 @@
     "id": "q24",
     "query": "rust async tokio runtime 2026 melhores práticas",
     "expected_use": "validar o circuit breaker per-host da v0.6.5 (WS-12) emitindo 5 queries para o mesmo domínio em um único batch. Com --retries 2 --global-timeout 60, o wall time deve permanecer abaixo de 60s mesmo que um host falhe. Inspecionar resultados para conclusão parcial",
-    "flags": ["-n", "10", "-f", "json", "--retries", "2", "--global-timeout", "60", "--timeout", "20"],
-    "expected_json_fields": ["metadados.identidade_usada", "metadados.tempo_execucao_ms"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json",
+      "--retries",
+      "2",
+      "--global-timeout",
+      "60",
+      "--timeout",
+      "20"
+    ],
+    "expected_json_fields": [
+      "metadados.identidade_usada",
+      "metadados.tempo_execucao_ms"
+    ],
     "expected_wall_time_max_ms": 60000,
     "category": "v0.6.5-feature-test"
   },
@@ -177,7 +317,14 @@
     "id": "q25",
     "query": "cross compilation Rust Linux Windows target triple",
     "expected_use": "validar install cross-platform v0.6.5 (MP-26). A CLI é invocada uma vez e sai com 0 em menos de 2 segundos. Esta query em si não testa compilação Windows, mas valida que o binário v0.6.5 está funcional após install fresh",
-    "flags": ["-n", "5", "-f", "json", "--timeout", "10"],
+    "flags": [
+      "-n",
+      "5",
+      "-f",
+      "json",
+      "--timeout",
+      "10"
+    ],
     "expected_wall_time_max_ms": 2000,
     "category": "v0.6.5-smoke-test"
   },
@@ -185,7 +332,19 @@
     "id": "q26",
     "query": "indicatif barra progresso terminal visualização Rust",
     "expected_use": "validar a ProgressBar indicatif da v0.6.5 (WS-25). Use --fetch-content para habilitar a barra de progresso. O stream stderr deve conter o formato da barra [{elapsed}] {bar} {pos}/{len}. O stream stdout deve conter apenas JSON válido, sem vazamento da barra de progresso",
-    "flags": ["-n", "10", "-f", "json", "--fetch-content", "--max-content-length", "5000", "--parallel", "2", "--global-timeout", "60"],
+    "flags": [
+      "-n",
+      "10",
+      "-f",
+      "json",
+      "--fetch-content",
+      "--max-content-length",
+      "5000",
+      "--parallel",
+      "2",
+      "--global-timeout",
+      "60"
+    ],
     "expected_stderr_contains": "bar",
     "expected_stdout_format": "json",
     "category": "v0.6.5-feature-test"
@@ -194,7 +353,14 @@
     "id": "q27",
     "query": "windows rust sys 0.59 HANDLE type safety FFI",
     "expected_use": "validar a correção de type-safety do HANDLE Windows da v0.6.5 (MP-26). Esta query roda na plataforma host. No Windows, o binário deve estar funcional. Em Linux/macOS, a query valida que o contrato JSON permanece inalterado em relação à v0.6.4",
-    "flags": ["-n", "5", "-f", "json", "--timeout", "10"],
+    "flags": [
+      "-n",
+      "5",
+      "-f",
+      "json",
+      "--timeout",
+      "10"
+    ],
     "expected_exit": 0,
     "category": "v0.6.5-regression-test"
   },
@@ -202,8 +368,17 @@
     "id": "q28",
     "query": "melhor cliente http rust 2026",
     "expected_use": "validar o subcomando deep-research da v0.7.0. A CLI deve fazer fan-out da entrada em 1..=12 sub-queries via 5 templates heurísticos, agregar via RRF (K=60), e emitir um envelope JSON com metadados.sub_queries[], metadados.total_resultados_unicos, e metadados.tempo_total_ms. Inspecionar o campo .metadados.sub_queries[].status — todas as entradas devem ser ok",
-    "flags": ["-q", "-f", "json", "deep-research"],
-    "expected_json_fields": ["metadados.sub_queries", "metadados.total_resultados_unicos", "metadados.tempo_total_ms"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research"
+    ],
+    "expected_json_fields": [
+      "metadados.sub_queries",
+      "metadados.total_resultados_unicos",
+      "metadados.tempo_total_ms"
+    ],
     "expected_sub_query_count_min": 1,
     "expected_sub_query_count_max": 12,
     "expected_exit": 0,
@@ -213,8 +388,21 @@
     "id": "q29",
     "query": "tokio vs async-std 2026",
     "expected_use": "validar síntese Markdown do deep-research v0.7.0. Com --synthesize --synth-format markdown --budget-tokens 1500 a saída deve conter .sintese como string Markdown com cabeçalhos H2, referências numeradas, e comprimento limitado a ~6000 chars (1500 tokens × 4 chars heurístico). Inspecionar .metadados.sub_queries[] para pelo menos 2 entradas já que a query é explicitamente comparativa",
-    "flags": ["-q", "-f", "json", "deep-research", "--synthesize", "--synth-format", "markdown", "--budget-tokens", "1500"],
-    "expected_json_fields": ["sintese", "metadados.sub_queries"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research",
+      "--synthesize",
+      "--synth-format",
+      "markdown",
+      "--budget-tokens",
+      "1500"
+    ],
+    "expected_json_fields": [
+      "sintese",
+      "metadados.sub_queries"
+    ],
     "expected_sintese_max_chars": 6000,
     "expected_sub_query_count_min": 2,
     "expected_exit": 0,
@@ -224,8 +412,22 @@
     "id": "q30",
     "query": "tokio runtime",
     "expected_use": "validar estratégia manual de sub-queries via --sub-queries-file na v0.7.0. O arquivo /tmp/qs-test.txt deve conter 3 sub-queries (comentários e linhas em branco ignorados). A CLI deve aceitar --max-sub-queries 12, --aggregate dedupe-by-url, e emitir exatamente as sub-queries parseadas. Testar cancelamento: --global-timeout 1 deve disparar exit 4 com resultados parciais",
-    "flags": ["-q", "-f", "json", "deep-research", "--sub-queries-file", "/tmp/qs-test.txt", "--aggregate", "dedupe-by-url", "--max-sub-queries", "12"],
-    "expected_json_fields": ["metadados.sub_queries", "metadados.total_resultados_unicos"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research",
+      "--sub-queries-file",
+      "/tmp/qs-test.txt",
+      "--aggregate",
+      "dedupe-by-url",
+      "--max-sub-queries",
+      "12"
+    ],
+    "expected_json_fields": [
+      "metadados.sub_queries",
+      "metadados.total_resultados_unicos"
+    ],
     "expected_sub_query_count_min": 1,
     "expected_sub_query_count_max": 12,
     "expected_exit": 0,
@@ -235,7 +437,14 @@
     "id": "q31",
     "query": "rust runtimes async 2026",
     "expected_use": "validar validação de argumentos da v0.7.0. --max-sub-queries 13 deve sair com 2 (fora do range 1..=12). --max-sub-queries 0 deve sair com 2. A mensagem de erro deve indicar o range válido",
-    "flags": ["-q", "-f", "json", "deep-research", "--max-sub-queries", "13"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research",
+      "--max-sub-queries",
+      "13"
+    ],
     "expected_exit": 2,
     "category": "v0.7.0-regression-test"
   },
@@ -243,8 +452,20 @@
     "id": "q32",
     "query": "desempenho serde_json",
     "expected_use": "validar síntese plain-text da v0.7.0. Com --synth-format plain o campo .sintese deve ser uma string flat sem marcadores Markdown (sem H2, sem colchetes numerados). Inspecionar densidade de caracteres para confirmar ausência de markup",
-    "flags": ["-q", "-f", "json", "deep-research", "--synthesize", "--synth-format", "plain", "--budget-tokens", "500"],
-    "expected_json_fields": ["sintese"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research",
+      "--synthesize",
+      "--synth-format",
+      "plain",
+      "--budget-tokens",
+      "500"
+    ],
+    "expected_json_fields": [
+      "sintese"
+    ],
     "expected_sintese_max_chars": 2000,
     "expected_exit": 0,
     "category": "v0.7.0-feature-test"
@@ -253,8 +474,20 @@
     "id": "q33",
     "query": "tokio vs smol comparação",
     "expected_use": "validar síntese JSON da v0.7.0. Com --synth-format json o campo .sintese deve ser um objeto JSON com array .evidencias[]. Cada entrada tem titulo, url, score, e fontes[]. Score normalizado em [0.0, 1.0]",
-    "flags": ["-q", "-f", "json", "deep-research", "--synthesize", "--synth-format", "json", "--budget-tokens", "800"],
-    "expected_json_fields": ["sintese"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research",
+      "--synthesize",
+      "--synth-format",
+      "json",
+      "--budget-tokens",
+      "800"
+    ],
+    "expected_json_fields": [
+      "sintese"
+    ],
     "expected_sintese_has_field": "evidencias",
     "expected_exit": 0,
     "category": "v0.7.0-feature-test"
@@ -263,8 +496,17 @@
     "id": "q34",
     "query": "webassembly rust 2026",
     "expected_use": "validar detecção de query composta da v0.7.0. A query é multi-aspecto (WASM + Rust + 2026) então --sub-query-strategy heuristic deve produzir pelo menos 3 sub-queries via template aspect",
-    "flags": ["-q", "-f", "json", "deep-research", "--sub-query-strategy", "heuristic"],
-    "expected_json_fields": ["metadados.sub_queries"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research",
+      "--sub-query-strategy",
+      "heuristic"
+    ],
+    "expected_json_fields": [
+      "metadados.sub_queries"
+    ],
     "expected_sub_query_count_min": 3,
     "expected_exit": 0,
     "category": "v0.7.0-feature-test"
@@ -273,8 +515,15 @@
     "id": "q35",
     "query": "cargo workspace monorepo",
     "expected_use": "validar normalização de score da v0.7.0. .resultados[].score deve estar normalizado em [0.0, 1.0] com maior = melhor. Inspecionar que scores estão em ordem descendente na ordem do array. RRF K=60 significa range prático (0, 0.05] para corpus reais",
-    "flags": ["-q", "-f", "json", "deep-research"],
-    "expected_json_fields": ["resultados"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research"
+    ],
+    "expected_json_fields": [
+      "resultados"
+    ],
     "expected_score_min": 0.0,
     "expected_score_max": 1.0,
     "expected_exit": 0,
@@ -284,8 +533,18 @@
     "id": "q36",
     "query": "rust wreq BoringSSL Cloudflare fingerprint",
     "expected_use": "validar a troca da stack TLS da v0.7.3 de rustls para BoringSSL via wreq. A query que retornava 0 resultados na v0.7.2 (GAP-WS-27) deve agora retornar 5 resultados com o binário v0.7.3. Inspecionar .quantidade_resultados >= 5 e .metadados.tempo_execucao_ms para wall time abaixo de 2000ms",
-    "flags": ["-q", "-f", "json", "-n", "5"],
-    "expected_json_fields": ["resultados", "quantidade_resultados", "metadados.tempo_execucao_ms"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "5"
+    ],
+    "expected_json_fields": [
+      "resultados",
+      "quantidade_resultados",
+      "metadados.tempo_execucao_ms"
+    ],
     "expected_exit": 0,
     "category": "v0.7.3-feature-test"
   },
@@ -293,8 +552,20 @@
     "id": "q37",
     "query": "duckduckgo CLI detecção CAPTCHA",
     "expected_use": "validar a flag --probe-deep da v0.7.3. A CLI deve rodar uma busca real e classificar o corpo da resposta. Esperar que .status seja 'ok' ou 'captcha'. Esperar que os campos .cascata_motivo, .sugestao_mitigacao, .http_status, .latency_ms, .endpoint e .url estejam presentes. O probe deve completar em menos de 5 segundos",
-    "flags": ["-q", "-f", "json"],
-    "expected_json_fields": ["status", "cascata_motivo", "sugestao_mitigacao", "http_status", "latency_ms", "endpoint", "url"],
+    "flags": [
+      "-q",
+      "-f",
+      "json"
+    ],
+    "expected_json_fields": [
+      "status",
+      "cascata_motivo",
+      "sugestao_mitigacao",
+      "http_status",
+      "latency_ms",
+      "endpoint",
+      "url"
+    ],
     "expected_wall_time_max_ms": 5000,
     "expected_exit": 0,
     "category": "v0.7.3-feature-test"
@@ -303,8 +574,18 @@
     "id": "q38",
     "query": "cliente http rust 2026",
     "expected_use": "validar a flag --no-warmup da v0.7.3. Com --no-warmup, a CLI deve pular o GET https://duckduckgo.com/ de warm-up e emitir os resultados da busca diretamente. Esperar que a query complete mais rápido que o padrão (warm-up adiciona 200-400ms). Esperar 5+ resultados",
-    "flags": ["-q", "-f", "json", "-n", "5", "--no-warmup"],
-    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "5",
+      "--no-warmup"
+    ],
+    "expected_json_fields": [
+      "resultados",
+      "quantidade_resultados"
+    ],
     "expected_exit": 0,
     "category": "v0.7.3-feature-test"
   },
@@ -312,8 +593,18 @@
     "id": "q39",
     "query": "rust runtime async 2026",
     "expected_use": "validar a flag --no-cookie-persistence da v0.7.3. Com --no-cookie-persistence, nenhum arquivo cookies.json deve ser criado ou modificado. Os cookies de sessão são mantidos em memória apenas. Esperar 5+ resultados e exit 0",
-    "flags": ["-q", "-f", "json", "-n", "5", "--no-cookie-persistence"],
-    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "5",
+      "--no-cookie-persistence"
+    ],
+    "expected_json_fields": [
+      "resultados",
+      "quantidade_resultados"
+    ],
     "expected_exit": 0,
     "category": "v0.7.3-feature-test"
   },
@@ -321,9 +612,22 @@
     "id": "q40",
     "query": "framework web rust 2026",
     "expected_use": "validar o override --cookies-path da v0.7.3. Passar --cookies-path /tmp/ddg-test-cookies-pt.json e verificar que o arquivo é criado neste path exato com permissões Unix 0o600. Esperar 5+ resultados e exit 0",
-    "flags": ["-q", "-f", "json", "-n", "5", "--cookies-path", "/tmp/ddg-test-cookies-pt.json"],
-    "expected_json_fields": ["resultados", "quantidade_resultados"],
-    "expected_side_effects": ["criar /tmp/ddg-test-cookies-pt.json com modo 0o600"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "5",
+      "--cookies-path",
+      "/tmp/ddg-test-cookies-pt.json"
+    ],
+    "expected_json_fields": [
+      "resultados",
+      "quantidade_resultados"
+    ],
+    "expected_side_effects": [
+      "criar /tmp/ddg-test-cookies-pt.json com modo 0o600"
+    ],
     "expected_exit": 0,
     "category": "v0.7.3-feature-test"
   },
@@ -331,8 +635,18 @@
     "id": "q41",
     "query": "rust cargo build 2026",
     "expected_use": "validar a flag --allow-lite-fallback da v0.7.3. A flag habilita fallback automático do endpoint html para o endpoint lite quando CAPTCHA é detectado ou quando o endpoint html retorna zero resultados. Esperar exit 0 com pelo menos 1 resultado (endpoint lite geralmente retorna resultados onde html está bloqueado)",
-    "flags": ["-q", "-f", "json", "-n", "5", "--allow-lite-fallback"],
-    "expected_json_fields": ["resultados", "quantidade_resultados"],
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "5",
+      "--allow-lite-fallback"
+    ],
+    "expected_json_fields": [
+      "resultados",
+      "quantidade_resultados"
+    ],
     "expected_exit": 0,
     "category": "v0.7.3-feature-test"
   },
@@ -344,5 +658,68 @@
     "expected_stdout_contains": "0.7.3",
     "expected_exit": 0,
     "category": "v0.7.3-smoke-test"
+  },
+  {
+    "id": "q43",
+    "query": "cloudflare anomaly modal botnet interstitial 2026",
+    "expected_use": "validar GAP-WS-50 + WS-51 da v0.7.8 probe-deep usa PROBE_CALIBRATION_QUERY de 9 palavras e reconhece os novos markers anomaly-modal. Esperar .status como ok ou captcha com .cascata_motivo populado quando CAPTCHA é detectado",
+    "flags": [
+      "-q",
+      "-f",
+      "json"
+    ],
+    "expected_json_fields": [
+      "status",
+      "cascata_motivo",
+      "sugestao_mitigacao"
+    ],
+    "expected_exit": 0,
+    "category": "v0.7.8-feature-test"
+  },
+  {
+    "id": "q44",
+    "query": "cliente http rust 2026",
+    "expected_use": "validar verbose multi-ocorrência GAP-WS-53 da v0.7.8. A CLI deve aceitar -vv e -vvv sem erro de clap. Stderr deve conter tracing de nível debug com -vv e trace com -vvv",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-vv",
+      "-n",
+      "5"
+    ],
+    "expected_stderr_contains": "DEBUG",
+    "expected_exit": 0,
+    "category": "v0.7.8-feature-test"
+  },
+  {
+    "id": "q45",
+    "query": "rust cargo build 2026",
+    "expected_use": "validar --retries honrado GAP-WS-57 da v0.7.8. Passar --retries 5 e inspecionar .metadados.retentativas == 5. O valor deve ser clampado em [1, 10] então --retries 20 é clampado a 10",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "5",
+      "--retries",
+      "5"
+    ],
+    "expected_json_fields": [
+      "metadados.retentativas"
+    ],
+    "expected_value_min": 1,
+    "expected_value_max": 10,
+    "expected_exit": 0,
+    "category": "v0.7.8-feature-test"
+  },
+  {
+    "id": "q46",
+    "query": "duckduckgo-search-cli versão smoke 0.7.8",
+    "expected_use": "validar smoke da v0.7.8. --version deve reportar 0.7.8 e sair com 0",
+    "flags": [],
+    "expected_stdout_contains": "0.7.8",
+    "expected_exit": 0,
+    "category": "v0.7.8-smoke-test"
   }
 ]

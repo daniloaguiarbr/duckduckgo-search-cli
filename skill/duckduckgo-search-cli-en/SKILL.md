@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-en
-description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, multi-hop research questions, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results", "deep research", "compare X vs Y", "what changed in Z". Invokes the `duckduckgo-search-cli` v0.7.7 CLI via Bash with a stable JSON contract, zero API key, 12-identity adaptive anti-bot pool with 5-level cascade rotation (HTTP 202/403/429), per-browser Sec-Fetch-* fingerprint profiles, BoringSSL TLS fingerprint (JA4_o identical to Chrome/Safari) via `wreq 6.0.0-rc.29`, cookie persistence with warm-up to XDG `cookies.json` (Unix permissions 0o600), `--probe-deep` CAPTCHA interstitial detector, path traversal validation on --output, automatic credential masking in error messages, and `identidade_usada` JSON field for diagnostic visibility. The v0.7.0 `deep-research` subcommand fans out one query into 1..=12 sub-queries, aggregates via RRF (K=60) or canonical-URL dedup, and optionally synthesises a Markdown/PlainText/JSON report with a token budget. Windows build fixed in v0.6.5 (MP-26 — `HANDLE` type-safe with `INVALID_HANDLE_VALUE`). Per-host circuit breaker (WS-12) protects against cascading failures in long crawls. indicatif ProgressBar (WS-25) visualizes long crawls. GAP-WS-27 (macOS CAPTCHA) fixed in v0.7.3 by switching from `rustls` to BoringSSL. Released 2026-06-14 (v0.7.5). See CHANGELOG.md and README.md for full notes. English version.
+description: Use this skill WHENEVER the user asks for web search, internet research, up-to-date documentation lookup, factual grounding, URL verification, page content extraction, external evidence gathering, RAG enrichment, fact-checking, library version lookup, incident post-mortem, current vendor pricing, multi-hop research questions, or any data outside the knowledge cutoff. Triggers include "search the web", "ground this", "web search", "fetch URL content", "look this up online", "verify this URL", "get current results", "deep research", "compare X vs Y", "what changed in Z". Invokes the `duckduckgo-search-cli` v0.7.8 CLI via Bash with a stable JSON contract, zero API key, 12-identity adaptive anti-bot pool with 5-level cascade rotation (HTTP 202/403/429), per-browser Sec-Fetch-* fingerprint profiles, BoringSSL TLS fingerprint (JA4_o identical to Chrome/Safari) via `wreq 6.0.0-rc.29`, cookie persistence with warm-up to XDG `cookies.json` (Unix permissions 0o600), `--probe-deep` CAPTCHA interstitial detector, path traversal validation on --output, automatic credential masking in error messages, and `identidade_usada` JSON field for diagnostic visibility. The v0.7.0 `deep-research` subcommand fans out one query into 1..=12 sub-queries, aggregates via RRF (K=60) or canonical-URL dedup, and optionally synthesises a Markdown/PlainText/JSON report with a token budget. Windows build fixed in v0.6.5 (MP-26 — `HANDLE` type-safe with `INVALID_HANDLE_VALUE`). Per-host circuit breaker (WS-12) protects against cascading failures in long crawls. indicatif ProgressBar (WS-25) visualizes long crawls. GAP-WS-27 (macOS CAPTCHA) fixed in v0.7.3 by switching from `rustls` to BoringSSL. Released 2026-06-15 (v0.7.8). See CHANGELOG.md and README.md for full notes. English version.
 ---
 
 # Skill — `duckduckgo-search-cli` (EN)
@@ -142,7 +142,7 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - Cascade level: `| jaq '.metadados.nivel_cascata // 0'` (v0.6.5+)
 - Probe health (v0.6.4+): `timeout 15 duckduckgo-search-cli --probe`.
 - Long crawl with circuit breaker (v0.6.5+): combine `--queries-file` with `--parallel 5 --retries 2 --global-timeout 580`.
-- Cross-platform install (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.7 --force` works on Linux, macOS, and Windows.
+- Cross-platform install (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.8 --force` works on Linux, macOS, and Windows.
 - Pre-flight CAPTCHA check (v0.7.3+): `timeout 15 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'` returns exit 0 only when no Cloudflare interstitial is present.
 - Persistent session with cookie jar (v0.7.3+): cookies are auto-persisted to XDG `cookies.json` with Unix mode `0o600`; pass `--cookies-path <PATH>` to redirect to an encrypted volume.
 - Bypass warm-up (v0.7.3+): add `--no-warmup` to skip the `GET https://duckduckgo.com/` GET that populates session cookies.
@@ -186,7 +186,7 @@ in `src/platform.rs`.
 ```bash
 # After cargo install on Windows (PowerShell 5.1+ or 7+)
 duckduckgo-search-cli --version
-# Expected: duckduckgo-search-cli 0.7.7
+# Expected: duckduckgo-search-cli 0.7.8
 duckduckgo-search-cli --help
 # Expected: full help text in stderr, exit 0
 ```
@@ -295,7 +295,7 @@ that failed CI in all 3 SOs (Linux, macOS, Windows). The errors were:
 **What this means for agents**:
 - `cargo clippy --all-targets --all-features -- -D warnings` passes.
 - CI matrix returns success in all 3 SOs.
-- 333 tests pass (243 lib + 90 integration + 6 doc tests) as of v0.6.5. v0.7.3 ships 391 tests (292 lib + 99 integration + 0 doc). v0.7.7 ships 405 tests (current project total).
+- 333 tests pass (243 lib + 90 integration + 6 doc tests) as of v0.6.5. v0.7.3 ships 391 tests (292 lib + 99 integration + 0 doc). v0.7.8 ships 305 tests (current project total: 292 lib + 13 integration).
 - Lints `improper_ctypes`, `missing_safety_doc`, and
   `unsafe_op_in_unsafe_fn` are now `deny` to prevent regressions.
 
@@ -538,6 +538,60 @@ from 1.85 to 1.88 in this release.
 - MSRV is now 1.88 — agents building from source need a toolchain
   that satisfies this minimum.
 
+
+
+
+
+## v0.7.8 — Anti-Bot Detector Overhaul + Verbose Levels + Retries Honored (GAP-WS-50 to WS-57)
+
+Released 2026-06-15. Closes 8 gaps (WS-50 to WS-57) inherited from v0.7.7. Zero breaking changes to the JSON schema. Agents should recognise the new markers, the probe calibration query, the verbose multi-occurrence semantics, and the `--retries` clamp.
+
+### GAP-WS-50 — Updated Interstitial Markers
+- `CLOUDFLARE_MARKERS` and `DDG_MARKERS` in `src/probe_deep.rs` now include 5 new entries alongside the legacy ones: `anomaly-modal`, `anomaly.js`, `botnet`, `Unfortunately, bots`, `anomaly-modal__title`.
+- `--probe-deep` now correctly emits `status: "captcha"` on the current DDG anti-bot interstitial.
+- Legacy markers are preserved for backward compatibility.
+
+### GAP-WS-51 — Probe Calibration Query
+- `--probe-deep` no longer sends the hard-coded `q=rust` one-word probe.
+- Replaced by `PROBE_CALIBRATION_QUERY = "the quick brown fox jumps over the lazy dog"` (9 words) which triggers DDG upstream tightening.
+- The probe now reflects the real bot-scoring scenario instead of returning a clean home page.
+
+### GAP-WS-52 — `--allow-lite-fallback` Honored
+- The fallback decision in `src/search.rs:559` now consults `detectar_interstitial(&first_html) != InterstitialKind::None` instead of relying on `accumulated_results.is_empty()`.
+- Exit code 3 (anti-bot) with `cascata_motivo` filled now replaces the silent exit 5 when an interstitial is detected and lite fallback is enabled.
+- Operators who enable `--allow-lite-fallback` in blocked environments now receive actionable JSON with `cascata_motivo: "cloudflare_anomaly_modal"`.
+
+### GAP-WS-53 — Multi-Occurrence Verbose Levels
+- `-v` `ArgAction::SetTrue` was replaced with `ArgAction::Count` in `src/cli.rs`.
+- Mapping: `-v` → info, `-vv` → debug, `-vvv` → trace.
+- Multiple occurrences are now additive — agents can run `duckduckgo-search-cli -vv query` for debug logging without re-invoking the CLI.
+
+### GAP-WS-54 — Cargo Audit Clean
+- `scraper` bumped from `0.20` to `0.27` in `Cargo.toml`.
+- Transitive `fxhash 0.2.1` (RUSTSEC-2025-0057) is no longer reachable.
+- `async-std` remains only on the optional `chrome` feature.
+- CI gate `cargo audit --deny warnings` added to both `ci.yml` and `release.yml` — zero advisories required for merge.
+
+### GAP-WS-55 — Cargo.toml Comment Truthful
+- The block comment in `Cargo.toml:69-86` no longer references a phantom `v0.7.7 → wreq 5.3.0` regression.
+- It now documents the real decision: `wreq 6.0.0-rc.29` pinned for BoringSSL + 3 direct dep pins (`wreq-util`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
+
+### GAP-WS-56 — `buscar` Subcommand Hidden
+- The Portuguese `buscar` subcommand in `src/cli.rs` now carries `#[command(hide = true)]`.
+- `--help` at the top level no longer lists it; direct invocation `buscar --help` still works.
+- Eliminates duplicate help text in the discovery surface.
+
+### GAP-WS-57 — `--retries` Honored
+- `src/parallel.rs:644` `execute_with_retry` now reads `cfg.retries` instead of ignoring the flag.
+- Values are clamped to `[1, 10]` to prevent abuse — values above 10 still trigger anti-bot.
+- Regression test in `tests/integration_search_retry.rs` confirms `--retries 5` produces `metadados.retentativas == 5`.
+- **What this means for agents**: do NOT loop `--retries` in shell. The flag is now genuinely honored by the parallel executor.
+
+### MANDATORY — Quick Reference Additions (v0.7.8)
+- Verbose levels: `-v` info, `-vv` debug, `-vvv` trace (additive).
+- `--retries N` clamped to `[1, 10]` and honored by `execute_with_retry` — `--retries 5` produces `metadados.retentativas == 5`.
+- `--probe-deep` uses a 9-word calibration query that triggers upstream bot scoring.
+- `--allow-lite-fallback` now actually triggers lite endpoint on new interstitials (with `cascata_motivo` populated).
 
 
 ## v0.7.7 — TLS fingerprint emulation restored via pinned `wreq-util` (GAP-WS-49 fix)

@@ -324,7 +324,7 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.5+)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` v0.7.5.
+Contrato de esquema válido para `duckduckgo-search-cli` v0.7.7/v0.7.8.
 
 
 ## v0.7.3 — Novas Flags + Comportamento JSON
@@ -384,3 +384,56 @@ v0.7.5 estende o preflight da v0.7.4 para todas as quatro ferramentas que o buil
 - Novos docs: docs/INSTALL-WINDOWS.pt-BR.md (5 métodos de instalação, troubleshooting para cada GAP, todos os 4 escape hatches).
 - Zero impacto em runtime — mesmas flags, mesmo schema JSON de saída, mesmas dependências da v0.7.4. O crates.io NÃO distribui binários pré-compilados para nenhuma plataforma.
 - Contagem de testes: 405 testes lib (eram 392 no total v0.7.0; 333 na v0.6.5 histórica).
+
+
+## v0.7.6 — Correção do lockfile do cargo install (GAP-WS-48, apenas build-time)
+
+v0.7.6 fecha a colisão GAP-WS-48 entre `alloc-no-stdlib 2.0.4` e `3.0.0` no `cargo install` removendo a dep `wreq-util` e a feature `brotli` do `wreq`. Três pins no `Cargo.toml` mantêm a supply chain determinística: `brotli-decompressor = "=5.0.1"`, `alloc-no-stdlib = "=2.0.4"` (adicionado na v0.7.7) e a escolha de `wreq 6.0.0-rc.29`.
+
+- Zero novas flags CLI, zero novos campos JSON, zero mudanças de schema.
+- `cargo install duckduckgo-search-cli --locked` é o caminho suportado em sistema novo.
+- `cargo tree | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` deve retornar zero matches após install.
+- Tempo de build caiu de ~37s para ~24s após remoção do brotli.
+
+
+## v0.7.7 — Restauração do fingerprint TLS (GAP-WS-49, correção runtime)
+
+v0.7.7 restaura o fingerprint JA4_o que vence o interstitial anti-bot do DDG. A correção re-adiciona `wreq-util 3.0.0-rc.12` com `default-features = false` e `features = ["emulation"]`, mais os três pins diretos documentados na v0.7.6. O gap da v0.7.6 era que `--probe-deep` retornava `status: "ok"` enquanto queries reais voltavam zero resultados.
+
+- Zero novas flags CLI, zero novos campos JSON.
+- `cargo install duckduckgo-search-cli --version 0.7.7 --locked` é o caminho recomendado.
+- `cargo tree` deve mostrar `wreq-util 3.0.0-rc.12`, `brotli 8.0.3`, `brotli-decompressor 5.0.1`, `alloc-no-stdlib 2.0.4`.
+- Smoke test de query real: `duckduckgo-search-cli "rust async runtime" -q -f json` deve retornar `quantidade_resultados >= 5`.
+
+
+## v0.7.8 — Renovação do detector anti-bot + endurecimento de UX (GAP-WS-50..57)
+
+v0.7.8 fecha 8 gaps funcionais em um único release. O contrato de schema fica inalterado (zero breaking changes), mas várias flags CLI e comportamentos internos foram endurecidos.
+
+### Renovação do detector (GAP-WS-50, GAP-WS-51, GAP-WS-52)
+- `detectar_interstitial` em `src/probe_deep.rs` agora reconhece 8 markers novos do Cloudflare (`anomaly-modal`, `anomaly-modal__mask`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-spinner`, `Just a moment`, `cf-mitigated`) e 1 marker novo do DDG (`Unfortunately, bots use DuckDuckGo too.`).
+- 8 testes unitários novos em `src/probe_deep.rs::tests` validam cada marker com fixtures HTML.
+- A query de calibração do probe-deep agora é o pangrama de 9 palavras `the quick brown fox jumps over the lazy dog` (constante `PROBE_CALIBRATION_QUERY` em `src/lib.rs`). A query de 1 palavra `rust` retornava a home page do DDG sem acionar o detector, gerando falso negativo.
+- `--allow-lite-fallback` agora consulta o detector antes de cair para `lite`. O fallback só dispara quando o detector classifica um interstitial, não em qualquer página de zero resultados.
+
+### Acúmulo de verbose (GAP-WS-53)
+- `-v` agora é `ArgAction::Count` em `src/cli.rs`.
+- Mapeamento: `-v` = info, `-vv` = debug, `-vvv` = trace.
+- `RUST_LOG` env var continua sobrescrevendo.
+
+### Supply chain (GAP-WS-54, GAP-WS-55)
+- `scraper` subiu de `0.20.0` para `0.27.0` para resolver `fxhash 0.2.1` transitivo (RUSTSEC-2025-0057, não mantido).
+- `cargo audit --deny warnings` virou gate de CI em `ci.yml` e `release.yml`.
+- O bloco de comentário do `wreq` no `Cargo.toml` foi reescrito para documentar o pin intencional em `wreq 6.0.0-rc.29` mais os três pins diretos.
+
+### UX (GAP-WS-56, GAP-WS-57)
+- O subcomando `buscar` agora é `#[command(hide = true)]`. Continua invocável mas não aparece no `--help`.
+- `--retries N` agora é honrado de ponta a ponta em `src/parallel.rs::execute_with_retry`. O bug pré-v0.7.8 deixava o valor hard-coded em 1, ignorando a flag. O clamp novo é `[1, 10]` para impedir `--retries 999` de acionar anti-bot.
+- 1 teste de regressão em `tests/integration_search_retry.rs` valida que `--retries 5` produz `metadados.retentativas == 5` no JSON.
+
+### Impacto
+- 305 testes (292 lib + 13 integration) passando; zero advisories de `cargo audit --deny warnings`.
+- Zero breaking changes no schema JSON ou nos exit codes.
+- 4 markers novos no detector (resiliência a mudanças de template anti-bot).
+- 1 flag CLI recém-honrada (`--retries`).
+- 1 subcomando escondido (`buscar`).

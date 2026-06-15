@@ -433,8 +433,9 @@ pub struct Config {
     pub language: String,
     /// Country code for DDG `kl` parameter (e.g. `"br"`).
     pub country: String,
-    /// `--verbose` flag — enables detailed tracing output.
-    pub verbose: bool,
+    /// Verbosity level of stderr logs (0=INFO, 1+=DEBUG, 2+=TRACE).
+    /// Populated by the `-v`/`-vv`/`-vvv` repeated flag via `clap::ArgAction::Count`.
+    pub verbose: u8,
     /// `--quiet` flag — suppresses non-essential stderr output.
     pub quiet: bool,
     /// Selected User-Agent string sent in HTTP headers.

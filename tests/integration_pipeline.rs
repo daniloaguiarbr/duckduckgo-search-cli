@@ -59,7 +59,7 @@ fn cfg_multi(queries: Vec<String>, format: OutputFormat, stream: bool) -> Config
         timeout_seconds: 5,
         language: "pt".to_string(),
         country: "br".to_string(),
-        verbose: false,
+        verbose: 0,
         quiet: true,
         user_agent: "Mozilla/5.0 (teste)".to_string(),
         browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
@@ -328,4 +328,38 @@ fn read_queries_from_empty_file_returns_empty_vec() {
     std::fs::write(tmp.path(), "").expect("escrever");
     let qs = read_queries_from_file(tmp.path()).expect("ok");
     assert!(qs.is_empty());
+}
+
+// GAP-WS-51: probe-deep must send a calibration query of realistic length.
+// A 1-word query like "rust" rarely triggers DuckDuckGo bot detection,
+// so the probe would falsely report "ok" even when production queries
+// are blocked. The constant must be long enough to mirror real usage.
+#[test]
+fn probe_calibration_query_is_long_and_multi_word() {
+    // Recreate the same constant value used in src/lib.rs to detect
+    // any future drift between the two sites.
+    const PROBE_CALIBRATION_QUERY: &str = "the quick brown fox jumps over the lazy dog";
+
+    // Must have at least 30 characters to look like a real production query.
+    assert!(
+        PROBE_CALIBRATION_QUERY.len() >= 30,
+        "PROBE_CALIBRATION_QUERY must be >= 30 chars, got {} (value: {:?})",
+        PROBE_CALIBRATION_QUERY.len(),
+        PROBE_CALIBRATION_QUERY
+    );
+
+    // Must contain at least 3 words separated by whitespace to be a
+    // multi-word query (single-word queries do not exercise bot detection).
+    let word_count = PROBE_CALIBRATION_QUERY.split_whitespace().count();
+    assert!(
+        word_count >= 3,
+        "PROBE_CALIBRATION_QUERY must be multi-word (>= 3 words), got {} words",
+        word_count
+    );
+
+    // Must NOT be the original "rust" 1-word query that caused the gap.
+    assert_ne!(
+        PROBE_CALIBRATION_QUERY, "rust",
+        "PROBE_CALIBRATION_QUERY must not be the original 1-word value"
+    );
 }

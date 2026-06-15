@@ -229,7 +229,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo audit --deny yanked
+          # RUSTSEC-2025-0052 (async-std unmaintained) ignorado: dependência transitiva
+          # via chromiumoxide 0.7.0 opcional (feature `chrome`); build default não puxa.
+          # Justificativa completa em deny.toml.
+          cargo audit --deny warnings --ignore RUSTSEC-2025-0052
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest

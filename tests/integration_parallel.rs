@@ -70,7 +70,7 @@ fn test_config_wm(
         timeout_seconds: 5,
         language: "pt".to_string(),
         country: "br".to_string(),
-        verbose: false,
+        verbose: 0,
         quiet: true,
         user_agent: "Mozilla/5.0 (teste-parallel)".to_string(),
         browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),

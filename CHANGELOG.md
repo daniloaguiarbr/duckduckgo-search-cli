@@ -1,3 +1,36 @@
+## [0.7.8] - 2026-06-15
+
+### Fixed (anti-bot detection overhaul + dependency hygiene)
+- **GAP-WS-50 (CRITICAL, detector) — `detectar_interstitial` em `src/probe_deep.rs` agora reconhece o interstitial DDG `anomaly-modal` que a DDG serveu em 2026-06-14**. Lista `CLOUDFLARE_MARKERS` agora contém `anomaly-modal`, `anomaly.js`, `botnet` e `Unfortunately, bots`; lista `DDG_MARKERS` agora contém `anomaly-modal__title`. Markers legados foram mantidos por compatibilidade. Detector volta a emitir `InterstitialKind::Cloudflare` / `InterstitialKind::Ddg` em vez de `None` silencioso. 8 testes unitários novos em `src/probe_deep.rs::tests` validam cada marker com fixtures HTML reais.
+- **GAP-WS-51 (HIGH, probe-deep) — query de calibração longa `the quick brown fox jumps over the lazy dog` substitui o hard-coded `q=rust` no probe-deep**. Query curta de 1 palavra (`rust`) retornava a home page do DDG que não aciona detector de bot. Query longa de 9 palavras aciona o tightening upstream e reflete o cenário real de uso. Constante `PROBE_CALIBRATION_QUERY` no topo do módulo `src/lib.rs` torna a calibração explícita.
+- **GAP-WS-52 (HIGH, fallback) — `--allow-lite-fallback` agora consulta `detectar_interstitial` antes de decidir fallback**. Decisão de fallback lite em `src/search.rs:559` migrou de `accumulated_results.is_empty()` para `detectar_interstitial(&first_html) != InterstitialKind::None`. Quando detector classifica interstitial, fallback lite é acionado imediatamente e a resposta final é `exit 3` (anti-bot) com `cascata_motivo` preenchido, em vez de `exit 5` (zero resultados) silencioso.
+- **GAP-WS-53 (LOW, UX) — `-v` agora aceita múltiplas ocorrências via `ArgAction::Count`**. Mapeamento: `-v` → `info`, `-vv` → `debug`, `-vvv` → `trace`. Variável `RUST_LOG` continua sobrescrevendo. Teste de regressão em `src/cli.rs::tests` valida que `-vvv` é aceito sem erro de clap. Convenção Unix agora respeitada.
+- **GAP-WS-54 (MEDIUM, supply chain) — `scraper` bumped de 0.20.0 para 0.27.0**. Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em `ci.yml` e `release.yml`; `deny.toml` atualizado. `async-std` (RUSTSEC-2025-0052, discontinued) continua apenas na feature opcional `chrome`.
+- **GAP-WS-55 (LOW, docs drift) — comentário sobre `wreq` no `Cargo.toml:69-86` reescrito**. Texto antigo mencionava `regressed from wreq 6.0.0-rc.29 to wreq 5.3.0`, regressão que nunca aconteceu. Texto novo documenta decisão real: pin em `wreq 6.0.0-rc.29` para fechar GAP-WS-49 (TLS fingerprint emulation) e os 3 pins diretos (`wreq-util 3.0.0-rc`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
+- **GAP-WS-56 (LOW, UX) — subcomando `buscar` agora tem `#[command(hide = true)]`**. Help de `duckduckgo-search-cli buscar --help` deixou de duplicar o help global. Usuário continua podendo invocar `buscar` mas o subcomando não aparece em `--help` nem na seção de descoberta. Top-level continua sendo a forma canônica de invocação.
+- **GAP-WS-57 (MEDIUM, retries) — flag `--retries N` agora é honrada em `src/parallel.rs:644`**. Bug: o valor lido por `execute_with_retry` vinha hard-coded como 1, ignorando o flag. Fix propagou `cfg.retries` para o loop de retentativas com clamp em `[1, 10]` para evitar `--retries 999` que dispara anti-bot. Teste de regressão em `tests/integration_search_retry.rs` valida que `--retries 5` resulta em `metadados.retentativas == 5` no JSON.
+
+### Validation
+- `cargo check --offline`: 6.88s, zero erros
+- `cargo clippy --all-targets --offline -- -D warnings`: 3.70s, zero warnings
+- `cargo build --release --offline`: 24.04s, sucesso
+- `cargo audit --deny warnings`: zero advisories
+- 305 testes (292 lib + 13 integration), 100% passing
+- `cargo doc --offline --no-deps`: zero warnings
+
+### Test coverage delta
+- `src/probe_deep.rs::tests`: +8 testes (GAP-WS-50 markers)
+- `tests/integration_search_retry.rs`: +1 teste (GAP-WS-57)
+- `src/cli.rs::tests`: +1 teste (GAP-WS-53)
+
+### Impact
+- Zero breaking changes no schema JSON ou exit codes
+- Binário final: sem mudança de tamanho
+- 4 markers novos no detector (resiliência anti-bot)
+- 1 nova flag CLI honrada (`--retries`)
+- 1 subcomando simplificado (`buscar` hidden)
+
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

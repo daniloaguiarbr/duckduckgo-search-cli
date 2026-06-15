@@ -81,6 +81,15 @@ pub mod wreq_cookie_adapter;
 // was merged into doc_cfg in Oct 2025 (see rust-lang/rust#43781).
 pub mod browser;
 
+// Query de calibração longa para o probe-deep (GAP-WS-51).
+//
+// DuckDuckGo trata queries curtas e longas de forma diferente: queries
+// de 1 palavra raramente acionam o sistema de bot detection, fazendo
+// com que `--probe-deep` retorne "ok" mesmo quando uma query real de
+// produção seria bloqueada. Esta string de 43 caracteres garante que
+// o payload HTTP tenha tamanho realista, replicando o cenário real.
+const PROBE_CALIBRATION_QUERY: &str = "the quick brown fox jumps over the lazy dog";
+
 use crate::cli::{
     CliArgs, CliEndpoint, CliSafeSearch, CliTimeFilter, CompletionsArgs, InitConfigArgs, RootArgs,
     Subcommand,
@@ -215,7 +224,7 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
     use crate::cli::DEFAULT_PARALLELISM;
     use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
 
-    initialize_logging(false, false, false);
+    initialize_logging(0, false, false);
     platform::init();
 
     // Translate the CLI struct into the library-level struct.
@@ -248,7 +257,7 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
         timeout_seconds: 15,
         language: "en".to_string(),
         country: "us".to_string(),
-        verbose: false,
+        verbose: 0,
         quiet: false,
         user_agent,
         browser_profile,
@@ -313,7 +322,7 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
 /// Returns `SUCESSO` if all files were processed (including skipped ones);
 /// returns `ERRO_GENERICO` on fatal failure (e.g., config directory undetermined).
 fn execute_init_config(args: InitConfigArgs) -> i32 {
-    initialize_logging(false, false, false);
+    initialize_logging(0, false, false);
     platform::init();
 
     let report = match config_init::initialize_config(args.force, args.dry_run) {
@@ -496,7 +505,8 @@ async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
 
     // Build a minimal form with just `q=`. The HTML endpoint requires
     // POST with a form body, so we send a one-field form.
-    let form_data: Vec<(String, String)> = vec![("q".to_string(), "rust".to_string())];
+    let form_data: Vec<(String, String)> =
+        vec![("q".to_string(), PROBE_CALIBRATION_QUERY.to_string())];
     let started = Instant::now();
     let result = client.post(&probe_url).form(&form_data).send().await;
     let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
@@ -559,12 +569,15 @@ fn execute_completions(args: CompletionsArgs) -> i32 {
 /// Initializes the tracing subscriber writing to stderr.
 ///
 /// - `--quiet` → `ERROR` only.
-/// - `--verbose` → `DEBUG` and above.
-/// - Default → `INFO` and above (but respects `RUST_LOG` if set).
-fn initialize_logging(verbose: bool, quiet: bool, disable_colors: bool) {
+/// - `verbose == 0` → `INFO` (default), respects `RUST_LOG` when set.
+/// - `verbose == 1` → `DEBUG`, respects `RUST_LOG` when set.
+/// - `verbose >= 2` → `TRACE`, respects `RUST_LOG` when set.
+fn initialize_logging(verbose: u8, quiet: bool, disable_colors: bool) {
     let filter = if quiet {
         EnvFilter::new("error")
-    } else if verbose {
+    } else if verbose >= 2 {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("trace"))
+    } else if verbose >= 1 {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"))
     } else {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
@@ -773,7 +786,7 @@ mod tests {
             probe: false,
             identity_profile: crate::cli::CliIdentityProfile::Auto,
             stream_mode: false,
-            verbose: false,
+            verbose: 0,
             quiet: false,
             fetch_content: false,
             max_content_length: crate::cli::DEFAULT_MAX_CONTENT_LENGTH,

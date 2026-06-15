@@ -482,3 +482,261 @@ agora ativos. Eles teriam pego o problema de HANDLE da v0.6.4 em tempo de
 compilação se estivessem ativos então.
 
 O campo `identidade_usada` reporta a identidade que produziu a resposta bem-sucedida. O campo `nivel_cascata` reporta o nível de cascata atingido (0-4).
+
+
+## v0.7.0 — Pipeline de Deep Research
+
+Para perguntas de pesquisa multi-hop, use o subcomando `deep-research`. Ele decompõe uma query em até 12 sub-queries, dispara em paralelo, agrega via RRF ou dedup por URL canônica, e opcionalmente produz um relatório Markdown.
+
+```bash
+# 1. Fan-out rápido (sem síntese, 5 sub-queries por padrão).
+timeout 60 duckduckgo-search-cli -q -f json deep-research "melhor cliente http rust 2026" \
+  | jaq '.resultados | length'
+
+# 2. Relatório Markdown sintetizado com orçamento de tokens.
+timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
+  --synthesize --synth-format markdown --budget-tokens 1500 \
+  | jaq -r '.sintese'
+
+# 3. Sub-queries manuais (comentários `#` e linhas vazias são ignorados).
+cat > /tmp/qs.txt <<EOF
+# Visão geral
+o que é tokio runtime 2026
+# Comparação
+tokio vs async-std
+EOF
+timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio 2026" \
+  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url \
+  | jaq '.metadados.sub_queries | length'
+```
+
+O subcomando `deep-research` herda toda flag global (`-q -f json`, `--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, `--fetch-content`, `--max-content-length`) e adiciona:
+
+- `--max-sub-queries N` — teto do fan-out (1..=12, padrão 5)
+- `--sub-query-strategy` — `heuristic` (padrão) ou `manual`
+- `--sub-queries-file PATH` — obrigatório para `manual`; comentários e linhas vazias são ignorados
+- `--aggregate` — `rrf` (padrão, K=60) ou `dedupe-by-url`
+- `--synthesize` — produz o relatório final
+- `--budget-tokens N` — teto do tamanho da síntese (1 token ≈ 4 chars)
+- `--synth-format` — `markdown` (padrão), `plain` ou `json`
+
+
+## v0.7.3 — Sessão + Probe-Deep + BoringSSL
+
+A stack TLS mudou de `rustls` para BoringSSL via `wreq 6.0.0-rc.29`. Isso fecha o GAP-WS-27 do CAPTCHA do macOS (Cloudflare Bot Management detectou `rustls` como fingerprint de não-navegador via JA4_o). BoringSSL produz JA4_o idêntico ao Chrome/Safari. Ver `docs/decisions/0001-tls-boring-via-wreq.md` para a decisão arquitetural.
+
+### Pré-requisitos de build
+
+Compilar do código-fonte no Linux agora requer:
+
+```bash
+# Debian / Ubuntu
+sudo apt install cmake perl pkg-config libclang-dev
+
+# Fedora / RHEL
+sudo dnf install cmake perl pkg-config clang-devel
+
+# Alpine
+sudo apk add cmake perl pkg-config clang-dev
+```
+
+Usuários que instalam o binário pré-compilado do crates.io não precisam dessas deps.
+
+### Sessão + cookie jar
+
+Cada invocação agora começa com um warm-up `GET https://duckduckgo.com/` (pode ser pulado com `--no-warmup`) que popula os cookies de sessão. Os cookies são persistidos em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. O path é sobrescrevível via `--cookies-path <PATH>`. Trate este arquivo como credencial. Use `--no-cookie-persistence` para manter cookies em memória apenas.
+
+### Detecção de CAPTCHA via probe-deep
+
+`--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use isto em portões de CI para runners macOS para detectar CAPTCHA cedo.
+
+```bash
+# Em CI antes de queries reais em macOS
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+```
+
+### Fallback automático para lite (opt-in)
+
+`--allow-lite-fallback` muda automaticamente do endpoint `html` para o endpoint `lite` quando `--probe-deep` (ou retentativas de zero resultados) detectam CAPTCHA. Desligado por padrão para evitar mudar silenciosamente o tipo de conteúdo da resposta.
+
+
+## v0.7.4 — Preflight NASM no Windows (GAP-WS-28)
+
+O preflight de `build.rs` da v0.7.4 detecta `nasm.exe` no PATH para builds Windows MSVC e falha em segundos com a correção exata (`winget install -e --id NASM.NASM` mais ajuste de PATH). Saída de escape: `DDG_SKIP_NASM_CHECK=1`. A matrix de CI verifica/instala NASM explicitamente. Sem mudanças de runtime.
+
+
+## v0.7.5 — Preflight de 4 ferramentas + scripts auxiliares + INSTALL-WINDOWS
+
+A v0.7.5 estende o preflight da v0.7.4 para detectar as quatro ferramentas que o build BoringSSL precisa no Windows MSVC: NASM, CMake 3.20+, MSVC C/C++ toolchain, Strawberry Perl. Novos `scripts/install-windows.ps1` auto-instala o que pode; novo `scripts/check-windows-toolchain.ps1` é um diagnóstico standalone; novo `docs/INSTALL-WINDOWS.md` percorre 5 métodos de instalação. Saídas de escape: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`. Sem mudanças de runtime. Contagem de testes: 405 testes lib.
+
+
+## v0.7.6 — Correção do `cargo install` (GAP-WS-48)
+
+A v0.7.5 era impossível de compilar em máquinas limpas. `cargo install duckduckgo-search-cli`
+falhava com 36 erros `E0277` trait-bound porque o solver puxava
+`alloc-no-stdlib 3.0.0` transitivamente de `brotli-decompressor 5.0.2`,
+que colide com `brotli 8.0.3` esperando `alloc-no-stdlib = "2.0"`.
+
+A v0.7.6 removeu a dep morta `wreq-util` e abandonou a feature `brotli`
+do `wreq` (DDG nunca serve `Content-Encoding: br`). Build sucede em
+~35,7s. **Sempre use `--locked`** para evitar o GAP-WS-48 residual: o
+solver pode reintroduzir `alloc-stdlib 0.2.3` se o lockfile for
+regenerado.
+
+```bash
+# Instalação robusta — pin de versão + lock travado
+cargo install duckduckgo-search-cli --version 0.7.7 --locked
+```
+
+
+## v0.7.7 — Correção do Fingerprint TLS (GAP-WS-49)
+
+A v0.7.6 publicou um binário que passava nos smoke tests de `--probe`
+e `--probe-deep` mas retornava ZERO resultados reais. A causa: remover
+`wreq-util` para corrigir o GAP-WS-48 também removeu a feature
+`emulation`, deixando o handshake BoringSSL com um fingerprint
+trivialmente detectável pelo Cloudflare Bot Management. A DDG servia
+`anomaly-modal` para cada query real.
+
+A v0.7.7 re-adiciona `wreq-util 3.0.0-rc.12` com
+`default-features = false, features = ["emulation"]` e fixa três deps
+diretos no `Cargo.toml`:
+
+- `brotli-decompressor = "=5.0.1"`
+- `alloc-no-stdlib = "=2.0.4"`
+- Feature `"brotli"` do `wreq` re-habilitada
+
+**Verificação prática após upgrade para v0.7.7**:
+
+```bash
+# Sanity check — v0.7.7 deve retornar 5+ resultados reais
+timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtime" \
+  | jaq '.quantidade_resultados'
+# Esperado: 5
+# Se ver 0, o lockfile está errado — re-execute com --locked
+```
+
+
+## v0.7.8 — Renovação do Detector Anti-Bot + Verbose Acumulado
+
+A v0.7.8 (working tree) fecha 8 gaps. Ver
+`docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` para a decisão
+arquitetural completa.
+
+### `detectar_interstitial` reconhece `anomaly-modal` da DDG (GAP-WS-50)
+
+O interstitial `anomaly-modal` (rollout pós-2026 da DDG) estava
+escapando do detector legado (que só conhecia `cf-chl-bypass`,
+`cf-challenge`, `robot-detected`, `bots, we have detected`). A v0.7.8
+expande a lista de markers para 8 Cloudflare + 1 DDG:
+
+- Cloudflare: `anomaly-modal`, `anomaly-modal__mask`, `anomaly-modal__title`,
+  `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-spinner`, `Just a moment`,
+  `cf-mitigated`
+- DDG: `Unfortunately, bots use DuckDuckGo too.`
+
+Sem mudança de CLI. Fluxos afetados usam os novos markers
+automaticamente.
+
+### Probe-deep usa query de calibração longa (GAP-WS-51)
+
+O literal hard-coded `q=rust` (4 chars) foi substituído pelo pangrama
+`the quick brown fox jumps over the lazy dog` exposto como
+`PROBE_CALIBRATION_QUERY` em `src/lib.rs:91, 509`. Queries curtas não
+acionavam o bot scoring upstream e reportavam um falso `status: ok`.
+
+```bash
+# Use --probe-deep como gate de CI; a v0.7.8 é honesta
+timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+# Exit 0 apenas quando nenhum interstitial é detectado pelo detector expandido
+```
+
+### `--allow-lite-fallback` consulta o detector (GAP-WS-52)
+
+O predicado de fallback em `src/search.rs:559` migrou de
+`accumulated_results.is_empty()` para
+`detectar_interstitial(&first_html) != InterstitialKind::None`.
+
+```bash
+# Receita real — probe-deep em CI + allow-lite-fallback em produção
+# 1. Gate de CI: recusa rodar se o probe detectar CAPTCHA
+PROBE=$(timeout 30 duckduckgo-search-cli --probe-deep -q -f json)
+if [ "$(echo "$PROBE" | jaq -r '.status')" != "ok" ]; then
+  echo "CI: anti-bot detectado, recusando queries" >&2
+  exit 1
+fi
+
+# 2. Execução produção: opt-in ao lite fallback para resiliência
+timeout 60 duckduckgo-search-cli -q --allow-lite-fallback \
+  -n 10 -f json "rust async runtime" \
+  | jaq '.metadados.usou_endpoint_fallback, .quantidade_resultados'
+# false e 0 resultados significa que até o lite foi bloqueado
+# false e 10+ resultados significa que html sucedeu
+# true e 10+ resultados significa que o detector pegou e o lite sucedeu
+```
+
+### Verbose agora é cumulativo (GAP-WS-53)
+
+```bash
+# nível info (padrão com -v)
+duckduckgo-search-cli -v -q -n 5 "query"
+
+# nível debug — veja URLs, headers, redirects
+duckduckgo-search-cli -vv -q -n 5 "query" 2>&1 | rg -i 'request|response'
+
+# nível trace — corpos completos request/response para debug de protocolo
+duckduckgo-search-cli -vvv -q -n 5 "query" 2>&1 | rg 'TRACE'
+
+# RUST_LOG continua sobrescrevendo tudo
+RUST_LOG=duckduckgo_search_cli=trace,html_escape=debug \
+  duckduckgo-search-cli -q -n 5 "query" 2>&1 | head -50
+```
+
+### `--retries N` agora é honrado (GAP-WS-57)
+
+O valor estava hard-coded para 1 em `src/parallel.rs:644`. A v0.7.8 lê
+`cfg.retries` e faz clamp em `[1, 10]` para que `--retries 999` não
+acione anti-bot.
+
+```bash
+# Honre --retries com --parallel para crawls multi-query robustos
+duckduckgo-search-cli -q \
+  --queries-file queries.txt \
+  --parallel 3 \
+  --retries 5 \
+  --per-host-limit 1 \
+  -n 10 -f json -o results.json
+# Cada host com falha agora retenta até 5 vezes (era 1 na v0.7.7)
+```
+
+### Subcomando `buscar` escondido (GAP-WS-56)
+
+```bash
+# Invocação direta ainda funciona (mantido para compatibilidade)
+duckduckgo-search-cli buscar "rust async" -q -n 5
+
+# Mas --help não mostra mais; use top-level como forma canônica
+duckduckgo-search-cli "rust async" -q -n 5
+```
+
+### Outros internos da v0.7.8
+
+- **`scraper 0.20 → 0.27`** (GAP-WS-54): fecha RUSTSEC-2025-0057
+  (`fxhash 0.2.1` unmaintained). `cargo audit --deny warnings` agora é
+  gate de CI em `ci.yml` e `release.yml`.
+- **Comentário do `wreq` reescrito** (GAP-WS-55): o texto anterior
+  alegava uma regressão para 5.3.0 que nunca aconteceu. O novo comentário
+  documenta o pin real em `wreq 6.0.0-rc.29` e os três pins diretos.
+
+
+## Matriz Comparativa v0.7.5 → v0.7.8
+
+| Feature | v0.7.5 | v0.7.7 | v0.7.8 |
+|---|---|---|---|
+| `--probe-deep` sinal honesto | Não (curto `q=rust`) | Não (curto `q=rust`) | Sim (pangrama longo) |
+| `--allow-lite-fallback` opt-in | Predicado invertido | Predicado invertido | Guiado por detector |
+| Detecta interstitial `anomaly-modal` | Não | Não | Sim (8 markers novos) |
+| `-vvv` debug | Não suportado | Não suportado | Sim (cumulativo) |
+| `--retries N` honrado | Não (hard-coded 1) | Não (hard-coded 1) | Sim (clamp `[1, 10]`) |
+| Subcomando `buscar` | Visível no `--help` | Visível no `--help` | Escondido |
+| `cargo audit` limpo | 1 advisory transitivo | 1 advisory transitivo | Limpo |

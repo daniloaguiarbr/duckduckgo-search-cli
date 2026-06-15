@@ -641,7 +641,7 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
         metadata: SearchMetadata {
             execution_time_ms: 0,
             selectors_hash,
-            retries: 0,
+            retries: config.retries,
             used_fallback_endpoint: false,
             concurrent_fetches: 0,
             fetch_successes: 0,
@@ -670,7 +670,7 @@ mod tests {
             timeout_seconds: 15,
             language: "pt".to_string(),
             country: "br".to_string(),
-            verbose: false,
+            verbose: 0,
             quiet: true,
             user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36".to_string(),
             browser_profile: crate::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
@@ -759,5 +759,58 @@ mod tests {
         let hash = crate::pipeline::calculate_selectors_hash(&cfg);
         assert_eq!(hash.len(), 16);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    // GAP-WS-57 (regressao): error_output.metadata.retries deve refletir
+    // config.retries, NAO ser hardcoded em 0. Cobre N=0, 1 e 3.
+    #[test]
+    fn error_output_retries_matches_config_retries_zero() {
+        let mut cfg = test_config(vec!["q".into()], 1);
+        cfg.retries = 0;
+        let output = error_output(
+            0,
+            CliError::NetworkError {
+                message: "synthetic".into(),
+            },
+            &cfg,
+        );
+        assert_eq!(
+            output.metadata.retries, 0,
+            "retries=0 no config deve propagar para metadata"
+        );
+    }
+
+    #[test]
+    fn error_output_retries_matches_config_retries_one() {
+        let mut cfg = test_config(vec!["q".into()], 1);
+        cfg.retries = 1;
+        let output = error_output(
+            0,
+            CliError::NetworkError {
+                message: "synthetic".into(),
+            },
+            &cfg,
+        );
+        assert_eq!(
+            output.metadata.retries, 1,
+            "retries=1 no config deve propagar para metadata (regressao GAP-WS-57)"
+        );
+    }
+
+    #[test]
+    fn error_output_retries_matches_config_retries_three() {
+        let mut cfg = test_config(vec!["q".into()], 1);
+        cfg.retries = 3;
+        let output = error_output(
+            0,
+            CliError::NetworkError {
+                message: "synthetic".into(),
+            },
+            &cfg,
+        );
+        assert_eq!(
+            output.metadata.retries, 3,
+            "retries=3 no config deve propagar para metadata (regressao GAP-WS-57)"
+        );
     }
 }
