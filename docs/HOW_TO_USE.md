@@ -87,15 +87,15 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - Paths with `..` are rejected (path traversal protection)
 
 
-## Chrome-Primary Architecture (v0.8.0)
-- v0.8.0 uses Chrome headed mode as the PRIMARY search transport
-- Searches are executed inside a real Chrome browser with stealth signals
-- Chrome runs inside `xvfb-run` virtual display on headless servers
-- No visible browser window appears during search execution
+## Chrome-Primary Architecture (v0.8.5)
+- Chrome is the PRIMARY search transport since v0.8.0
+- Since v0.8.5, Chrome runs HEADED inside a private Xvfb virtual display (NOT headless)
+- The CLI auto-spawns Xvfb via `spawn_virtual_display()` — the user sees ZERO windows
+- `--headless=new` was used in v0.8.1-v0.8.4 but Cloudflare detects it (GAP-WS-065)
 - wreq HTTP client is used ONLY for `--fetch-content` and `--probe`
 - Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals
 - Install Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
-- Install xvfb: `sudo apt install xvfb` (headless Linux only)
+- Install Xvfb: `sudo apt install xvfb` (Debian/Ubuntu) or `sudo dnf install xorg-x11-server-Xvfb` (Fedora)
 - JSON output includes `metadados.usou_chrome: true` when Chrome was used
 - JSON output includes `metadados.tentou_chrome: true` when Chrome was attempted
 

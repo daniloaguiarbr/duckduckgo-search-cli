@@ -1,3 +1,65 @@
+## [0.8.5] - 2026-06-21
+
+### Corrigido (GAP-WS-065 — Chrome headless detectado pelo Cloudflare — 0 resultados)
+- Regressão CRÍTICA: `--headless=new` do Chrome é detectável pelo anti-bot do Cloudflare
+- Todas as queries retornavam 0 resultados com interstitial `anomaly-modal` desde a v0.8.1
+- Causa raiz: o fix do GAP-WS-060 mudou Chrome de headed para headless por padrão
+- Cloudflare identifica headless Chrome via sinais JS (`navigator.webdriver`, protocolo CDP, ausência de plugins)
+- Correção: criar display virtual Xvfb privado automaticamente, rodar Chrome headed dentro dele
+- Chrome roda headed (passa anti-bot) mas o usuário NÃO vê nenhuma janela
+- `builder.env("DISPLAY", ":99")` passa o display virtual APENAS ao processo filho do Chrome
+- Limpeza do Xvfb é automática via `Drop` do `ChromeBrowser`
+- Fallback: se Xvfb não disponível, cai para headless (com risco de anti-bot)
+- Nova env var: `DUCKDUCKGO_CHROME_HEADLESS=1` para forçar modo headless
+
+
+## [0.8.4] - 2026-06-21
+
+### Corrigido (GAP-WS-064 — `cascade_level_observed` sempre `null` no path paralelo)
+- Batch queries e sub-queries do deep-research nunca reportavam `cascata_nivel_observado` nos metadados JSON
+- Causa raiz: `cascade_level_observed: None` hardcoded no success path de `search_one_query` em `parallel.rs`
+- Correção: reutilizar `derive_cascade_level_from_attempts` de `pipeline.rs` (agora `pub(crate)`)
+- Queries únicas via `pipeline.rs` já estavam corretas — este fix traz paridade
+
+
+## [0.8.3] - 2026-06-21
+
+### Corrigido (GAP-WS-062 — metadata `chrome_attempted` incorreta no path paralelo)
+- `parallel.rs` reportava `tentou_chrome: true` mesmo com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` desabilitando Chrome em runtime
+- Causa raiz: `chrome_attempted = cfg!(feature = "chrome")` é constante de compilação, sempre `true` quando a feature chrome está habilitada
+- Correção: check runtime agora inclui env var `NO_CHROME` — `cfg!(feature = "chrome") && NO_CHROME != "1"`
+- Afeta batch queries (`--queries-file`) e sub-queries do deep-research
+- `pipeline.rs` (queries únicas) já estava correto — este fix traz paridade entre ambos os paths
+
+### Corrigido (GAP-WS-063 — `identity_used` sempre `null` no path de sucesso do paralelo)
+- Batch queries via `--queries-file` nunca reportavam `identidade_usada` nos metadados JSON, mesmo com `--identity-profile chrome-linux`
+- Causa raiz: `identity_used: None` hardcoded no success path e early-return de `search_one_query`
+- Correção: chamar `identity_tag_for_cli_identity(config.identity_profile, None)` em ambos os paths
+- Queries únicas via `pipeline.rs` já estavam corretas — este fix traz paridade
+
+
+## [0.8.2] - 2026-06-21
+
+### Corrigido (GAP-WS-061 — deep-research ignora flags de busca do root)
+- `execute_deep_research` agora herda todas as flags de busca do root CLI em vez de usar defaults hardcoded
+- `--num`, `--lang`, `--country`, `--endpoint`, `--retries`, `--proxy`, `--timeout`, `--parallel`, `--max-content-length`, `--identity-profile` são respeitados quando posicionados ANTES do subcomando `deep-research`
+- Anteriormente hardcoded: `num_results=10`, `language="en"`, `country="us"`, `retries=2`, `proxy=None`
+- Agora herda valores do usuário: `--num 5 --lang pt --country br deep-research "query"` funciona como esperado
+- `--allow-lite-fallback`, `--pre-flight`, `--identity-profile` propagados do root args
+- Removida chamada morta `initialize_logging(0, false, false)` (subscriber já inicializado antes do dispatch de subcomando)
+
+
+## [0.8.1] - 2026-06-21
+
+### Corrigido (GAP-WS-060 — Chrome abre janela visível em desktops)
+- Chrome agora roda em modo headless (`--headless=new`) por PADRÃO em todas as plataformas
+- Anteriormente, Chrome abria janela GUI visível em qualquer desktop com `$DISPLAY` setado (Linux, macOS, Windows)
+- `DUCKDUCKGO_CHROME_VISIBLE=1` habilita modo headed para depuração
+- `DUCKDUCKGO_CHROME_XVFB=1` habilita modo headed via xvfb-run para evasão anti-bot em servidores headless
+- ZERO janelas Chrome visíveis durante execução normal da CLI
+- Função `which_xvfb_run()` renomeada para `is_xvfb_requested()` com semântica correta
+
+
 ## [0.8.0] - 2026-06-19
 
 ### Corrigido (GAP-AUD-003 — classificação causal de zero-result)

@@ -3,20 +3,19 @@
 
 ## Versões com Suporte
 
-- Somente a versão minor mais recente e a anterior recebem atualizações de segurança.
-- Versões antigas não recebem backport.
-- Versão 0.7.5 é a versão atual com suporte (GAP-WS-29/30/31/32/33/34/35/36/37 fechados; ver CHANGELOG)
+- Somente a versão minor mais recente e a anterior recebem atualizações de segurança
+- Versão 0.8.5 é a versão atual em desenvolvimento (GAP-WS-065 corrigido — Chrome roda headed dentro de display virtual Xvfb)
+- Versão 0.7.8 é a versão publicada mais recente no crates.io
 
 | Versão | Suportada |
-| ------- | --------- |
-| 0.7.5   | Sim (atual; preflight cobre NASM/CMake/MSVC/Perl) |
-| 0.7.4   | Sim (v0.7.4 é a minor anterior) |
-| 0.7.3   | Sim (v0.7.4 é recomendada pelo preflight de build NASM no Windows, GAP-WS-28) |
-| 0.7.2   | Sim (backports de segurança; v0.7.3 é recomendada para o fix de stack TLS) |
-| 0.7.1   | Parcial (somente correções de segurança; MSRV 1.85) |
-| 0.7.0   | Não       |
-| 0.6.x   | Não       |
-| < 0.6.0 | Não       |
+|---|---|
+| 0.8.5 | Sim (em desenvolvimento; Chrome headed via Xvfb, GAP-WS-060 até GAP-WS-065 fechados) |
+| 0.8.0 | Sim (transporte Chrome-primary, classificação causal de zero-result, descompressão HTTP) |
+| 0.7.10 | Sim (scheduler pre-flight, propagação de pino de identidade) |
+| 0.7.8 | Sim (publicada; 8 gaps do detector anti-bot fechados) |
+| 0.7.7 | Sim (GAP-WS-49 corrigido regressão de fingerprint TLS) |
+| 0.7.3 | Parcial (fix de stack TLS — rustls substituído por BoringSSL) |
+| < 0.7.3 | Não |
 
 
 ## Reportando uma Vulnerabilidade
@@ -59,7 +58,7 @@
 - Todos os inputs externos (strings de query, paths de saída) são validados antes do uso
 - **v0.7.3+**: Cookie jar persistido em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). O arquivo é gravado com permissões Unix `0o600` (owner read+write only). No Windows, o diretório herda a ACL do perfil do usuário. Os cookies são cookies de sessão emitidos por `duckduckgo.com` e `html.duckduckgo.com`. **Trate este arquivo como trataria qualquer credencial.** Use `--no-cookie-persistence` para manter cookies em memória apenas. Use `--cookies-path <PATH>` para realocar o arquivo para um volume encriptado.
 - A CLI usa BoringSSL (v0.7.3+) estaticamente vinculado via `wreq 6.0.0-rc.29` — sem dependência do sistema OpenSSL/SChannel/SecureTransport
-- A CLI não executa JavaScript na fase de busca — os endpoints HTML/Lite do DuckDuckGo são parseados como HTML estático
+- Desde a v0.8.0 a CLI executa JavaScript via Chrome na fase de busca — o processo Chrome é isolado e roda dentro de display virtual Xvfb privado (v0.8.5+)
 - Quando `--fetch-content` está ativo, páginas buscadas são parseadas com `scraper` (que usa `html5ever`); HTML não confiável é esperado
 - **v0.7.3+**: A CLI não é mais totalmente sem estado. O cookie jar persistente adiciona estado entre invocações. É um trade-off deliberado para reduzir a taxa de CAPTCHA no servidor do DuckDuckGo. O request de warm-up (`GET https://duckduckgo.com/`) é idempotente e não persiste nenhum dado identificador de usuário além dos próprios cookies.
 - Arquivos de saída são criados com permissão `0o644` no Unix (proprietário escreve, mundo lê)
@@ -224,8 +223,8 @@ distribuições Linux. v0.7.7 entrega o fix de pin em `wreq-util` e
 restaura operação normal.
 
 
-## Sinais Stealth do Chrome (v0.8.0)
-- Chrome em modo headed injeta 17 sinais stealth JavaScript via CDP
+## Sinais Stealth do Chrome (v0.8.5)
+- Chrome em modo headed (dentro de display virtual Xvfb privado desde v0.8.5) injeta 17 sinais stealth JavaScript via CDP
 - `navigator.webdriver` é definido como `false` para evitar detecção de bot
 - Spoofing de fingerprint Canvas previne identificação do navegador
 - Spoofing de fingerprint WebGL via overrides de renderer e vendor

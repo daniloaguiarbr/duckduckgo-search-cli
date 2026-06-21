@@ -4,6 +4,102 @@ This guide covers version-to-version migration paths for `duckduckgo-search-cli`
 Each section documents breaking changes, additive changes, and rollback
 instructions.
 
+## Migration v0.8.4 → v0.8.5
+
+### What Changes
+- **Chrome headed inside Xvfb (GAP-WS-065, CRITICAL)** — `--headless=new` (introduced in v0.8.1) is detected by Cloudflare via JS fingerprinting (`navigator.webdriver`, CDP artifacts). Chrome now runs in HEADED mode inside a private Xvfb virtual display that the CLI auto-spawns via `spawn_virtual_display()`. The user sees ZERO windows.
+- New function `spawn_virtual_display()` in `src/browser.rs` creates `Xvfb :99` with 1920x1080 virtual screen
+- Chrome receives `DISPLAY=:99` via `builder.env()` — only the Chrome child process uses the virtual display
+- Xvfb is cleaned up automatically via `Drop` on `ChromeBrowser`
+- Fallback: if Xvfb is not installed, Chrome falls back to headless (with anti-bot risk)
+- New env var `DUCKDUCKGO_CHROME_HEADLESS=1` to force headless mode explicitly
+- New system requirement: `xvfb` package on Linux (`xorg-x11-server-Xvfb` on Fedora, `xvfb` on Debian/Ubuntu)
+
+### Step-by-Step Migration
+
+```bash
+# 1. Install Xvfb (Linux only)
+# Debian/Ubuntu:
+sudo apt install xvfb
+# Fedora:
+sudo dnf install xorg-x11-server-Xvfb
+
+# 2. Update duckduckgo-search-cli
+cargo install duckduckgo-search-cli --version 0.8.5 --force
+
+# 3. Normal usage — Chrome runs headed inside Xvfb, ZERO visible windows
+duckduckgo-search-cli "test query" -q -f json --num 3
+
+# 4. Force headless (not recommended — Cloudflare detects it)
+DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "test" -q -f json --num 3
+```
+
+### Rollback
+```bash
+cargo install duckduckgo-search-cli --version 0.8.4 --force
+```
+
+## Migration v0.8.3 → v0.8.4
+
+### What Changes
+- **cascade_level_observed fix (GAP-WS-064, LOW)** — `cascade_level_observed` in `parallel.rs` success path was hardcoded as `None`. Now uses the same `derive_cascade_level_from_attempts` logic as `pipeline.rs`. Batch queries and deep-research sub-queries now report correct cascade level telemetry.
+
+### Rollback
+```bash
+cargo install duckduckgo-search-cli --version 0.8.3 --force
+```
+
+## Migration v0.8.2 → v0.8.3
+
+### What Changes
+- **chrome_attempted fix (GAP-WS-062, LOW)** — `chrome_attempted` in `parallel.rs` was `cfg!(feature = "chrome")` (compile-time constant). Now checks `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` at runtime. Batch queries report `tentou_chrome: false` correctly when Chrome is disabled.
+- **identity_used fix (GAP-WS-063, LOW)** — `identity_used` in `parallel.rs` success path was hardcoded as `None`. Now calls `identity_tag_for_cli_identity()`. Batch queries with `--identity-profile` now report the identity used.
+
+### Rollback
+```bash
+cargo install duckduckgo-search-cli --version 0.8.2 --force
+```
+
+## Migration v0.8.1 → v0.8.2
+
+### What Changes
+- **deep-research inherits root flags (GAP-WS-061, MEDIUM)** — `execute_deep_research` now receives `CliArgs` from the root command. Previously, deep-research used hardcoded defaults (`lang=en`, `country=us`, `num=10`, `retries=2`) ignoring user flags. Now `--num`, `--lang`, `--country`, `--endpoint`, `--retries`, `--proxy`, `--timeout`, `--parallel`, `--max-content-length`, `--identity-profile`, `--allow-lite-fallback`, and `--pre-flight` all propagate to deep-research sub-queries.
+
+### Rollback
+```bash
+cargo install duckduckgo-search-cli --version 0.8.1 --force
+```
+
+## Migration v0.8.0 → v0.8.1
+
+### What Changes
+- Chrome now runs in headless mode (`--headless=new`) by DEFAULT instead of headed mode.
+- Previously, Chrome opened a visible GUI window on any desktop with `$DISPLAY` set.
+- New env var `DUCKDUCKGO_CHROME_VISIBLE=1` enables headed mode for debugging.
+- New env var `DUCKDUCKGO_CHROME_XVFB=1` enables headed mode via `xvfb-run` for anti-bot evasion on headless servers.
+- Function `which_xvfb_run()` renamed to `is_xvfb_requested()` with correct semantics.
+- `xvfb-run` is no longer required by default; only needed when `DUCKDUCKGO_CHROME_XVFB=1` is set.
+
+### Step-by-Step Migration
+
+```bash
+# 1. Update duckduckgo-search-cli
+cargo install duckduckgo-search-cli --version 0.8.1 --force
+
+# 2. Normal usage — Chrome runs headless, no visible windows
+duckduckgo-search-cli "test query" -q -f json --num 3
+
+# 3. If you need headed mode for debugging
+DUCKDUCKGO_CHROME_VISIBLE=1 duckduckgo-search-cli "test query" -q -f json --num 3
+
+# 4. If you need headed mode via xvfb-run (headless servers, anti-bot evasion)
+DUCKDUCKGO_CHROME_XVFB=1 xvfb-run --auto-servernum duckduckgo-search-cli "test query" -q -f json --num 3
+```
+
+### Rollback
+- If you relied on headed mode for anti-bot evasion, set `DUCKDUCKGO_CHROME_XVFB=1` explicitly.
+- No JSON schema changes in this release.
+
 ## Migration v0.7.x → v0.8.0
 
 ### What Changes

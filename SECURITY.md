@@ -3,22 +3,18 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version 0.7.7 is the current published version (GAP-WS-49 closed — TLS fingerprint regression restored via pinned `wreq-util`)
-- Version 0.7.8 is in development on `main` (8 anti-bot detector gaps closed, see ADR `0002-anti-bot-detector-overhaul-v0-7-8.md`)
+- Version 0.8.5 is the current development version (GAP-WS-065 fixed — Chrome runs headed inside Xvfb virtual display)
+- Version 0.7.8 is the latest published version on crates.io
 
 | Version | Supported |
 |---|---|
-| 0.7.8 | yes (in development; 8 anti-bot detector gaps closed, `scraper` 0.27 resolves RUSTSEC-2025-0057) |
-| 0.7.7 | yes (current published; GAP-WS-49 fixed TLS fingerprint regression via pinned `wreq-util`) |
-| 0.7.6 | yes (GAP-WS-48 closed — `cargo install` build conflict via `alloc-no-stdlib =2.0.4` downgrade) |
-| 0.7.5 | yes (build prereq preflight covers NASM/CMake/MSVC/Perl on Windows) |
-| 0.7.4 | yes (Windows NASM build preflight, GAP-WS-28) |
-| 0.7.3 | yes (TLS stack fix — `rustls` replaced by BoringSSL via `wreq 6.0.0-rc.29`, GAP-WS-27) |
-| 0.7.2 | partial (security backports only) |
-| 0.7.1 | partial (security fixes only; MSRV 1.85) |
-| 0.7.0 | no |
-| 0.6.x | no |
-| < 0.6.0 | no |
+| 0.8.5 | yes (in development; Chrome headed via Xvfb, GAP-WS-060 through GAP-WS-065 closed) |
+| 0.8.0 | yes (Chrome-primary transport, zero-cause classification, HTTP decompression) |
+| 0.7.10 | yes (pre-flight scheduler, identity pin propagation) |
+| 0.7.8 | yes (latest published; 8 anti-bot detector gaps closed) |
+| 0.7.7 | yes (GAP-WS-49 fixed TLS fingerprint regression) |
+| 0.7.3 | partial (TLS stack fix — rustls replaced by BoringSSL) |
+| < 0.7.3 | no |
 
 
 ## Reporting a Vulnerability
@@ -63,7 +59,7 @@
 - The binary does not execute subprocesses or shell commands based on search results
 - **v0.7.3+**: TLS is enforced via BoringSSL (statically linked by `wreq 6.0.0-rc.29`). No plain HTTP connections to the search endpoint. The BoringSSL build is reproducible; deviations in cipher suite selection are reported via `cargo deny check`.
 - **v0.7.3+**: The CLI is no longer fully stateless. Cookie jar persistence adds state across invocations. This is a deliberate trade-off to reduce CAPTCHA rate on the DuckDuckGo server. The warm-up request (`GET https://duckduckgo.com/`) is idempotent and does not persist any user-identifying data beyond the cookies themselves.
-- The CLI does not execute JavaScript for the search phase — DuckDuckGo HTML/Lite endpoints are parsed as static HTML
+- Since v0.8.0 the CLI executes JavaScript via Chrome for the search phase — the Chrome process is sandboxed and runs inside a private Xvfb virtual display (v0.8.5+)
 
 
 ## Related Supply Chain Automation
@@ -227,8 +223,8 @@ Linux distributions. v0.7.7 ships the pinned-`wreq-util` fix and
 restored normal operation.
 
 
-## Chrome Stealth Signals (v0.8.0)
-- Chrome headed mode injects 17 JavaScript stealth signals via CDP
+## Chrome Stealth Signals (v0.8.5)
+- Chrome headed mode (inside private Xvfb virtual display since v0.8.5) injects 17 JavaScript stealth signals via CDP
 - `navigator.webdriver` is set to `false` to avoid bot detection
 - Canvas fingerprint spoofing prevents browser identification
 - WebGL fingerprint spoofing via renderer and vendor overrides

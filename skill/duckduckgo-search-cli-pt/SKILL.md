@@ -1,27 +1,28 @@
 ---
 name: duckduckgo-search-cli-pt
-version: 0.8.0
-description: DEVE invocar quando o usuário pedir busca web, pesquisa na internet, documentação atualizada, grounding factual, verificação de URL, extração de página, enriquecimento RAG, fact-checking, versão de biblioteca, post-mortem de incidente, pricing atual, pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Triggers: "pesquise", "busca no google", "procure online", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". Invoca `duckduckgo-search-cli` v0.8.0 via Bash. Zero API key. Chrome HEADED é o transporte PRIMÁRIO via xvfb-run com 17 sinais stealth JavaScript injetados via CDP, bypassa Cloudflare Bot Management 2026. wreq permanece APENAS para --fetch-content e --probe. Pool de 12 identidades anti-bot, cascata de 5 níveis. Classificação ZeroCause em 5 causas. Exit code 6 (SUSPECTED_BLOCK) quando causa_zero != Legitimo. Descompressão HTTP transparente (gzip, deflate, brotli). Subcomando deep-research com fan-out RRF. Português brasileiro.
+version: 0.8.5
+description: DEVE invocar quando o usuário pedir busca web, pesquisa na internet, documentação atualizada, grounding factual, verificação de URL, extração de página, enriquecimento RAG, fact-checking, versão de biblioteca, post-mortem de incidente, pricing atual, pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Triggers: "pesquise", "busca no google", "procure online", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". v0.8.5 roda Chrome HEADED dentro de display virtual Xvfb privado com 17 sinais stealth JavaScript injetados via CDP, bypassa Cloudflare Bot Management 2026. wreq permanece APENAS para --fetch-content e --probe. Exit code 6 (SUSPECTED_BLOCK). Classificador ZeroCause 6 variantes. Pool de 12 identidades anti-bot. deep-research fan-out RRF. Português brasileiro.
 ---
 
-# Skill — `duckduckgo-search-cli` (PT-BR) v0.8.0
+# Skill — `duckduckgo-search-cli` (PT-BR) v0.8.5
 
 ## Quando invocar esta CLI
 - DEVE invocar quando a resposta exigir dado fora da knowledge cutoff
 - DEVE invocar em triggers: pesquise, busca, procure, verifique URL, traga página, o que mudou, compare, pesquisa profunda, grounding, pricing atual, pergunta multi-hop
 - DEVE preferir esta CLI sobre WebSearch/WebFetch para pipelines determinísticas
 
-## Como funciona a busca Chrome-primary na v0.8.0
-- Chrome HEADED é o transporte PRIMÁRIO de busca (NÃO wreq/HTTP direto)
-- A CLI lança Google Chrome em modo HEADED via `xvfb-run` (framebuffer virtual) com 17 sinais JavaScript stealth injetados via CDP `Page.addScriptToEvaluateOnNewDocument`
+## Como funciona a busca Chrome-primary na v0.8.5
+- Chrome roda em modo HEADED dentro de display virtual Xvfb privado como transporte PRIMÁRIO de busca (NÃO headless, NÃO wreq/HTTP direto)
+- A CLI auto-spawna Xvfb via `spawn_virtual_display()` e lança Chrome HEADED contra o display virtual com 17 sinais JavaScript stealth injetados via CDP `Page.addScriptToEvaluateOnNewDocument` — o usuário vê ZERO janelas
 - Os 17 sinais stealth incluem: `navigator.webdriver=false`, `navigator.plugins` (5 plugins falsos), `navigator.languages`, `window.chrome` object, `navigator.connection`, `navigator.maxTouchPoints`, `outerHeight/outerWidth`, `navigator.hardwareConcurrency`, `navigator.deviceMemory`, `Notification.permission`, `navigator.permissions.query`, `WebGLRenderingContext.getParameter` (spoofing ANGLE NVIDIA GeForce), `HTMLCanvasElement.toDataURL` (ruído canvas), `OfflineAudioContext` (ruído de fingerprint de áudio)
 - Bypassa o Cloudflare Bot Management 2026 com fingerprint de browser real
+- Use `DUCKDUCKGO_CHROME_HEADLESS=1` para forçar modo headless (com risco de detecção Cloudflare). Use `DUCKDUCKGO_CHROME_VISIBLE=1` para modo headed visível (depuração)
 - wreq permanece APENAS para `--fetch-content` (download de conteúdo de páginas) e `--probe` (health check)
 - Campo `.metadados.usou_chrome` indica `true` quando busca Chrome-primary teve sucesso
 - Campo `.metadados.tentou_chrome` indica `true` quando busca Chrome foi tentada (independente de sucesso)
 
 ```bash
-# Busca padrão v0.8.0 — Chrome-primary é automático, sem flag extra
+# Busca padrão v0.8.5 — Chrome headed dentro de Xvfb, sem flag extra
 timeout 60 duckduckgo-search-cli "rust async runtime 2026" -q -f json --num 15 \
   | jaq '{usou_chrome: .metadados.usou_chrome, tentou_chrome: .metadados.tentou_chrome}'
 ```
@@ -78,7 +79,7 @@ timeout 120 duckduckgo-search-cli --allow-lite-fallback -q -f json deep-research
 
 ## Como diagnosticar zero resultados com classificação causa_zero (v0.8.0)
 - DEVE inspecionar `.metadados.causa_zero` em TODA resposta com `quantidade_resultados == 0`
-- O classificador `ZeroCause` distingue 5 causas: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`
+- O classificador `ZeroCause` distingue 6 causas: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`, `zero-resultados-suspeito`
 - Quando `causa_zero != "legitimo"`, a CLI emite exit code 6 (`SUSPECTED_BLOCK`) por padrão
 - Campo `.metadados.sugestao_proxima_acao` contém instrução PT-BR quando causa não é legítima
 
@@ -132,7 +133,7 @@ timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 \
 - OPCIONAIS `Option<u32>`: `.metadados.nivel_cascata` (0..=4)
 - CONDICIONAIS com `--fetch-content`: `.resultados[].conteudo`, `.resultados[].tamanho_conteudo`, `.resultados[].metado_extracao_conteudo`
 - NOVO v0.7.10: `.metadados.pre_flight_disparado` (bool) e `.metadados.endpoint_usado` (`html` | `lite`)
-- NOVO v0.8.0: `.metadados.causa_zero` (enum kebab-case: `legitimo` | `filtro-silencioso` | `ghost-block` | `anti-bot` | `resposta-invalida`) + `.metadados.sugestao_proxima_acao` (string PT-BR quando não-legítimo)
+- NOVO v0.8.0: `.metadados.causa_zero` (enum kebab-case: `legitimo` | `filtro-silencioso` | `ghost-block` | `anti-bot` | `resposta-invalida` | `zero-resultados-suspeito`) + `.metadados.sugestao_proxima_acao` (string PT-BR quando não-legítimo)
 - NOVO v0.8.0: `.causa_zero_histogram` (BTreeMap<String, u32>) agregado entre sub-queries em multi-query
 - NOVO v0.8.0: `.metadados.usou_chrome` (bool) — `true` quando busca Chrome-primary teve sucesso
 - NOVO v0.8.0: `.metadados.tentou_chrome` (bool) — `true` quando busca Chrome foi tentada
@@ -208,22 +209,38 @@ FALHA — Reporte com causa + retry_after_seconds
 ```
 - SE `nivel_cascata == 4` observado, DEVE rotacionar proxy ou aguardar 300s antes da próxima invocação
 
-## Como rodar pesquisa multi-hop com síntese
-- DEVE usar `deep-research` para perguntas multi-hop:
+## Como rodar pesquisa multi-hop (SEMPRE usar sub-queries manuais)
+- DEVE gerar 3-5 sub-queries específicas em vez de depender dos templates heurísticos
+- O padrão `--sub-query-strategy heuristic` concatena sufixos genéricos ("main aspects components", "vs alternatives comparison") que produzem resultados de baixa qualidade
+- SEMPRE usar `--sub-query-strategy manual --sub-queries-file` com perguntas geradas pela LLM
 
 ```bash
+# Passo 1: gerar sub-queries específicas (a LLM escreve estas)
+printf '%s\n' \
+  "tokio async runtime arquitetura work stealing scheduler" \
+  "async-std vs tokio benchmark performance comparação 2026" \
+  "tokio spawn vs spawn_blocking quando usar cada um" \
+  "tokio runtime shutdown graceful timeout boas práticas" \
+  "tokio channels mpsc watch broadcast diferenças" \
+  > /tmp/sub-queries.txt
+
+# Passo 2: rodar deep-research com sub-queries manuais
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
-  --max-sub-queries 5 --aggregate rrf \
-  --synthesize --synth-format markdown --budget-tokens 1500 \
-  | jaq -r '.sintese'
+  --sub-query-strategy manual --sub-queries-file /tmp/sub-queries.txt \
+  --aggregate rrf \
+  | jaq '.resultados[] | {titulo, url, score}'
 ```
 
+- ANTI-PADRÃO: usar estratégia heurística padrão — produz sub-queries genéricas de baixa qualidade
+- ANTI-PADRÃO: copiar a query do usuário como sub-query — adicionar ângulos específicos
+- Cada sub-query DEVE atingir um aspecto distinto: arquitetura, benchmarks, pricing, limitações, comparações
 - FÓRMULA DO OUTPUT: `.sintese` (Markdown), `.metadados.sub_queries[]` (status por sub-query), `.resultados[]` (agregado via RRF)
 - MAPA DE EXIT: `0=sucesso`, `1=sub-query-falhou`, `2=erro-arg`, `3=anti-bot-durante-fanout`, `4=timeout`, `5=zero-agregado`, `6=bloqueio-suspeito`
 - COMBINE com `--pre-flight` para ambientes bloqueados:
 
 ```bash
-timeout 120 duckduckgo-search-cli --pre-flight -q -f json deep-research "rust async 2026" --max-sub-queries 3
+timeout 120 duckduckgo-search-cli --pre-flight -q -f json deep-research "rust async 2026" \
+  --sub-query-strategy manual --sub-queries-file /tmp/sub-queries.txt --max-sub-queries 5
 ```
 
 ## Como configurar retries e timeouts sem disparar anti-bot
@@ -284,33 +301,35 @@ timeout 60 duckduckgo-search-cli "incidente 2026-06" -q -f json --num 10 \
 
 ## Como satisfazer pré-requisitos de build no Linux e Windows
 - Deps Linux (build): `cmake`, `perl`, `pkg-config`, `libclang-dev`
-- Deps Linux (runtime Chrome-primary): Google Chrome ou Chromium + `xvfb-run` (pacote `xvfb` em Debian/Ubuntu)
-- `xvfb-run` fornece framebuffer virtual para Chrome HEADED em servidores sem display
-- A CLI detecta disponibilidade de `xvfb-run` via `which_xvfb_run()` — SE ausente, Chrome roda sem framebuffer virtual (requer display X11/Wayland real)
+- Deps Linux (runtime Chrome-primary): Google Chrome ou Chromium + pacote Xvfb (auto-spawned pela CLI via `spawn_virtual_display()`)
+- Chrome roda em modo HEADED dentro de display virtual Xvfb privado por padrão — a CLI auto-spawna Xvfb, o usuário vê ZERO janelas
+- Instalar Xvfb: `sudo apt install xvfb` (Debian/Ubuntu), `sudo dnf install xorg-x11-server-Xvfb` (Fedora)
 - Deps Windows MSVC: `nasm`, `cmake` 3.20+ (sub-componente C++ CMake tools), `cl.exe`, `link.exe`, Strawberry Perl
 - Escape hatches quando ausentes: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`
 - `cargo install` SEMPRE compila do fonte — crates.io NÃO envia binários pré-construídos
 
 ```bash
 # Instalar deps runtime Chrome-primary em Debian/Ubuntu
-sudo apt-get install -y google-chrome-stable xvfb
+sudo apt-get install -y google-chrome-stable
 # OU com Chromium
-sudo apt-get install -y chromium-browser xvfb
+sudo apt-get install -y chromium-browser
+# OBRIGATÓRIO: Xvfb para display virtual do Chrome (auto-spawned pela CLI)
+sudo apt-get install -y xvfb
 ```
 
-## Como instalar ou atualizar para v0.8.0
+## Como instalar ou atualizar para v0.8.5
 
 ```bash
-cargo install duckduckgo-search-cli --version 0.8.0 --locked --force
+cargo install duckduckgo-search-cli --version 0.8.5 --locked --force
 ```
 
-## APÊNDICE — Notas de Migração (v0.7.10 → v0.8.0)
-- Chrome HEADED é agora o transporte PRIMÁRIO de busca — a CLI lança Chrome via `xvfb-run` com 17 sinais stealth JavaScript injetados via CDP para bypassar Cloudflare Bot Management 2026
-- NOVA DEPENDÊNCIA DE RUNTIME: Google Chrome (ou Chromium) + `xvfb-run` (pacote `xvfb`) em servidores Linux headless
+## APÊNDICE — Notas de Migração (v0.7.10 → v0.8.5)
+- Chrome roda HEADED dentro de display virtual Xvfb privado como transporte PRIMÁRIO de busca — a CLI auto-spawna Xvfb via `spawn_virtual_display()` com 17 sinais stealth JavaScript injetados via CDP para bypassar Cloudflare Bot Management 2026
+- NOVAS DEPENDÊNCIAS DE RUNTIME: Google Chrome (ou Chromium) + Xvfb (Linux, auto-spawned pela CLI via `spawn_virtual_display()`)
 - wreq permanece APENAS para `--fetch-content` e `--probe` — NÃO é mais usado para buscas primárias
 - NOVO EXIT CODE 6 (`SUSPECTED_BLOCK`): emitido quando `causa_zero != Legitimo` e `DUCKDUCKGO_ZERO_CAUSE_STRICT` não é `false`
 - Para restaurar comportamento exit 5 legado: `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`
-- Classificação `ZeroCause` com 5 variantes: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`
+- Classificação `ZeroCause` com 6 variantes: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`, `zero-resultados-suspeito`
 - Descompressão HTTP transparente (gzip, deflate, brotli) via `src/decompress.rs` com limite de 32 MiB
 - NOVOS CAMPOS DE METADADOS: `bytes_brutos`, `bytes_descomprimidos`, `usou_chrome` (bool), `tentou_chrome` (bool), `cascata_nivel_observado`
 - `.causa_zero_histogram` (BTreeMap) em multi-query agrega contagens por causa entre sub-queries

@@ -379,12 +379,13 @@ duckduckgo-search-cli --version          # espere 0.7.7 (ou 0.7.8)
 duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 ```
 
-## Requisitos do Chrome (v0.8.0)
+## Requisitos do Chrome (v0.8.5)
 - Linux: `sudo apt install google-chrome-stable xvfb` (Debian/Ubuntu)
 - Linux: `sudo dnf install google-chrome-stable xorg-x11-server-Xvfb` (Fedora)
-- Linux headless: `xvfb-run` é OBRIGATÓRIO para o modo Chrome headed
-- macOS: Instale o Chrome em https://www.google.com/chrome/ (sem necessidade de xvfb)
-- Windows: Instale o Chrome em https://www.google.com/chrome/ (sem necessidade de xvfb)
+- Linux: Xvfb é auto-spawned pela CLI via `spawn_virtual_display()` (v0.8.5+) — sem necessidade de `xvfb-run` manual
+- Linux: se Xvfb não estiver instalado, Chrome cai para headless (com risco de detecção anti-bot)
+- macOS: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless no macOS)
+- Windows: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless no Windows)
 - Chrome é auto-detectado via `detect_chrome()` em `src/browser.rs`
 - Compilar sem Chrome: `cargo build --no-default-features`
 

@@ -12,7 +12,7 @@
 
 ## O que é?
 - Binário Rust único que transforma qualquer shell em ferramenta de busca de primeira classe
-- Sem API key, sem tracking, sem Chrome no caminho quente
+- Sem API key, sem tracking, busca via Chrome invisível ao usuário
 - Schema JSON estável com `resultados[]` e `metadados`, ordem de campos congelada entre releases
 - Exit codes determinísticos para agentes ramificarem sem ambiguidade
 - Paralelismo nativo via `tokio::JoinSet` com controle de concorrência por host
@@ -27,15 +27,16 @@
 - **v0.7.3 — Fingerprint TLS real via BoringSSL (wreq).** BoringSSL é estaticamente vinculado e produz fingerprint JA4_o idêntico ao Chrome/Safari, eliminando o CAPTCHA do Cloudflare que afetava o macOS na v0.7.2. Build requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `docs/CROSS_PLATFORM.md`.
 
 
-## Pré-requisitos (v0.8.0+)
+## Pré-requisitos (v0.8.5+)
 - Google Chrome ou Chromium (detectado automaticamente via `detect_chrome()`)
-- `xvfb-run` em servidores Linux headless: `sudo apt install xvfb` (Debian/Ubuntu)
+- Linux: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt install xvfb` (Debian/Ubuntu)
 - Chrome é o transporte PRIMÁRIO de busca desde a v0.8.0
 - Cliente HTTP wreq é usado APENAS para `--fetch-content` e `--probe`
 - Para compilar sem Chrome: `cargo build --no-default-features`
-- v0.8.0: Chrome headed com 17 sinais stealth bypassa anti-bot do Cloudflare
-- Chrome roda dentro do `xvfb-run` com display virtual em servidores headless
-- Sem janela visível do navegador — Xvfb fornece display X11 virtual
+- v0.8.5: Chrome roda HEADED dentro de display virtual Xvfb privado — ZERO janelas visíveis
+- A CLI cria e encerra o Xvfb automaticamente — sem setup manual em desktops
+- Fallback: modo headless se Xvfb não disponível (com risco de anti-bot)
+- Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (forçar headless), `DUCKDUCKGO_CHROME_XVFB=1` (xvfb em servidores)
 
 
 ## Instalação
@@ -229,6 +230,12 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--probe` | off | Verificação de saúde pré-voo (1 requisição mínima, relatório JSON) |
 | `--identity-profile` | `auto` | Fixa um perfil do pool de 12 identidades (`chrome-win`, `safari-mac`, ...) |
 | `--seed N` | (aleatório) | Seed determinístico para seleção de UA e identidade |
+| `--probe-deep` | off | Detector de interstitial CAPTCHA (v0.7.3+) |
+| `--no-warmup` | off | Pula warm-up `GET https://duckduckgo.com/` (v0.7.3+) |
+| `--no-cookie-persistence` | off | Cookies apenas em memória, sem gravar em disco (v0.7.3+) |
+| `--cookies-path PATH` | XDG config | Sobrescreve path padrão do cookie jar (v0.7.3+) |
+| `--allow-lite-fallback` | off | Auto-fallback para endpoint lite quando CAPTCHA detectado (v0.7.3+) |
+| `--pre-flight` | off | Probe mínimo antes da busca real (v0.7.9+) |
 
 
 ## Variáveis de Ambiente
@@ -240,6 +247,11 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `HTTPS_PROXY` | Proxy HTTPS padrão | `http://proxy:8443` |
 | `ALL_PROXY` | Proxy fallback para qualquer scheme | `socks5://127.0.0.1:9050` |
 | `CHROME_PATH` | Caminho fallback para Chrome (feature `chrome`) | `/opt/google/chrome/chrome` |
+| `DUCKDUCKGO_CHROME_VISIBLE` | Forçar Chrome headed com janela visível (debug) | `DUCKDUCKGO_CHROME_VISIBLE=1` |
+| `DUCKDUCKGO_CHROME_HEADLESS` | Forçar Chrome headless (risco de anti-bot) | `DUCKDUCKGO_CHROME_HEADLESS=1` |
+| `DUCKDUCKGO_CHROME_XVFB` | Opt-in headed via xvfb-run em servidores | `DUCKDUCKGO_CHROME_XVFB=1` |
+| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | Desabilitar Chrome em runtime | `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` |
+| `DUCKDUCKGO_ZERO_CAUSE_STRICT` | BC opt-out: mapear exit 6 para exit 5 (v0.8.0+) | `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` |
 
 
 ## Formatos de Saída
@@ -259,6 +271,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | 3 | Bloqueio DuckDuckGo (anomalia HTTP 202) |
 | 4 | Timeout global excedido |
 | 5 | Zero resultados em todas as queries |
+| 6 | Bloqueio suspeito (zero resultados com causa não legítima, v0.8.0+) |
 
 
 ## Troubleshooting

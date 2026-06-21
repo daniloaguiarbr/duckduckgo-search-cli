@@ -561,7 +561,8 @@ async fn execute_query_with_cancellation(
     let chrome_result: Option<search::AggregatedSearchResult> = None;
 
     let chrome_used = chrome_result.is_some();
-    let chrome_attempted = cfg!(feature = "chrome");
+    let chrome_attempted = cfg!(feature = "chrome")
+        && std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() != Ok("1");
 
     let agregado = if let Some(cr) = chrome_result {
         cr
@@ -582,6 +583,8 @@ async fn execute_query_with_cancellation(
                 let selectors_hash = crate::pipeline::calculate_selectors_hash(&config.selectors);
                 let used_proxy =
                     ProxyConfig::from_options(config.proxy.as_deref(), config.no_proxy).is_active();
+                let identity_used_early =
+                    crate::identity::identity_tag_for_cli_identity(config.identity_profile, None);
                 return Ok(SearchOutput {
                     query: query.to_string(),
                     engine: "duckduckgo".to_string(),
@@ -606,7 +609,7 @@ async fn execute_query_with_cancellation(
                         chrome_attempted,
                         user_agent: config.user_agent.clone(),
                         used_proxy,
-                        identity_used: None,
+                        identity_used: identity_used_early,
                         cascade_level: None,
                         pre_flight_fired: false,
                         zero_cause: None,
@@ -628,6 +631,8 @@ async fn execute_query_with_cancellation(
 
     let used_proxy =
         ProxyConfig::from_options(config.proxy.as_deref(), config.no_proxy).is_active();
+    let identity_used =
+        crate::identity::identity_tag_for_cli_identity(config.identity_profile, None);
     let mut metadata_val = SearchMetadata {
         execution_time_ms: elapsed_ms,
         selectors_hash,
@@ -641,7 +646,7 @@ async fn execute_query_with_cancellation(
         chrome_attempted,
         user_agent: config.user_agent.clone(),
         used_proxy,
-        identity_used: None,
+        identity_used,
         cascade_level: None,
         pre_flight_fired: false,
         zero_cause: None,
@@ -649,7 +654,9 @@ async fn execute_query_with_cancellation(
         // GAP-NEW-002 v0.8.0: telemetria de descompressão HTTP.
         bytes_raw: Some(agregado.bytes_in),
         bytes_decompressed: Some(agregado.bytes_out),
-        cascade_level_observed: None,
+        cascade_level_observed: config
+            .last_probe_cascade_level
+            .or_else(|| Some(crate::pipeline::derive_cascade_level_from_attempts(&agregado))),
     };
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente no path paralelo.

@@ -247,12 +247,51 @@ fn is_executable_chrome_binary(path: &Path) -> bool {
     }
 }
 
-/// Returns `true` when the current process already has a usable DISPLAY
-/// (either a real X11/Wayland display or one provided by `xvfb-run`).
-/// Chrome in headed mode needs a display server; this check lets us
-/// auto-switch from headless to headed when a display is available.
-fn which_xvfb_run() -> bool {
-    std::env::var("DISPLAY").is_ok_and(|d| !d.is_empty())
+/// Returns `true` when the operator explicitly requested headed Chrome
+/// via `DUCKDUCKGO_CHROME_XVFB=1` (for xvfb-run anti-bot evasion).
+/// Without this env var, Chrome runs headless by default.
+fn is_xvfb_requested() -> bool {
+    std::env::var("DUCKDUCKGO_CHROME_XVFB").is_ok()
+}
+
+/// Spawns a private Xvfb server on a free display number so Chrome can run
+/// in headed mode (passing Cloudflare anti-bot) without showing a visible
+/// window to the user.
+///
+/// Returns `(child_process, display_string)` on success, or `None` if Xvfb
+/// is not available or no free display slot was found.
+#[cfg(target_os = "linux")]
+fn spawn_virtual_display() -> Option<(std::process::Child, String)> {
+    let xvfb_path = which::which("Xvfb").ok()?;
+
+    for display_num in 99..200 {
+        let lock_path = format!("/tmp/.X{display_num}-lock");
+        if std::path::Path::new(&lock_path).exists() {
+            continue;
+        }
+        let disp = format!(":{display_num}");
+        let child = std::process::Command::new(&xvfb_path)
+            .arg(&disp)
+            .args(["-screen", "0", "1920x1080x24", "-nolisten", "tcp", "-ac"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(150));
+
+        if std::path::Path::new(&lock_path).exists() {
+            tracing::info!(xvfb_display = %disp, "Xvfb virtual display started");
+            return Some((child, disp));
+        }
+        // Xvfb failed to create lock — try next display number.
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn spawn_virtual_display() -> Option<(std::process::Child, String)> {
+    None
 }
 
 /// Indicates whether we are running inside a container or Flatpak/Snap wrapper, which
@@ -334,6 +373,9 @@ pub struct ChromeBrowser {
     handler: Option<JoinHandle<()>>,
     /// Keeps `TempDir` alive to ensure user-data-dir is removed on drop.
     _user_data: tempfile::TempDir,
+    /// Private Xvfb process for headed-but-invisible Chrome.
+    /// Killed on drop so the virtual display does not leak.
+    _xvfb: Option<std::process::Child>,
 }
 
 impl std::fmt::Debug for ChromeBrowser {
@@ -383,23 +425,52 @@ impl ChromeBrowser {
         })?;
 
         let force_visible = std::env::var("DUCKDUCKGO_CHROME_VISIBLE").is_ok();
-        let xvfb_available = which_xvfb_run();
-        let use_headed = force_visible || xvfb_available;
+        let xvfb_requested = is_xvfb_requested();
+        let force_headless = std::env::var("DUCKDUCKGO_CHROME_HEADLESS").is_ok();
+
+        // Headed Chrome passes Cloudflare anti-bot; headless is detectable.
+        // Priority: HEADLESS env (force) > VISIBLE env > Xvfb auto-spawn > headless fallback.
+        let mut xvfb_child: Option<std::process::Child> = None;
+        let (use_headed, virtual_display) = if force_headless {
+            (false, None)
+        } else if force_visible || xvfb_requested {
+            (true, None)
+        } else {
+            match spawn_virtual_display() {
+                Some((child, display)) => {
+                    xvfb_child = Some(child);
+                    (true, Some(display))
+                }
+                None => (false, None),
+            }
+        };
+
         let mut builder = BrowserConfig::builder()
             .chrome_executable(path)
             .user_data_dir(user_data.path())
             .launch_timeout(timeout_launch)
             .args(flags);
 
+        if let Some(ref display) = virtual_display {
+            builder = builder
+                .env("DISPLAY", display)
+                .env("WAYLAND_DISPLAY", "")
+                .arg(("ozone-platform", "x11"));
+        }
+
         if use_headed {
             builder = builder.with_head();
             tracing::info!(
                 force_visible,
-                xvfb_available,
+                xvfb_requested,
+                virtual_display = virtual_display.as_deref().unwrap_or("none"),
                 "Chrome running in headed mode (anti-bot evasion)"
             );
         } else {
             builder = builder.new_headless_mode();
+            if !force_headless {
+                tracing::info!("Xvfb not available — falling back to headless Chrome (anti-bot risk)");
+            }
         }
 
         if sandbox_off {
@@ -431,6 +502,7 @@ impl ChromeBrowser {
             browser,
             handler: Some(handler_task),
             _user_data: user_data,
+            _xvfb: xvfb_child,
         })
     }
 
@@ -471,6 +543,11 @@ impl Drop for ChromeBrowser {
     fn drop(&mut self) {
         if let Some(h) = self.handler.take() {
             h.abort();
+        }
+        if let Some(ref mut xvfb) = self._xvfb {
+            let _ = xvfb.kill();
+            let _ = xvfb.wait();
+            tracing::info!("Xvfb virtual display stopped");
         }
         tracing::info!(
             "ChromeBrowser dropped — chromiumoxide Browser::drop handles remaining cleanup"
@@ -776,5 +853,26 @@ mod tests {
         {
             let _ = p;
         }
+    }
+
+    #[test]
+    fn is_xvfb_requested_false_by_default() {
+        std::env::remove_var("DUCKDUCKGO_CHROME_XVFB");
+        assert!(!is_xvfb_requested());
+    }
+
+    #[test]
+    fn is_xvfb_requested_true_when_set() {
+        std::env::set_var("DUCKDUCKGO_CHROME_XVFB", "1");
+        let result = is_xvfb_requested();
+        std::env::remove_var("DUCKDUCKGO_CHROME_XVFB");
+        assert!(result);
+    }
+
+    #[test]
+    fn headed_requires_explicit_opt_in() {
+        std::env::remove_var("DUCKDUCKGO_CHROME_VISIBLE");
+        std::env::remove_var("DUCKDUCKGO_CHROME_XVFB");
+        assert!(!is_xvfb_requested());
     }
 }

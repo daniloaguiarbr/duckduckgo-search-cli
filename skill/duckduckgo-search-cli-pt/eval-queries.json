@@ -833,8 +833,8 @@
   },
   {
     "id": "q55",
-    "query": "rust runtime async 2026 teste Chrome headed",
-    "expected_use": "validar busca Chrome-primary v0.8.0. O campo .metadados.tentou_chrome DEVE ser true e .metadados.usou_chrome DEVE ser true quando Chrome tem sucesso. Se Chrome estiver indisponível (sem xvfb-run), faz fallback para wreq.",
+    "query": "rust runtime async 2026 teste Chrome headed Xvfb",
+    "expected_use": "validar busca Chrome-primary v0.8.5. Chrome roda HEADED dentro de display virtual Xvfb privado. O campo .metadados.tentou_chrome DEVE ser true e .metadados.usou_chrome DEVE ser true quando Chrome tem sucesso. Fallback para wreq quando Chrome ou Xvfb indisponível.",
     "flags": [
       "-q",
       "-f",

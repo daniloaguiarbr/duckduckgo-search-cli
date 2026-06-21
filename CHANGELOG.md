@@ -1,3 +1,64 @@
+## [0.8.5] - 2026-06-21
+
+### Fixed (GAP-WS-065 — Chrome headless detected by Cloudflare — 0 results)
+- CRITICAL regression: `--headless=new` Chrome is detectable by Cloudflare anti-bot
+- All queries returned 0 results with `anomaly-modal` interstitial since v0.8.1
+- Root cause: GAP-WS-060 fix changed Chrome from headed to headless by default
+- Cloudflare fingerprints headless Chrome via JS signals (`navigator.webdriver`, CDP protocol, missing plugins)
+- Fix: auto-spawn private Xvfb virtual display, run Chrome headed inside it
+- Chrome runs headed (passes anti-bot) but user sees ZERO visible windows
+- `builder.env("DISPLAY", ":99")` passes virtual display only to Chrome child process
+- Xvfb cleanup is automatic via `Drop` on `ChromeBrowser`
+- Fallback: if Xvfb not available, falls back to headless (with anti-bot risk)
+- New env var: `DUCKDUCKGO_CHROME_HEADLESS=1` to force headless mode
+
+
+## [0.8.4] - 2026-06-21
+
+### Fixed (GAP-WS-064 — `cascade_level_observed` always `null` in parallel path)
+- Batch queries and deep-research sub-queries never reported `cascata_nivel_observado` in JSON metadata
+- Root cause: `cascade_level_observed: None` hardcoded in `search_one_query` success path in `parallel.rs`
+- Fix: reuse `derive_cascade_level_from_attempts` from `pipeline.rs` (now `pub(crate)`)
+- Single queries via `pipeline.rs` were already correct — this fix brings parity
+
+
+## [0.8.3] - 2026-06-21
+
+### Fixed (GAP-WS-062 — `chrome_attempted` metadata incorrect in parallel path)
+- `parallel.rs` reported `tentou_chrome: true` even when `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` disabled Chrome at runtime
+- Root cause: `chrome_attempted = cfg!(feature = "chrome")` is a compile-time constant, always `true` when the chrome feature is enabled
+- Fix: runtime check now includes `NO_CHROME` env var — `cfg!(feature = "chrome") && NO_CHROME != "1"`
+- Affects batch queries (`--queries-file`) and deep-research sub-queries
+- `pipeline.rs` (single queries) was already correct — this fix brings parity between both paths
+
+### Fixed (GAP-WS-063 — `identity_used` always `null` in parallel path success)
+- Batch queries via `--queries-file` never reported `identidade_usada` in JSON metadata, even with `--identity-profile chrome-linux`
+- Root cause: `identity_used: None` hardcoded in `search_one_query` success path and early-return error path
+- Fix: call `identity_tag_for_cli_identity(config.identity_profile, None)` in both paths
+- Single queries via `pipeline.rs` were already correct — this fix brings parity
+
+
+## [0.8.2] - 2026-06-21
+
+### Fixed (GAP-WS-061 — deep-research ignores root search flags)
+- `execute_deep_research` now inherits all search flags from the root CLI args instead of using hardcoded defaults
+- `--num`, `--lang`, `--country`, `--endpoint`, `--retries`, `--proxy`, `--timeout`, `--parallel`, `--max-content-length`, `--identity-profile` are now respected when placed BEFORE the `deep-research` subcommand
+- Previously hardcoded: `num_results=10`, `language="en"`, `country="us"`, `retries=2`, `proxy=None`
+- Now inherits user values: `--num 5 --lang pt --country br deep-research "query"` works as expected
+- `--allow-lite-fallback`, `--pre-flight`, `--identity-profile` propagated from root args
+- Removed dead `initialize_logging(0, false, false)` call (subscriber already initialized before subcommand dispatch)
+
+
+## [0.8.1] - 2026-06-21
+
+### Fixed (GAP-WS-060 — Chrome opens visible window on desktops)
+- Chrome now runs in headless mode (`--headless=new`) by DEFAULT on all platforms.
+- Previously, Chrome opened a visible GUI window on any desktop with `$DISPLAY` set (Linux, macOS, Windows).
+- `DUCKDUCKGO_CHROME_VISIBLE=1` enables headed mode for debugging.
+- `DUCKDUCKGO_CHROME_XVFB=1` enables headed mode via xvfb-run for anti-bot evasion on headless servers.
+- ZERO visible Chrome windows during normal CLI execution.
+- Function `which_xvfb_run()` renamed to `is_xvfb_requested()` with correct semantics.
+
 ## [0.8.0] - 2026-06-19
 
 ### Fixed (GAP-AUD-003 — zero-result causal classification)

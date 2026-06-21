@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "duckduckgo-search-cli"
-version = "0.8.0"
+version = "0.8.5"
 dependencies = [
  "alloc-no-stdlib",
  "assert_cmd",

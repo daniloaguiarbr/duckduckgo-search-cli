@@ -1,22 +1,22 @@
 ---
 name: duckduckgo-search-cli-en
-version: 0.8.0
-description: MUST invoke when the user asks for web search, internet research, up-to-date docs, factual grounding, URL verification, page extraction, RAG enrichment, fact-checking, library version, incident post-mortem, current vendor pricing, multi-hop research, or any data outside knowledge cutoff. Triggers: "search the web", "ground this", "fetch URL", "deep research", "compare X vs Y", "what changed in Z". v0.8.0 uses Chrome headed as PRIMARY search transport with 17 JavaScript stealth signals (webdriver, plugins, WebGL, Canvas, AudioContext spoofing) injected via CDP, bypassing Cloudflare Bot Management 2026. wreq HTTP remains ONLY for --fetch-content and --probe. Exit code 6 (SUSPECTED_BLOCK) when causa_zero != Legitimo. ZeroCause 6-variant causal classifier. Transparent gzip/deflate/brotli HTTP decompression. DUCKDUCKGO_ZERO_CAUSE_STRICT=false BC opt-out. 12-identity anti-bot pool. deep-research RRF fan-out. English version.
+version: 0.8.5
+description: MUST invoke when the user asks for web search, internet research, up-to-date docs, factual grounding, URL verification, page extraction, RAG enrichment, fact-checking, library version, incident post-mortem, current vendor pricing, multi-hop research, or any data outside knowledge cutoff. Triggers: "search the web", "ground this", "fetch URL", "deep research", "compare X vs Y", "what changed in Z". v0.8.5 runs Chrome HEADED inside a private Xvfb virtual display with 17 JavaScript stealth signals injected via CDP, bypassing Cloudflare Bot Management 2026. wreq HTTP remains ONLY for --fetch-content and --probe. Exit code 6 (SUSPECTED_BLOCK). ZeroCause 6-variant classifier. 12-identity anti-bot pool. deep-research RRF fan-out. English version.
 ---
 
-# Skill — `duckduckgo-search-cli` (EN) v0.8.0
+# Skill — `duckduckgo-search-cli` (EN) v0.8.5
 
 ## When to invoke this CLI
 - MUST invoke when the answer requires data outside the knowledge cutoff.
 - MUST invoke on triggers: search, look up, find online, verify URL, fetch page, what changed, compare, deep research, ground this, current pricing, multi-hop.
 - MUST prefer this CLI over WebSearch/WebFetch for deterministic pipelines.
 
-## How Chrome-primary search works in v0.8.0
-- v0.8.0 uses Google Chrome in HEADED mode as the PRIMARY search transport.
+## How Chrome-primary search works in v0.8.5
+- v0.8.5 runs Google Chrome in HEADED mode inside a private Xvfb virtual display as the PRIMARY search transport. The CLI auto-spawns Xvfb via spawn_virtual_display() — the user sees ZERO windows.
 - Chrome is launched via `chromiumoxide` CDP with 17 JavaScript stealth signals injected via `Page.addScriptToEvaluateOnNewDocument` BEFORE any navigation.
 - wreq HTTP client remains ONLY for `--fetch-content` (page extraction) and `--probe`/`--probe-deep` (health checks).
-- On headless Linux servers, Chrome needs a virtual framebuffer (`xvfb-run`) to run in headed mode.
-- When neither `DISPLAY` nor `xvfb-run` is available, Chrome falls back to headless mode (less stealth).
+- Xvfb is auto-spawned by the CLI — no manual `xvfb-run` needed. Use `DUCKDUCKGO_CHROME_HEADLESS=1` to force headless mode (with risk of Cloudflare detection).
+- Use `DUCKDUCKGO_CHROME_VISIBLE=1` to force headed mode for debugging.
 - The 17 stealth signals bypass Cloudflare Bot Management 2026:
   - `navigator.webdriver=false` (removes automation flag)
   - `navigator.plugins` (5 realistic Chrome plugins: PDF Plugin, PDF Viewer, Native Client)
@@ -37,7 +37,7 @@ description: MUST invoke when the user asks for web search, internet research, u
   - `navigator.vendor` ("Google Inc.")
 
 ```bash
-# Chrome-primary search (default in v0.8.0)
+# Chrome-primary search (default in v0.8.5 — headed inside Xvfb)
 timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 | \
   jaq '{usou_chrome: .metadados.usou_chrome, tentou_chrome: .metadados.tentou_chrome}'
 ```
@@ -229,22 +229,38 @@ FAILURE — Report with cause + retry_after_seconds
 ```
 - IF `nivel_cascata == 4` observed, MUST rotate proxy or wait 300s before next invocation.
 
-## How to run multi-hop research with synthesis
-- MUST use `deep-research` for multi-hop questions:
+## How to run multi-hop research (ALWAYS use manual sub-queries)
+- MUST generate 3-5 specific sub-queries yourself instead of relying on heuristic templates
+- The default `--sub-query-strategy heuristic` appends generic suffixes ("main aspects components", "vs alternatives comparison") that produce low-quality results
+- ALWAYS use `--sub-query-strategy manual --sub-queries-file` with LLM-generated questions
 
 ```bash
+# Step 1: generate specific sub-queries (the LLM writes these)
+printf '%s\n' \
+  "tokio async runtime architecture work stealing scheduler" \
+  "async-std vs tokio benchmark performance comparison 2026" \
+  "tokio spawn vs spawn_blocking when to use each" \
+  "tokio runtime shutdown graceful timeout best practices" \
+  "tokio channels mpsc watch broadcast differences" \
+  > /tmp/sub-queries.txt
+
+# Step 2: run deep-research with manual sub-queries
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
-  --max-sub-queries 5 --aggregate rrf \
-  --synthesize --synth-format markdown --budget-tokens 1500 \
-  | jaq -r '.sintese'
+  --sub-query-strategy manual --sub-queries-file /tmp/sub-queries.txt \
+  --aggregate rrf \
+  | jaq '.resultados[] | {titulo, url, score}'
 ```
 
-- OUTPUT FORMULA: `.sintese` (Markdown), `.metadados.sub_queries[]` (per-subquery status), `.resultados[]` (RRF-aggregated).
-- EXIT MAP: `0=success`, `1=any-sub-query-failed`, `2=arg-error`, `3=anti-bot-during-fanout`, `4=timeout`, `5=zero-aggregated`.
+- ANTI-PATTERN: using default heuristic strategy — produces generic, low-quality sub-queries
+- ANTI-PATTERN: copying the user query verbatim as sub-queries — add specific angles
+- Each sub-query MUST target a distinct aspect: architecture, benchmarks, pricing, limitations, comparisons
+- OUTPUT FORMULA: `.sintese` (Markdown), `.metadados.sub_queries[]` (per-subquery status), `.resultados[]` (RRF-aggregated)
+- EXIT MAP: `0=success`, `1=any-sub-query-failed`, `2=arg-error`, `3=anti-bot-during-fanout`, `4=timeout`, `5=zero-aggregated`
 - COMBINE with `--pre-flight` for blocked environments:
 
 ```bash
-timeout 120 duckduckgo-search-cli --pre-flight -q -f json deep-research "rust async 2026" --max-sub-queries 3
+timeout 120 duckduckgo-search-cli --pre-flight -q -f json deep-research "rust async 2026" \
+  --sub-query-strategy manual --sub-queries-file /tmp/sub-queries.txt --max-sub-queries 5
 ```
 
 ## How to configure retries and timeouts without triggering anti-bot
@@ -306,18 +322,18 @@ timeout 60 duckduckgo-search-cli "incident 2026-06" -q -f json --num 10 \
 ## How to satisfy build prerequisites on Linux and Windows
 - Linux build deps: `cmake`, `perl`, `pkg-config`, `libclang-dev`.
 - Linux Chrome runtime deps: Google Chrome or Chromium installed (auto-detected via `detect_chrome`).
-- Linux headless server: `xvfb-run` package for headed Chrome mode (`sudo apt install xvfb` on Debian/Ubuntu, `sudo dnf install xorg-x11-server-Xvfb` on Fedora).
-- macOS: Chrome must be installed; no xvfb needed (native display).
-- Windows: Chrome must be installed; no xvfb needed (native display).
+- Linux runtime dep: Xvfb package (auto-spawned by CLI). Install: `sudo apt install xvfb` (Debian/Ubuntu), `sudo dnf install xorg-x11-server-Xvfb` (Fedora).
+- macOS: Chrome must be installed; no Xvfb needed (native display used directly).
+- Windows: Chrome must be installed; no Xvfb needed (native display used directly).
 - Windows MSVC build deps: `nasm`, `cmake` 3.20+ (C++ CMake tools sub-component), `cl.exe`, `link.exe`, Strawberry Perl.
 - Escape hatches when missing: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`.
 - `cargo install` ALWAYS compiles from source — crates.io ships NO pre-built binaries.
 - Chrome feature is enabled via `cargo build --features chrome` (default in `cargo install`).
 
-## How to install or upgrade to v0.8.0
+## How to install or upgrade to v0.8.5
 
 ```bash
-cargo install duckduckgo-search-cli --version 0.8.0 --locked --force
+cargo install duckduckgo-search-cli --version 0.8.5 --locked --force
 ```
 
 ## How to opt out of exit code 6 for BC with v0.7.x pipelines
@@ -333,10 +349,10 @@ timeout 60 duckduckgo-search-cli "blocked query" -q -f json --num 15
 # Exit 5 even if causa_zero is "anti-bot"
 ```
 
-## APPENDIX — Migration Notes (v0.7.10 → v0.8.0)
-- Chrome headed is now the PRIMARY search transport — wreq remains only for `--fetch-content` and `--probe`.
+## APPENDIX — Migration Notes (v0.7.10 → v0.8.5)
+- Chrome runs HEADED inside a private Xvfb virtual display as the PRIMARY search transport — wreq remains only for `--fetch-content` and `--probe`.
 - 17 JavaScript stealth signals injected via CDP bypass Cloudflare Bot Management 2026.
-- New runtime dep: Google Chrome or Chromium. On headless Linux: `xvfb-run` (`sudo apt install xvfb`).
+- New runtime deps: Google Chrome (or Chromium) + Xvfb (Linux only, auto-spawned by CLI via `spawn_virtual_display()`).
 - New exit code 6 (`SUSPECTED_BLOCK`): emitted when `causa_zero != legitimo` and `DUCKDUCKGO_ZERO_CAUSE_STRICT` is not `false`. Opt out: `export DUCKDUCKGO_ZERO_CAUSE_STRICT=false`.
 - New `ZeroCause` enum with 6 variants: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`, `zero-resultados-suspeito`.
 - New metadata fields: `causa_zero`, `sugestao_proxima_acao`, `bytes_brutos`, `bytes_descomprimidos`, `cascata_nivel_observado`, `usou_chrome`, `tentou_chrome`.

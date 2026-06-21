@@ -26,7 +26,7 @@ cargo install duckduckgo-search-cli
 
 Every modern LLM carries a knowledge cutoff, and every autonomous agent eventually needs something its weights never saw: the latest library version, a 2026 incident post-mortem, a vendor's current pricing page. Bolting on a hosted search API costs money, leaks queries, and breaks when the vendor rate-limits you in the middle of a multi-step plan.
 
-`duckduckgo-search-cli` is a single Rust binary that turns any shell into a first-class search tool. No API key. No tracking. No Chrome in the hot path. Just a stable JSON schema, bounded concurrency, and predictable exit codes — exactly what an agent needs to ground itself in real-time web data without becoming a liability.
+`duckduckgo-search-cli` is a single Rust binary that turns any shell into a first-class search tool. No API key. No tracking. Chrome-powered search that runs invisibly. A stable JSON schema, bounded concurrency, and predictable exit codes — exactly what an agent needs to ground itself in real-time web data without becoming a liability.
 
 ### Superpowers for every AI agent
 
@@ -96,15 +96,16 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 | [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 copy-paste recipes for research, ETL, monitoring, content extraction. Bilingual EN+PT. |
 | [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Drop-in snippets for 16 agents: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Antigravity, Copilot CLI, Devin, Cline, Roo Code. |
 
-### Prerequisites (v0.8.0+)
+### Prerequisites (v0.8.5+)
 - Google Chrome or Chromium (auto-detected via `detect_chrome()`)
-- `xvfb-run` on headless Linux servers: `sudo apt install xvfb` (Debian/Ubuntu)
-- Chrome is used as the PRIMARY search transport since v0.8.0
+- Linux: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt install xvfb` (Debian/Ubuntu)
+- Chrome is the PRIMARY search transport since v0.8.0
 - wreq HTTP client is used ONLY for `--fetch-content` and `--probe`
 - To build without Chrome: `cargo build --no-default-features`
-- v0.8.0: Chrome headed mode with 17 stealth signals bypasses Cloudflare anti-bot
-- Chrome runs inside `xvfb-run` virtual display on headless servers
-- No visible browser window — Xvfb provides a virtual X11 display
+- v0.8.5: Chrome runs HEADED inside a private Xvfb virtual display — ZERO visible windows
+- The CLI auto-spawns and auto-kills Xvfb — no manual setup needed on desktops
+- Fallback: headless mode if Xvfb is not available (with anti-bot risk)
+- Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (force headless), `DUCKDUCKGO_CHROME_XVFB=1` (xvfb on servers)
 
 ### Quick Start
 
@@ -321,6 +322,11 @@ non-literal markers and omit them from user-facing lists.
 | `HTTPS_PROXY`  | Default HTTPS proxy.                                        | `http://proxy:8443`                |
 | `ALL_PROXY`    | Fallback proxy for any scheme.                              | `socks5://127.0.0.1:9050`          |
 | `CHROME_PATH`  | Fallback Chrome path (feature `chrome`).                    | `/opt/google/chrome/chrome`        |
+| `DUCKDUCKGO_CHROME_VISIBLE` | Force headed Chrome with visible window (debug). | `DUCKDUCKGO_CHROME_VISIBLE=1` |
+| `DUCKDUCKGO_CHROME_HEADLESS` | Force headless Chrome (anti-bot risk). | `DUCKDUCKGO_CHROME_HEADLESS=1` |
+| `DUCKDUCKGO_CHROME_XVFB` | Opt-in headed via xvfb-run on servers. | `DUCKDUCKGO_CHROME_XVFB=1` |
+| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | Disable Chrome at runtime. | `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` |
+| `DUCKDUCKGO_ZERO_CAUSE_STRICT` | BC opt-out: map exit 6 back to exit 5 (v0.8.0+). | `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` |
 
 ### Output formats
 
@@ -339,6 +345,7 @@ non-literal markers and omit them from user-facing lists.
 | 3    | DuckDuckGo 202 block anomaly (soft-rate-limit).                |
 | 4    | Global timeout exceeded.                                       |
 | 5    | Zero results across all queries.                               |
+| 6    | Suspected block (zero results with non-legitimate cause, v0.8.0+). |
 
 ### Troubleshooting
 

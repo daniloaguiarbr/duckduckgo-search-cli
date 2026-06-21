@@ -1038,7 +1038,7 @@ pub fn read_queries_from_stdin_if_pipe() -> Result<Vec<String>, CliError> {
 /// nível 2+. Documenta fielmente o que aconteceu no pipeline.
 use crate::search::AggregatedSearchResult;
 
-fn derive_cascade_level_from_attempts(agregado: &AggregatedSearchResult) -> u32 {
+pub(crate) fn derive_cascade_level_from_attempts(agregado: &AggregatedSearchResult) -> u32 {
     let retries = agregado.attempts.saturating_sub(1);
     if agregado.used_fallback_lite && retries >= 2 {
         2

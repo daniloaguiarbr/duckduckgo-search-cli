@@ -144,7 +144,16 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         }
         Some(Subcommand::Buscar(args)) => *args,
         Some(Subcommand::DeepResearch(dr_args)) => {
-            return execute_deep_research(dr_args, root_global_timeout_seconds).await;
+            let search_defaults = root.buscar;
+            return execute_deep_research(
+                dr_args,
+                root_global_timeout_seconds,
+                &search_defaults,
+                allow_lite_fallback,
+                pre_flight,
+                identity_profile,
+            )
+            .await;
         }
         None => root.buscar,
     };
@@ -337,19 +346,16 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
 async fn execute_deep_research(
     args: crate::cli::DeepResearchArgs,
     root_global_timeout_seconds: u64,
+    search_defaults: &crate::cli::CliArgs,
+    allow_lite_fallback: bool,
+    pre_flight: bool,
+    identity_profile: crate::cli::CliIdentityProfile,
 ) -> i32 {
-    use crate::cli::DEFAULT_PARALLELISM;
     use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
 
-    initialize_logging(0, false, false);
-    platform::init();
-
-    // v0.7.10 P4: hoist require_results AND query before consuming `args`
-    // via field-by-field moves (avoids partial-move errors).
     let require_results = args.require_results;
     let query_for_error = args.query.clone();
 
-    // Translate the CLI struct into the library-level struct.
     let dr = DrArgs {
         query: args.query.clone(),
         max_sub_queries: args.max_sub_queries,
@@ -363,52 +369,52 @@ async fn execute_deep_research(
         synth_format: args.synth_format.into(),
     };
 
-    // Build a default config for the sub-queries. The deep-research pipeline
-    // does not need a file output or a custom format — it always emits JSON
-    // via stdout so LLMs can consume it directly.
-    let ua_list = http::load_user_agents(false);
-    let browser_profile = http::select_profile_from_list_seeded(&ua_list, None);
+    let ua_list = http::load_user_agents(search_defaults.match_platform_ua);
+    let browser_profile =
+        http::select_profile_from_list_seeded(&ua_list, search_defaults.seed);
     let user_agent = browser_profile.user_agent.clone();
     let selectors = selectors::load_selectors();
+    let effective_num = search_defaults.num_results.unwrap_or(15);
+    let effective_endpoint = match search_defaults.endpoint {
+        crate::cli::CliEndpoint::Html => Endpoint::Html,
+        crate::cli::CliEndpoint::Lite => Endpoint::Lite,
+    };
 
     let config = Config {
         query: dr.query.clone(),
         queries: vec![dr.query.clone()],
-        num_results: Some(10),
+        num_results: Some(effective_num),
         format: OutputFormat::Json,
-        timeout_seconds: 15,
-        language: "en".to_string(),
-        country: "us".to_string(),
-        pre_flight: false,
-        verbose: 0,
-        quiet: false,
+        timeout_seconds: search_defaults.timeout_seconds,
+        language: search_defaults.language.clone(),
+        country: search_defaults.country.clone(),
+        pre_flight,
+        verbose: search_defaults.verbose,
+        quiet: search_defaults.quiet,
         user_agent,
         browser_profile,
-        parallelism: DEFAULT_PARALLELISM,
+        parallelism: search_defaults.parallelism,
         pages: 1,
-        retries: 2,
-        endpoint: Endpoint::Html,
+        retries: search_defaults.retries,
+        endpoint: effective_endpoint,
         time_filter: None,
         safe_search: SafeSearch::Moderate,
         stream_mode: false,
         output_file: None,
         fetch_content: dr.fetch_content,
-        max_content_length: 10_000,
-        proxy: None,
-        no_proxy: false,
-        // v0.7.10 B3 fix: use the hoisted value from RootArgs (the user
-        // could have passed `--global-timeout N` before the subcommand).
+        max_content_length: search_defaults.max_content_length,
+        proxy: search_defaults.proxy.clone(),
+        no_proxy: search_defaults.no_proxy,
         global_timeout_seconds: root_global_timeout_seconds,
-        match_platform_ua: false,
-        per_host_limit: 2,
-        chrome_path: None,
+        match_platform_ua: search_defaults.match_platform_ua,
+        per_host_limit: search_defaults.per_host_limit as usize,
+        chrome_path: search_defaults.chrome_path.clone(),
         selectors,
-        // Deep research uses an in-memory cookie jar with no warm-up.
         cookie_provider: None,
         persistent_jar: None,
         warmup_enabled: false,
-        allow_lite_fallback: false,
-        identity_profile: crate::cli::CliIdentityProfile::Auto,
+        allow_lite_fallback,
+        identity_profile,
         last_probe_cascade_level: None,
     };
 
