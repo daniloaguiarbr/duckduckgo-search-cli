@@ -4,6 +4,39 @@ This guide covers version-to-version migration paths for `duckduckgo-search-cli`
 Each section documents breaking changes, additive changes, and rollback
 instructions.
 
+## Migration v0.8.5 → v0.8.6
+
+### What Changes
+- **TLS stack replaced (GAP-WS-066)** — `wreq` (BoringSSL) replaced by `reqwest` + `rustls-tls` (pure Rust TLS). NASM, CMake, Perl, and MSVC are no longer required on any platform.
+- `src/wreq_cookie_adapter.rs` renamed to `src/cookie_adapter.rs` — cookie persistence rewritten for `reqwest::cookie::Jar`
+- Brotli decompression removed — DuckDuckGo never serves brotli for HTML endpoints
+- HTTP fallback loses BoringSSL TLS fingerprint emulation — Chrome headed (primary since v0.8.0) produces real browser fingerprint
+- `build.rs` simplified: all BoringSSL preflights removed (nasm, cmake, cl, perl detection)
+- ADR-0001 superseded by ADR-0008
+
+### Step-by-Step Migration
+
+```bash
+# 1. Update
+cargo install duckduckgo-search-cli --version 0.8.6 --force
+
+# 2. Verify — no NASM/CMake/Perl errors on Windows
+duckduckgo-search-cli --probe
+```
+
+### Breaking Changes for Library Users
+- `wreq::Client` → `reqwest::Client` in all public types
+- `Arc<dyn wreq::cookie::CookieStore>` → `Arc<reqwest::cookie::Jar>` in `SearchConfig`
+- `wreq_cookie_adapter::PersistentJar` → `cookie_adapter::PersistentJar`
+- `wreq::header::*` → `reqwest::header::*` in all imports
+
+### Rollback
+```bash
+cargo install duckduckgo-search-cli --version 0.8.5 --force
+# Note: v0.8.5 requires NASM+CMake+Perl+MSVC on Windows
+```
+
+
 ## Migration v0.8.4 → v0.8.5
 
 ### What Changes
@@ -845,7 +878,7 @@ duckduckgo-search-cli --probe-deep -q -f json | jaq '.status, .cascata_motivo'
 # Expect: "captcha", "cloudflare" (or "ok" with marker)
 
 # Verify global flag with deep-research
-duckduckgo-search-cli --allow-lite-fallback deep-research "x" -q -f json
+duckduckgo-search-cli -q -f json --allow-lite-fallback deep-research "x"
 # Expect: no "unexpected argument" error
 
 # Verify pre-flight gate
@@ -917,7 +950,7 @@ duckduckgo-search-cli --probe-deep -q -f json; echo $?
 # Expect: 3 (captcha) or 0 (ok), no more 0-with-captcha-status
 
 # Verify require-results in deep-research
-duckduckgo-search-cli deep-research --require-results "unique_xyz_test" -q -f json 2>&1; echo $?
+duckduckgo-search-cli -q -f json deep-research --require-results "unique_xyz_test" 2>&1; echo $?
 # Expect: 4 (zero results) with stderr "exiting non-zero"
 
 # Verify bench wiring

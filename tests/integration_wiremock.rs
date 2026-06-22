@@ -11,6 +11,7 @@ use duckduckgo_search_cli::search::{
     execute_with_retry, extract_pagination_tokens, search_with_pagination, RetryFailReason,
 };
 use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
+use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -18,7 +19,6 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wreq::Client;
 
 /// Mutex async global para serializar testes que manipulam env vars.
 /// `std::env::set_var` is not thread-safe; each test acquires the lock async-friendly.

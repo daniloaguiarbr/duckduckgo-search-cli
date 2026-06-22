@@ -3,8 +3,8 @@
 //! v0.7.3 PR2 — Session warm-up orchestration.
 //!
 //! Thin module that owns the CLI flags and default XDG paths for the
-//! cookie jar. The actual JSON <-> `wreq::cookie::Jar` conversion lives
-//! in [`crate::wreq_cookie_adapter::PersistentJar`]; this module just
+//! cookie jar. The actual JSON <-> `reqwest::cookie::Jar` conversion lives
+//! in [`crate::cookie_adapter::PersistentJar`]; this module just
 //! decides where the file lives, whether to persist at all, and
 //! whether to perform a warm-up request.
 

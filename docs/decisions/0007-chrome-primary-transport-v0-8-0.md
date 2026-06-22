@@ -2,7 +2,7 @@
 
 
 ## Status
-- Accepted (2026-06-21)
+- Accepted (2026-06-21). Note: wreq references in this ADR are historical; wreq was replaced by reqwest+rustls in v0.8.6 (ADR-0008)
 
 
 ## Context

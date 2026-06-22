@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.7.7** (published 2026-06-14, working tree **v0.7.8**). v0.7.7 fixes the critical GAP-WS-49 (TLS fingerprint regression in v0.7.6 — real queries returned 0 results). v0.7.8 (pending tag) closes 8 anti-bot detection gaps (see `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md`). Both retain all v0.7.3 features (BoringSSL TLS via `wreq 6.0.0-rc.29`, `session`, `probe-deep`); fully backward-compatible with v0.7.0–v0.7.3 in CLI flags and JSON output schema. Building requires `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux and the NASM assembler on Windows MSVC. `cargo install` ALWAYS compiles from source; GitHub Release binaries are available only when the release pipeline publishes them. **Residual GAP-WS-48 — see note below: `cargo install` WITHOUT `--locked` can still break on the `alloc-no-stdlib 2.0.4 vs 3.0.0` collision. Always pass `--locked`.**
+> Current release: **v0.8.6**. v0.8.6 replaces the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` — pure Rust TLS with zero native C dependencies. `cmake`, `perl`, `pkg-config`, `libclang-dev`, and the NASM assembler are NO LONGER required to build. `cargo install duckduckgo-search-cli` now works on all platforms (including Windows) with only the Rust toolchain. Chrome headed (via `chromiumoxide`) is the primary search transport since v0.8.0. MSRV remains 1.88. `cargo install` ALWAYS compiles from source; GitHub Release binaries are available only when the release pipeline publishes them.
 
 
 ## Support Matrix
@@ -19,7 +19,8 @@
 - Targets Ubuntu 20.04+, Debian 11+, Fedora 37+, RHEL 8+
 - Requires glibc version 2.17 or newer — present in every current distribution
 - Download the pre-built binary from GitHub Releases or install via `cargo install`
-- **v0.7.3+: building from source requires BoringSSL toolchain.** Install `cmake`, `perl`, `pkg-config`, and `libclang-dev` (Debian/Ubuntu: `apt install cmake perl pkg-config libclang-dev`; Fedora/RHEL: `dnf install cmake perl pkg-config clang-devel`). The build statically links BoringSSL via `wreq 6.0.0-rc.29`; pre-built binaries are not affected.
+- **v0.8.6+**: building from source requires only the Rust toolchain — no C compiler, `cmake`, `perl`, `pkg-config`, or `libclang-dev` needed (TLS is pure Rust via `reqwest` + `rustls`)
+- **v0.7.3–v0.8.5 only**: building from source required BoringSSL toolchain (`cmake`, `perl`, `pkg-config`, `libclang-dev`). This is no longer the case as of v0.8.6
 - Works inside WSL2 (Windows Subsystem for Linux) without any extra configuration
 ### musl — x86_64-unknown-linux-musl
 - Targets Alpine Linux, minimal Docker containers, and embedded environments
@@ -27,7 +28,8 @@
 - Works in `FROM scratch` Docker images because no libc is loaded at runtime
 - Build locally with `cargo build --release --target x86_64-unknown-linux-musl`
 - Requires `musl-tools` on the build machine: `apt install musl-tools` on Debian or `apk add musl-dev` on Alpine
-- **v0.7.3+: BoringSSL build adds cmake, perl, pkg-config, libclang-dev as additional build-time deps for the musl target**
+- **v0.8.6+**: no additional build-time deps beyond `musl-tools` — TLS is pure Rust via `reqwest` + `rustls`
+- **v0.7.3–v0.8.5 only**: BoringSSL build added cmake, perl, pkg-config, libclang-dev as additional build-time deps for the musl target
 - Pre-built musl binaries are attached to GitHub Releases (when published) as `SHA256SUMS.txt`-verified archives
 
 
@@ -59,6 +61,8 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - PowerShell 5.1+ or PowerShell 7+ — both work without additional configuration
 - Add the binary to a directory on `%PATH%` such as a custom tools folder
 - Install via `cargo install duckduckgo-search-cli` — Cargo places the binary in `%USERPROFILE%\.cargo\bin`
+- **v0.8.6+**: no extra tools needed beyond the Rust toolchain — TLS is pure Rust via `reqwest` + `rustls`
+- **v0.7.3–v0.8.5 only**: required Visual Studio Build Tools 2019+, NASM assembler, CMake 3.20+, MSVC C/C++ toolchain, and Strawberry Perl for BoringSSL compilation
 ### UTF-8 Console Output
 - `main.rs` calls `SetConsoleOutputCP(65001)` at startup — UTF-8 is active before any output is written
 - Windows Terminal and PowerShell 7 display accented characters and CJK glyphs without mangling
@@ -82,36 +86,47 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
   Windows regressions are caught before release.
 
 
-### v0.7.3 — BoringSSL Build Prerequisites and musl Toolchain
+### v0.8.6 — Migration from BoringSSL to reqwest/rustls (Pure Rust TLS)
 
-- **TLS stack changed from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`.** BoringSSL
-  is statically linked into the binary. On Linux, building from source now
-  requires the C toolchain for BoringSSL compilation:
+- **v0.8.6 replaced `wreq` (BoringSSL) with `reqwest` + `rustls-tls`.** TLS is now pure Rust with zero native C dependencies
+- `cmake`, `perl`, `pkg-config`, `libclang-dev`, and NASM are NO LONGER required to build on any platform
+- `cargo install duckduckgo-search-cli` now works on Windows with only the Rust toolchain — no Visual Studio Build Tools, NASM, CMake, or Strawberry Perl needed
+- Build time is faster (no BoringSSL C compilation step)
+- Binary size is smaller (no statically linked BoringSSL)
+- The GAP-WS-48 `alloc-no-stdlib` collision is eliminated (no `wreq-util`/`brotli` dependency chain)
+- **Docker Alpine example** (v0.8.6+):
+
+  ```dockerfile
+  FROM rust:1.88-alpine AS builder
+  RUN apk add --no-cache musl-dev
+  WORKDIR /app
+  COPY . .
+  RUN cargo build --release --target x86_64-unknown-linux-musl
+
+  FROM alpine:3.19
+  COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/duckduckgo-search-cli /usr/local/bin/
+  ENTRYPOINT ["duckduckgo-search-cli"]
+  ```
+
+### v0.7.3–v0.8.5 — BoringSSL Build Prerequisites (HISTORICAL)
+
+- **v0.7.3–v0.8.5 only.** These versions used BoringSSL via `wreq 6.0.0-rc.29` for TLS fingerprint emulation. As of v0.8.6, this section is historical — the BoringSSL stack has been fully replaced by `reqwest` + `rustls`
+- Building from source in v0.7.3–v0.8.5 required the C toolchain for BoringSSL compilation:
 
   ```bash
-  # Debian / Ubuntu
+  # Debian / Ubuntu (v0.7.3-v0.8.5 ONLY — not needed in v0.8.6+)
   sudo apt-get update && sudo apt-get install -y \
     cmake perl pkg-config libclang-dev
 
-  # Fedora / RHEL
+  # Fedora / RHEL (v0.7.3-v0.8.5 ONLY)
   sudo dnf install -y cmake perl pkg-config clang-devel
 
-  # Alpine (musl)
+  # Alpine (musl) (v0.7.3-v0.8.5 ONLY)
   sudo apk add cmake perl pkg-config clang-dev
   ```
 
-- **CI matrix in `.github/workflows/release.yml`** automatically installs
-  these packages in the `linux-x86_64-build` and `linux-x86_64-musl-build`
-  jobs. End users installing the pre-built binary from crates.io do not
-  need any of these tools.
-- **Binary size**: +20 MB (BoringSSL is statically linked). Release build
-  time: +30s to +90s depending on hardware (BoringSSL takes 30s to 90s
-  to compile in release mode).
-- **macOS Apple Silicon and Intel**: GitHub Release binaries (when published) need no extra deps.
-  `cargo install` always compiles from source and requires Command Line Tools (`xcode-select --install`).
-- **Windows MSVC**: `cargo install` always compiles from source — crates.io ships NO pre-built binaries. Requires Visual Studio
-  Build Tools 2019+ with the C++ workload PLUS the NASM assembler (GAP-WS-28; preflight added in v0.7.4) PLUS CMake 3.20+ (GAP-WS-29) PLUS MSVC C/C++ toolchain (GAP-WS-30) PLUS Strawberry Perl (GAP-WS-31). v0.7.5 extends the preflight to detect all four tools. See `scripts/install-windows.ps1` and `docs/INSTALL-WINDOWS.md`.
-- **Docker Alpine example** (v0.7.3+):
+- **Windows MSVC (v0.7.3–v0.8.5 only)**: required Visual Studio Build Tools 2019+ with the C++ workload PLUS the NASM assembler PLUS CMake 3.20+ PLUS MSVC C/C++ toolchain PLUS Strawberry Perl. None of these are needed in v0.8.6+
+- **Docker Alpine example** (v0.7.3–v0.8.5 only):
 
   ```dockerfile
   FROM rust:1.88-alpine AS builder
@@ -190,7 +205,8 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 ### Prerequisites
 - Rust toolchain version 1.88 or newer — install via `rustup` from rustup.rs
 - For musl targets on Linux: `sudo apt install musl-tools` or `apk add musl-dev` on Alpine
-- **For v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux. macOS needs `xcode-select --install`. Windows needs Visual Studio Build Tools 2019+ with the C++ workload AND the C++ CMake tools for Windows sub-component (manually selected in the Visual Studio Installer — NOT included in the C++ workload by default) AND the NASM assembler (`winget install -e --id NASM.NASM`; the installer does not update PATH) AND Strawberry Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`). MSVC tools (cl.exe, link.exe) require running `Launch-VsDevShell.ps1` in the same shell to set PATH, INCLUDE, and LIB. See `scripts/install-windows.ps1` and the new `docs/INSTALL-WINDOWS.md` for step-by-step instructions covering each prerequisite. (Closed GAP-WS-29/30/31 in v0.7.5.)
+- **v0.8.6+**: no additional build dependencies beyond the Rust toolchain on any platform. TLS is pure Rust via `reqwest` + `rustls`. macOS still needs `xcode-select --install` for the linker
+- **v0.7.3–v0.8.5 only (BoringSSL)**: required `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux; Visual Studio Build Tools 2019+ with NASM, CMake, Strawberry Perl on Windows. See `scripts/install-windows.ps1` and `docs/INSTALL-WINDOWS.md` for historical setup instructions
 - Cross-compilation: `rustup target add <target>` before running `cargo build`
 - For the macOS Universal binary: add both `aarch64-apple-darwin` and `x86_64-apple-darwin` targets
 ### Build Commands by Target
@@ -230,9 +246,10 @@ cargo install duckduckgo-search-cli
 ```
 
 - Cargo fetches the crate from crates.io, compiles for the host architecture, and places the binary in `~/.cargo/bin`
-- Minimum Supported Rust Version (MSRV) is 1.88 (since v0.7.2) — run `rustup update` if your toolchain is older. v0.7.3+ additionally requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux for the BoringSSL stack via `wreq 6.0.0-rc`.
-- Verify the installation: `duckduckgo-search-cli --version` (expect `0.7.7` for the v0.7.7 release; v0.7.8 in working tree)
-- **ALWAYS pass `--locked`** to avoid residual GAP-WS-48: `cargo install duckduckgo-search-cli --locked` (or pin the version too: `cargo install duckduckgo-search-cli --version 0.7.7 --locked`). The v0.7.7 `Cargo.lock` was prepared with `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` to keep the dependency graph clean.
+- Minimum Supported Rust Version (MSRV) is 1.88 — run `rustup update` if your toolchain is older
+- **v0.8.6+**: no additional system dependencies needed on any platform — TLS is pure Rust via `reqwest` + `rustls`
+- **v0.7.3–v0.8.5 only**: additionally required `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux for the BoringSSL stack
+- Verify the installation: `duckduckgo-search-cli --version`
 ### Pre-built Binaries
 - Pre-built binaries for all five targets are attached to GitHub Releases when the release pipeline publishes them (`cargo install` always compiles from source)
 - Each release includes a `SHA256SUMS.txt` file for integrity verification before execution
@@ -245,7 +262,7 @@ sha256sum --check SHA256SUMS.txt
 tar -xzf duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
 chmod +x duckduckgo-search-cli
 sudo mv duckduckgo-search-cli /usr/local/bin/
-duckduckgo-search-cli --version   # expect 0.7.7 (v0.7.8 in working tree)
+duckduckgo-search-cli --version
 ```
 
 - Report platform-specific issues at the GitHub repository issue tracker
@@ -359,22 +376,26 @@ codes are unchanged. Binary size is unchanged. Build time delta is within
 slightly differently but no call site needed refactor.
 
 
-## v0.7.5 → v0.7.8 Comparison Matrix
+## v0.7.5 → v0.8.6 Comparison Matrix
 
-| Concern | v0.7.5 | v0.7.7 | v0.7.8 |
-|---|---|---|---|
-| `cargo install` on Linux | Broken (GAP-WS-48) | Works with `--locked` | Works with `--locked` |
-| Real queries return results | Yes | Yes (restored via TLS fix) | Yes (with better markers) |
-| Detects DDG `anomaly-modal` | No | No | Yes (8 new markers) |
-| Probe-deep honest signal | Short query `rust` | Short query `rust` | Long pan-gram 9-word |
-| Fallback opt-in honored | Inverted predicate | Inverted predicate | Detector-driven |
-| `-vv` debug flag | Not supported | Not supported | Yes (`ArgAction::Count`) |
-| `cargo audit` clean | 1 transitive advisory | 1 transitive advisory | Clean (RUSTSEC-2025-0057 closed) |
-| `buscar` subcommand | Visible in `--help` | Visible in `--help` | Hidden |
-| `--retries N` honored | No (hard-coded 1) | No (hard-coded 1) | Yes (clamp `[1, 10]`) |
+| Concern | v0.7.5 | v0.7.7 | v0.7.8 | v0.8.6 |
+|---|---|---|---|---|
+| TLS stack | BoringSSL (wreq) | BoringSSL (wreq) | BoringSSL (wreq) | reqwest + rustls (pure Rust) |
+| Build deps (Linux) | cmake, perl, pkg-config, libclang-dev | cmake, perl, pkg-config, libclang-dev | cmake, perl, pkg-config, libclang-dev | None (Rust toolchain only) |
+| Build deps (Windows) | NASM, CMake, Perl, MSVC | NASM, CMake, Perl, MSVC | NASM, CMake, Perl, MSVC | None (Rust toolchain only) |
+| `cargo install` on Linux | Broken (GAP-WS-48) | Works with `--locked` | Works with `--locked` | Works (no `--locked` needed) |
+| `cargo install` on Windows | Requires 4 extra tools | Requires 4 extra tools | Requires 4 extra tools | Works with Rust toolchain only |
+| Primary search transport | HTTP only | HTTP only | HTTP only | Chrome headed (since v0.8.0) |
+| Real queries return results | Yes | Yes (restored via TLS fix) | Yes (with better markers) | Yes (Chrome headed) |
+| Detects DDG `anomaly-modal` | No | No | Yes (8 new markers) | Yes |
+| `-vv` debug flag | Not supported | Not supported | Yes (`ArgAction::Count`) | Yes |
+| `cargo audit` clean | 1 transitive advisory | 1 transitive advisory | Clean (RUSTSEC-2025-0057 closed) | Clean |
+| `--retries N` honored | No (hard-coded 1) | No (hard-coded 1) | Yes (clamp `[1, 10]`) | Yes |
 
 
-## Residual GAP-WS-48 — When the Symptom Returns
+## Residual GAP-WS-48 — When the Symptom Returns (v0.7.3–v0.8.5 ONLY)
+
+**v0.8.6+ eliminates this issue entirely** by removing the `wreq`/`brotli` dependency chain. This section applies only to v0.7.3–v0.8.5.
 
 If a user reports `E0277 the trait bound 'StandardAlloc: alloc::Allocator<T> is not satisfied`
 on `cargo install` of v0.7.7 or v0.7.8, the cause is almost always
@@ -393,19 +414,43 @@ one of these:
 The robust recipe for fresh machines is:
 
 ```bash
-# Linux/macOS — explicit version + locked lock
+# v0.7.3-v0.8.5: explicit version + locked lock
 cargo install duckduckgo-search-cli --version 0.7.7 --locked
 
-# Windows MSVC — same, plus developer shell for cl.exe
-cargo install duckduckgo-search-cli --version 0.7.7 --locked
+# v0.8.6+: --locked no longer critical (wreq/brotli chain removed)
+cargo install duckduckgo-search-cli
 ```
 
 Verify after install:
 
 ```bash
-duckduckgo-search-cli --version          # expect 0.7.7 (or 0.7.8)
+duckduckgo-search-cli --version
 duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 ```
+
+## v0.8.0 — Chrome Headed as Primary Search Transport
+
+**v0.8.0 made Chrome headed (via `chromiumoxide`) the PRIMARY search
+transport.** HTTP-only search remains as a fallback. The ZeroCause
+classifier was added for anti-bot evasion. HTTP decompression was
+integrated natively.
+
+
+## v0.8.6 — Migration from wreq/BoringSSL to reqwest/rustls
+
+**v0.8.6 replaces the entire TLS stack.** The `wreq` crate (which
+statically linked BoringSSL, a C library) has been replaced by `reqwest`
+with the `rustls-tls` feature — pure Rust TLS with zero native C
+dependencies.
+
+- `cmake`, `perl`, `pkg-config`, `libclang-dev` are NO LONGER build dependencies on Linux
+- NASM assembler, CMake, Strawberry Perl are NO LONGER build dependencies on Windows
+- `cargo install duckduckgo-search-cli` now works on Windows with ONLY the Rust toolchain
+- The GAP-WS-48 `alloc-no-stdlib 2.0.4 vs 3.0.0` collision is eliminated — `--locked` is no longer critical for correct builds
+- Build time is faster (no BoringSSL C compilation)
+- Binary size is smaller (no statically linked BoringSSL)
+- Chrome headed (since v0.8.0) is the primary search transport — the HTTP client TLS stack matters less for anti-bot evasion since Chrome handles its own TLS
+
 
 ## Chrome Requirements (v0.8.5)
 - Linux: `sudo apt install google-chrome-stable xvfb` (Debian/Ubuntu)

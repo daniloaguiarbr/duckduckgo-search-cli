@@ -18,8 +18,7 @@ fn stealth_shell_body() -> String {
     body.push_str("<input type=\"text\" name=\"q\" autocomplete=\"off\">");
     body.push_str("<button type=\"submit\">S</button></form></div>");
     // Padding that mimics DDG home page content (categories, footer, etc.)
-    let padding: String = std::iter::repeat_n("DuckDuckGo privacy search engine. ", 450)
-        .collect();
+    let padding: String = std::iter::repeat_n("DuckDuckGo privacy search engine. ", 450).collect();
     body.push_str(&padding);
     body.push_str("</body></html>");
     body
@@ -28,13 +27,19 @@ fn stealth_shell_body() -> String {
 #[test]
 fn has_result_page_signal_returns_false_for_stealth_shell() {
     let body = stealth_shell_body();
-    assert!(!has_result_page_signal(&body), "stealth shell has no result__a selectors");
+    assert!(
+        !has_result_page_signal(&body),
+        "stealth shell has no result__a selectors"
+    );
 }
 
 #[test]
 fn classify_stealth_shell_14kb_returns_ghost_block() {
     let body = stealth_shell_body();
-    assert!(body.len() >= 14_000, "fixture must be 14KB+ for the stealth shell branch");
+    assert!(
+        body.len() >= 14_000,
+        "fixture must be 14KB+ for the stealth shell branch"
+    );
     let inputs = ZeroClassificationInputs {
         body: &body,
         pre_flight_enabled: false,
@@ -85,5 +90,8 @@ fn classify_legit_short_query_with_signal_returns_legitimo() {
         concurrent_fetches: 0,
         last_probe_cascade_level: None,
     };
-    assert_eq!(classify_zero_result(&inputs), duckduckgo_search_cli::types::ZeroCause::Legitimo);
+    assert_eq!(
+        classify_zero_result(&inputs),
+        duckduckgo_search_cli::types::ZeroCause::Legitimo
+    );
 }

@@ -17,8 +17,7 @@ use duckduckgo_search_cli::decompress::decode_bytes;
 
 fn bench_decode_gzip(c: &mut Criterion) {
     let plain = include_str!("../tests/fixtures/interstitial_cloudflare_anomaly_2026.html");
-    let mut encoder =
-        flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     std::io::Write::write_all(&mut encoder, plain.as_bytes()).unwrap();
     let gzipped = encoder.finish().unwrap();
 

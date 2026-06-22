@@ -6,10 +6,12 @@ the trade-off is. Read this before proposing a "standard" alternative in
 PRs — every inversion here has a recorded rationale that a "more idiomatic"
 choice would silently break.
 
-## Inversion 1 — `wreq` instead of `reqwest` (v0.7.3+)
+## Inversion 1 — `wreq` instead of `reqwest` (v0.7.3–v0.8.5, REVERSED in v0.8.6)
+
+> **Status: REVERSED in v0.8.6** — replaced by `reqwest` + `rustls-tls` (ADR-0008). Chrome headed (v0.8.0+) provides real browser TLS fingerprint, making BoringSSL emulation redundant. The BoringSSL build toolchain (NASM, CMake, Perl) blocked Windows users from `cargo install`.
 
 - **Default expectation**: new Rust CLI projects use `reqwest` with `rustls-tls`.
-- **What we did**: replaced `reqwest 0.12 + rustls` with `wreq 6.0.0-rc.29`
+- **What we did (v0.7.3)**: replaced `reqwest 0.12 + rustls` with `wreq 6.0.0-rc.29`
   (statically links BoringSSL).
 - **Why**: `rustls` produces a canonical TLS fingerprint that Cloudflare Bot
   Management recognizes as non-browser, triggering CAPTCHA interstitials on
@@ -19,10 +21,7 @@ choice would silently break.
   compile time is ~40s longer due to BoringSSL; builds require `cmake`,
   `perl`, `pkg-config`, `libclang-dev` on Linux and NASM/CMake/MSVC/Perl on
   Windows. Every `cargo install` compiles BoringSSL from source.
-- **No-go for revert**: the CAPTCHA issue (GAP-WS-27) was reproducible
-  cross-machine and unfixable in `reqwest+rustls`. The pin in
-  `wreq 6.0.0-rc.29` + 3 transitive pins (`wreq-util`, `brotli-decompressor =5.0.1`,
-  `alloc-no-stdlib =2.0.4`) is load-bearing — see Cargo.toml comments.
+- **Why reversed (v0.8.6)**: Chrome headed (primary transport since v0.8.0) generates a REAL browser TLS fingerprint, making wreq/BoringSSL emulation redundant. The BoringSSL build toolchain (NASM, CMake, Perl, MSVC) was a total barrier for Windows users (GAP-WS-066). See `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 
 ## Inversion 2 — Thiserror for libs, no anyhow in library code (v0.5.0+)
 

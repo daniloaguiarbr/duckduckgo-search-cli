@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Transparent decompression of HTTP response bodies.
 //!
-//! `wreq 6.0.0-rc` enables the `gzip` and `deflate` features but does NOT
-//! decompress the body returned by `Response::text()` or `Response::bytes()`.
+//! The HTTP client enables the `gzip` and `deflate` features but does NOT
+//! always decompress the body returned by `Response::text()` or `Response::bytes()`.
 //! The DDG upstream always replies with `Content-Encoding: gzip` for HTML
 //! responses, so the body reaching the caller is a stream of gzip-compressed
 //! bytes (~9 KB instead of the ~14 KB plain text body). Downstream consumers
@@ -35,8 +35,8 @@ pub const DECOMPRESSION_MAX_OUTPUT: usize = 32 * 1024 * 1024;
 /// - `gzip` — decodes via [`flate2::read::MultiGzDecoder`] (handles
 ///   concatenated gzip streams transparently).
 /// - `deflate` — decodes via [`flate2::read::ZlibDecoder`].
-/// - `br` — decodes via [`brotli_decompressor::Decompressor`] (already
-///   pinned in `Cargo.toml` to satisfy GAP-WS-48/49).
+/// - `br` — returns [`CliError::UnsupportedEncoding`] (brotli removed in
+///   v0.8.6 with the wreq-to-reqwest migration; `DuckDuckGo` never serves brotli for HTML endpoints).
 /// - Anything else — [`CliError::UnsupportedEncoding`].
 ///
 /// Returns [`CliError::PayloadTooLarge`] if decompression exceeds
@@ -54,10 +54,10 @@ pub const DECOMPRESSION_MAX_OUTPUT: usize = 32 * 1024 * 1024;
 /// - [`CliError::DecompressionIo`] if the decoder returns an I/O error
 ///   (corrupt stream, truncated payload).
 /// - [`CliError::InvalidUtf8`] if the decoded bytes are not valid UTF-8.
-pub async fn response_body_string(response: wreq::Response) -> Result<String, CliError> {
+pub async fn response_body_string(response: reqwest::Response) -> Result<String, CliError> {
     let encoding = response
         .headers()
-        .get(wreq::header::CONTENT_ENCODING)
+        .get(reqwest::header::CONTENT_ENCODING)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("identity")
         .to_ascii_lowercase();
@@ -70,9 +70,11 @@ pub async fn response_body_string(response: wreq::Response) -> Result<String, Cl
     // measurement that motivated this.
     let decoded = tokio::task::spawn_blocking(move || decode_bytes(&bytes, &encoding))
         .await
-        .map_err(|e| CliError::DecompressionIo(std::io::Error::other(format!(
-            "decompression task panicked: {e}"
-        ))))??;
+        .map_err(|e| {
+            CliError::DecompressionIo(std::io::Error::other(format!(
+                "decompression task panicked: {e}"
+            )))
+        })??;
     String::from_utf8(decoded).map_err(CliError::from)
 }
 
@@ -108,13 +110,11 @@ pub fn decode_bytes(bytes: &[u8], encoding: &str) -> Result<Vec<u8>, CliError> {
                 .read_to_end(&mut out)?;
             Ok(out)
         })?,
-        "br" => decode_with_cap(bytes, |slice| {
-            let mut out = Vec::with_capacity(bytes.len() * 4);
-            brotli_decompressor::Decompressor::new(slice, 4096)
-                .take(u64::try_from(DECOMPRESSION_MAX_OUTPUT).unwrap_or(u64::MAX) + 1)
-                .read_to_end(&mut out)?;
-            Ok(out)
-        })?,
+        "br" => {
+            return Err(CliError::UnsupportedEncoding(
+                "br (brotli removed in v0.8.6)".to_string(),
+            ))
+        }
         other => return Err(CliError::UnsupportedEncoding(other.to_string())),
     };
 

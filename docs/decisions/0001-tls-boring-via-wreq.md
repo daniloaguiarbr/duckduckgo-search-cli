@@ -1,6 +1,8 @@
+> **Status: Superseded by [ADR-0008](0008-reqwest-rustls-v0-8-6.md) in v0.8.6**
+
 # ADR-0001 — Stack TLS via BoringSSL (crate `wreq`)
 
-- Status: Accepted (2026-06-08)
+- Status: Superseded (2026-06-22) — see ADR-0008
 - Decisor: lead
 - Contexto: GAP-WS-27 (bloqueio CAPTCHA no macOS, sem paridade com Windows no mesmo Wi-Fi)
 

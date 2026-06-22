@@ -617,7 +617,7 @@ pub struct ProbeOutcome {
 /// Lightweight, pure-Rust health check used by the P5 scheduler. Given
 /// the response body and HTTP status, returns a `ProbeOutcome`. This
 /// function does NOT perform network I/O — the caller fetches the
-/// response via `wreq::Client`, then passes the body here.
+/// response via `reqwest::Client`, then passes the body here.
 ///
 /// `expected_marker_hint` is the marker the scheduler expects to see
 /// (informational only, for log correlation).

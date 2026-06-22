@@ -19,11 +19,11 @@ use crate::extraction;
 use crate::probe_deep::{detectar_interstitial, InterstitialKind};
 use crate::types::{Config, Endpoint, SafeSearch, SearchResult, TimeFilter};
 use rand::RngExt;
+use reqwest::{Client, Response, StatusCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use wreq::{Client, Response, StatusCode};
 
 /// Default base URL for the `DuckDuckGo` HTML endpoint.
 const URL_ENDPOINT_HTML_DEFAULT: &str = "https://html.duckduckgo.com/html/";
@@ -441,7 +441,7 @@ pub struct AggregatedSearchResult {
     /// Endpoint that produced the final results.
     pub effective_endpoint: Endpoint,
     /// Body bruto da PRIMEIRA página (vazio se indisponível).
-    /// v0.8.0 GAP-AUD-003: consumido por 
+    /// v0.8.0 GAP-AUD-003: consumido por
     /// para distinguir ghost-block de zero legitimo. Não persistido em disco.
     pub first_body: String,
     /// Bytes brutos recebidos do DDG ANTES da descompressão.
@@ -483,19 +483,28 @@ pub fn extract_pagination_tokens(html: &str) -> Option<(String, String, String)>
 fn sel_vqd() -> &'static scraper::Selector {
     use std::sync::OnceLock;
     static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| scraper::Selector::parse("input[name='vqd']").expect("static CSS selector 'input[name=vqd]' must parse"))
+    C.get_or_init(|| {
+        scraper::Selector::parse("input[name='vqd']")
+            .expect("static CSS selector 'input[name=vqd]' must parse")
+    })
 }
 
 fn sel_s_input() -> &'static scraper::Selector {
     use std::sync::OnceLock;
     static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| scraper::Selector::parse("input[name='s']").expect("static CSS selector 'input[name=s]' must parse"))
+    C.get_or_init(|| {
+        scraper::Selector::parse("input[name='s']")
+            .expect("static CSS selector 'input[name=s]' must parse")
+    })
 }
 
 fn sel_dc() -> &'static scraper::Selector {
     use std::sync::OnceLock;
     static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| scraper::Selector::parse("input[name='dc']").expect("static CSS selector 'input[name=dc]' must parse"))
+    C.get_or_init(|| {
+        scraper::Selector::parse("input[name='dc']")
+            .expect("static CSS selector 'input[name=dc]' must parse")
+    })
 }
 
 /// Decides whether `search_with_pagination` should attempt the Lite
@@ -583,7 +592,7 @@ pub async fn search_with_pagination(
     // v0.8.0 GAP-NEW-002: telemetria de descompressão HTTP. Quando o body
     // é lido via  o  6.0.0-rc não descompacta automaticamente,
     // portanto  é o tamanho do buffer decodificado (igual a
-    // ). Integração completa com 
+    // ). Integração completa com
     // está fora do escopo desta task — ver Phase F.2 plan para follow-up.
     let accumulated_bytes_in: u64 = first_html.len() as u64;
     let accumulated_bytes_out: u64 = first_html.len() as u64;
@@ -766,7 +775,7 @@ pub async fn search_with_pagination(
                     }
                     r = client
                         .post(&base)
-                        .header(wreq::header::REFERER, "https://html.duckduckgo.com/")
+                        .header(reqwest::header::REFERER, "https://html.duckduckgo.com/")
                         .headers(cfg.browser_profile.pagination_headers())
                         .form(&form_data)
                         .send() => r,
@@ -910,7 +919,7 @@ mod tests {
             allow_lite_fallback: false,
             pre_flight: false,
             identity_profile: crate::cli::CliIdentityProfile::Auto,
-        last_probe_cascade_level: None,
+            last_probe_cascade_level: None,
         }
     }
 

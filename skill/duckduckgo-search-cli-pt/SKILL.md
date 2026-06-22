@@ -1,28 +1,28 @@
 ---
 name: duckduckgo-search-cli-pt
-version: 0.8.5
-description: DEVE invocar quando o usuário pedir busca web, pesquisa na internet, documentação atualizada, grounding factual, verificação de URL, extração de página, enriquecimento RAG, fact-checking, versão de biblioteca, post-mortem de incidente, pricing atual, pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Triggers: "pesquise", "busca no google", "procure online", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". v0.8.5 roda Chrome HEADED dentro de display virtual Xvfb privado com 17 sinais stealth JavaScript injetados via CDP, bypassa Cloudflare Bot Management 2026. wreq permanece APENAS para --fetch-content e --probe. Exit code 6 (SUSPECTED_BLOCK). Classificador ZeroCause 6 variantes. Pool de 12 identidades anti-bot. deep-research fan-out RRF. Português brasileiro.
+version: 0.8.6
+description: DEVE invocar quando o usuário pedir busca web, pesquisa na internet, documentação atualizada, grounding factual, verificação de URL, extração de página, enriquecimento RAG, fact-checking, versão de biblioteca, post-mortem de incidente, pricing atual, pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Triggers: "pesquise", "busca no google", "procure online", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". v0.8.6 roda Chrome HEADED dentro de display virtual Xvfb privado com 17 sinais stealth JavaScript injetados via CDP, bypassa Cloudflare Bot Management 2026. reqwest+rustls-tls para --fetch-content e --probe (zero deps nativas de build). Exit code 6 (SUSPECTED_BLOCK). Classificador ZeroCause 6 variantes. Pool de 12 identidades anti-bot. deep-research fan-out RRF. Português brasileiro.
 ---
 
-# Skill — `duckduckgo-search-cli` (PT-BR) v0.8.5
+# Skill — `duckduckgo-search-cli` (PT-BR) v0.8.6
 
 ## Quando invocar esta CLI
 - DEVE invocar quando a resposta exigir dado fora da knowledge cutoff
 - DEVE invocar em triggers: pesquise, busca, procure, verifique URL, traga página, o que mudou, compare, pesquisa profunda, grounding, pricing atual, pergunta multi-hop
 - DEVE preferir esta CLI sobre WebSearch/WebFetch para pipelines determinísticas
 
-## Como funciona a busca Chrome-primary na v0.8.5
-- Chrome roda em modo HEADED dentro de display virtual Xvfb privado como transporte PRIMÁRIO de busca (NÃO headless, NÃO wreq/HTTP direto)
+## Como funciona a busca Chrome-primary na v0.8.6
+- Chrome roda em modo HEADED dentro de display virtual Xvfb privado como transporte PRIMÁRIO de busca (NÃO headless, NÃO reqwest/HTTP direto)
 - A CLI auto-spawna Xvfb via `spawn_virtual_display()` e lança Chrome HEADED contra o display virtual com 17 sinais JavaScript stealth injetados via CDP `Page.addScriptToEvaluateOnNewDocument` — o usuário vê ZERO janelas
 - Os 17 sinais stealth incluem: `navigator.webdriver=false`, `navigator.plugins` (5 plugins falsos), `navigator.languages`, `window.chrome` object, `navigator.connection`, `navigator.maxTouchPoints`, `outerHeight/outerWidth`, `navigator.hardwareConcurrency`, `navigator.deviceMemory`, `Notification.permission`, `navigator.permissions.query`, `WebGLRenderingContext.getParameter` (spoofing ANGLE NVIDIA GeForce), `HTMLCanvasElement.toDataURL` (ruído canvas), `OfflineAudioContext` (ruído de fingerprint de áudio)
 - Bypassa o Cloudflare Bot Management 2026 com fingerprint de browser real
 - Use `DUCKDUCKGO_CHROME_HEADLESS=1` para forçar modo headless (com risco de detecção Cloudflare). Use `DUCKDUCKGO_CHROME_VISIBLE=1` para modo headed visível (depuração)
-- wreq permanece APENAS para `--fetch-content` (download de conteúdo de páginas) e `--probe` (health check)
+- reqwest+rustls-tls é usado APENAS para `--fetch-content` (download de conteúdo de páginas) e `--probe` (health check) — NÃO para buscas primárias
 - Campo `.metadados.usou_chrome` indica `true` quando busca Chrome-primary teve sucesso
 - Campo `.metadados.tentou_chrome` indica `true` quando busca Chrome foi tentada (independente de sucesso)
 
 ```bash
-# Busca padrão v0.8.5 — Chrome headed dentro de Xvfb, sem flag extra
+# Busca padrão v0.8.6 — Chrome headed dentro de Xvfb, sem flag extra
 timeout 60 duckduckgo-search-cli "rust async runtime 2026" -q -f json --num 15 \
   | jaq '{usou_chrome: .metadados.usou_chrome, tentou_chrome: .metadados.tentou_chrome}'
 ```
@@ -36,6 +36,7 @@ timeout 60 duckduckgo-search-cli "<query>" -q -f json --num 15 | jaq '.resultado
 
 - FÓRMULA DO OUTPUT: `array<{posicao:int, titulo:string, url:string, snippet:string?, metadados:{tempo_execucao_ms:int, quantidade_resultados:int, identidade_usada:string?, nivel_cascata:u8?, usou_endpoint_fallback:bool, endpoint_usado:"html"|"lite", pre_flight_disparado:bool, usou_chrome:bool, tentou_chrome:bool}}>`
 - ANTI-PADRÃO: invocar sem `timeout` — pipeline trava indefinidamente
+- ANTI-PADRÃO: `--num 0` — rejeitado pelo clap com erro de argumento (GAP-WS-067, v0.8.6)
 
 ## Como detectar CAPTCHA antes de pagar uma requisição
 - DEVE rodar antes de qualquer query não-trivial em IPs compartilhados, proxies corporativos, ou após exit 3 observado:
@@ -132,17 +133,19 @@ timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 \
 - OPCIONAIS `Option<String>`: `.resultados[].snippet`, `.resultados[].url_exibicao`, `.resultados[].titulo_original`, `.metadados.identidade_usada`
 - OPCIONAIS `Option<u32>`: `.metadados.nivel_cascata` (0..=4)
 - CONDICIONAIS com `--fetch-content`: `.resultados[].conteudo`, `.resultados[].tamanho_conteudo`, `.resultados[].metado_extracao_conteudo`
-- NOVO v0.7.10: `.metadados.pre_flight_disparado` (bool) e `.metadados.endpoint_usado` (`html` | `lite`)
-- NOVO v0.8.0: `.metadados.causa_zero` (enum kebab-case: `legitimo` | `filtro-silencioso` | `ghost-block` | `anti-bot` | `resposta-invalida` | `zero-resultados-suspeito`) + `.metadados.sugestao_proxima_acao` (string PT-BR quando não-legítimo)
-- NOVO v0.8.0: `.causa_zero_histogram` (BTreeMap<String, u32>) agregado entre sub-queries em multi-query
-- NOVO v0.8.0: `.metadados.usou_chrome` (bool) — `true` quando busca Chrome-primary teve sucesso
-- NOVO v0.8.0: `.metadados.tentou_chrome` (bool) — `true` quando busca Chrome foi tentada
-- NOVO v0.8.0: `.metadados.bytes_brutos` (Option<u64>) — tamanho do body HTTP antes da descompressão
-- NOVO v0.8.0: `.metadados.bytes_descomprimidos` (Option<u64>) — tamanho do body após descompressão (gzip/deflate/brotli)
+- CAMPO v0.7.10: `.metadados.pre_flight_disparado` (bool) e `.metadados.endpoint_usado` (`html` | `lite`)
+- CAMPO v0.8.0: `.metadados.causa_zero` (enum kebab-case: `legitimo` | `filtro-silencioso` | `ghost-block` | `anti-bot` | `resposta-invalida` | `zero-resultados-suspeito`) + `.metadados.sugestao_proxima_acao` (string PT-BR quando não-legítimo)
+- CAMPO v0.8.0: `.causa_zero_histogram` (BTreeMap<String, u32>) agregado entre sub-queries em multi-query
+- CAMPO v0.8.0: `.metadados.usou_chrome` (bool) — `true` quando busca Chrome-primary teve sucesso
+- CAMPO v0.8.0: `.metadados.tentou_chrome` (bool) — `true` quando busca Chrome foi tentada
+- CAMPO v0.8.0: `.metadados.bytes_brutos` (Option<u64>) — tamanho do body HTTP antes da descompressão
+- CAMPO v0.8.0: `.metadados.bytes_descomprimidos` (Option<u64>) — tamanho do body após descompressão (gzip/deflate)
 - ANTI-PADRÃO: omitir fallback `//` em `snippet` e `identidade_usada` — `jaq` sai com não-zero em null
 
-## Descompressão HTTP transparente (v0.8.0)
-- A CLI descomprime automaticamente respostas HTTP comprimidas com gzip, deflate e brotli via `src/decompress.rs`
+## Descompressão HTTP transparente (v0.8.0+, atualizada v0.8.6)
+- reqwest auto-descomprime respostas gzip/deflate/zstd via features ativadas no Cargo.toml
+- `src/decompress.rs` trata casos extremos de respostas Chrome que chegam comprimidas em edge cases
+- Brotli REMOVIDO na v0.8.6 — DuckDuckGo NUNCA serve brotli para endpoints HTML
 - Limite de segurança de 32 MiB após descompressão para prevenir zip bombs
 - Campos `.metadados.bytes_brutos` e `.metadados.bytes_descomprimidos` permitem auditar a razão de compressão
 - Nenhuma ação do operador é necessária — a descompressão é 100% transparente
@@ -236,6 +239,7 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2
 - Cada sub-query DEVE atingir um aspecto distinto: arquitetura, benchmarks, pricing, limitações, comparações
 - FÓRMULA DO OUTPUT: `.sintese` (Markdown), `.metadados.sub_queries[]` (status por sub-query), `.resultados[]` (agregado via RRF)
 - MAPA DE EXIT: `0=sucesso`, `1=sub-query-falhou`, `2=erro-arg`, `3=anti-bot-durante-fanout`, `4=timeout`, `5=zero-agregado`, `6=bloqueio-suspeito`
+- `--synth-format` aceita `markdown` (padrão), `plain-text` ou `json` — ATENÇÃO: o valor é `plain-text` (kebab-case), NÃO `plain` (GAP-WS-068, v0.8.6)
 - COMBINE com `--pre-flight` para ambientes bloqueados:
 
 ```bash
@@ -292,6 +296,8 @@ timeout 60 duckduckgo-search-cli "incidente 2026-06" -q -f json --num 10 \
 - PROIBIDO commitar `cookies.json` — arquivo adjacente a credencial
 - PROIBIDO ignorar `quantidade_resultados:0` — pode ser ghost-block (use `--pre-flight`)
 - PROIBIDO ignorar exit code 6 — indica bloqueio suspeito que requer ação (inspecione `causa_zero`)
+- PROIBIDO `--num 0` — rejeitado pelo clap desde v0.8.6 (GAP-WS-067)
+- PROIBIDO `--synth-format plain` — o valor correto é `plain-text` (GAP-WS-068)
 
 ## Como tratar o cookie jar como credencial
 - Caminho do cookie jar (Linux/macOS/Windows): `~/.config/duckduckgo-search-cli/cookies.json` (modo Unix `0o600`)
@@ -299,14 +305,14 @@ timeout 60 duckduckgo-search-cli "incidente 2026-06" -q -f json --num 10 \
 - NÃO DEVE passar `--cookies-path` para volumes não encriptados em produção
 - Flag `--no-cookie-persistence` para sessões efêmeras
 
-## Como satisfazer pré-requisitos de build no Linux e Windows
-- Deps Linux (build): `cmake`, `perl`, `pkg-config`, `libclang-dev`
-- Deps Linux (runtime Chrome-primary): Google Chrome ou Chromium + pacote Xvfb (auto-spawned pela CLI via `spawn_virtual_display()`)
+## Como satisfazer pré-requisitos de build e runtime
+- Deps de BUILD: APENAS o toolchain Rust (`rustup`, `cargo`) — ZERO dependências nativas de compilação
+- v0.8.6 substituiu wreq (BoringSSL) por reqwest+rustls-tls (TLS puro Rust) — eliminou cmake, nasm, perl, MSVC cl.exe
+- `cargo install` funciona em Linux, macOS e Windows SEM ferramentas extras de build
+- Deps de RUNTIME (Linux): Google Chrome ou Chromium + pacote Xvfb (auto-spawned pela CLI via `spawn_virtual_display()`)
+- Deps de RUNTIME (macOS): Google Chrome ou Chromium (Xvfb não necessário — usa display nativo)
+- Deps de RUNTIME (Windows): Google Chrome ou Chromium
 - Chrome roda em modo HEADED dentro de display virtual Xvfb privado por padrão — a CLI auto-spawna Xvfb, o usuário vê ZERO janelas
-- Instalar Xvfb: `sudo apt install xvfb` (Debian/Ubuntu), `sudo dnf install xorg-x11-server-Xvfb` (Fedora)
-- Deps Windows MSVC: `nasm`, `cmake` 3.20+ (sub-componente C++ CMake tools), `cl.exe`, `link.exe`, Strawberry Perl
-- Escape hatches quando ausentes: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`
-- `cargo install` SEMPRE compila do fonte — crates.io NÃO envia binários pré-construídos
 
 ```bash
 # Instalar deps runtime Chrome-primary em Debian/Ubuntu
@@ -317,25 +323,28 @@ sudo apt-get install -y chromium-browser
 sudo apt-get install -y xvfb
 ```
 
-## Como instalar ou atualizar para v0.8.5
+## Como instalar ou atualizar para v0.8.6
 
 ```bash
-cargo install duckduckgo-search-cli --version 0.8.5 --locked --force
+cargo install duckduckgo-search-cli --version 0.8.6 --locked --force
 ```
 
-## APÊNDICE — Notas de Migração (v0.7.10 → v0.8.5)
-- Chrome roda HEADED dentro de display virtual Xvfb privado como transporte PRIMÁRIO de busca — a CLI auto-spawna Xvfb via `spawn_virtual_display()` com 17 sinais stealth JavaScript injetados via CDP para bypassar Cloudflare Bot Management 2026
-- NOVAS DEPENDÊNCIAS DE RUNTIME: Google Chrome (ou Chromium) + Xvfb (Linux, auto-spawned pela CLI via `spawn_virtual_display()`)
-- wreq permanece APENAS para `--fetch-content` e `--probe` — NÃO é mais usado para buscas primárias
-- NOVO EXIT CODE 6 (`SUSPECTED_BLOCK`): emitido quando `causa_zero != Legitimo` e `DUCKDUCKGO_ZERO_CAUSE_STRICT` não é `false`
-- Para restaurar comportamento exit 5 legado: `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`
-- Classificação `ZeroCause` com 6 variantes: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`, `zero-resultados-suspeito`
-- Descompressão HTTP transparente (gzip, deflate, brotli) via `src/decompress.rs` com limite de 32 MiB
-- NOVOS CAMPOS DE METADADOS: `bytes_brutos`, `bytes_descomprimidos`, `usou_chrome` (bool), `tentou_chrome` (bool), `cascata_nivel_observado`
-- `.causa_zero_histogram` (BTreeMap) em multi-query agrega contagens por causa entre sub-queries
-- `--pre-flight` disponível para prevenção automática de ghost-block (GAP-WS-58)
-- `--allow-lite-fallback` funciona em qualquer posição relativa ao subcomando `deep-research` (correção GAP-WS-59)
-- Campo `identidade_usada` presente em paths de falha a partir da v0.7.10 (GAP-AUD-001)
-- `--retries` honrado pelo executor paralelo desde v0.7.8 (GAP-WS-57)
-- Stack TLS: BoringSSL via `wreq 6.0.0-rc.29` desde v0.7.3 (era rustls)
-- Veja CHANGELOG.pt-BR.md e README.pt-BR.md para histórico completo
+## APÊNDICE — Notas de Migração (v0.8.5 → v0.8.6)
+- BREAKING BUILD: wreq (BoringSSL) substituído por reqwest+rustls-tls (TLS puro Rust) — GAP-WS-066
+- REMOVIDOS crates: `wreq`, `wreq-util`, `brotli`, `brotli-decompressor`, `alloc-no-stdlib`
+- REMOVIDOS preflights de build.rs: `nasm_in_path`, `cmake_in_path`, `cl_in_path`, `perl_in_path`
+- REMOVIDAS env vars de escape: `DDG_SKIP_NASM_CHECK`, `DDG_SKIP_CMAKE_CHECK`, `DDG_SKIP_MSVC_CHECK`, `DDG_SKIP_PERL_CHECK` — NÃO existem mais
+- `cargo install` agora funciona em Windows com APENAS o toolchain Rust (zero NASM, zero CMake, zero Perl, zero MSVC cl.exe)
+- Descompressão brotli REMOVIDA — DuckDuckGo NUNCA serve brotli para endpoints HTML
+- HTTP fallback perde emulação de fingerprint TLS BoringSSL (Chrome headed é primário desde v0.8.0, impacto negligível)
+- Renomeado `src/wreq_cookie_adapter.rs` → `src/cookie_adapter.rs`
+- Persistência de cookies reescrita: usa `reqwest::cookie::Jar` + extração via `CookieStore::cookies()`
+- Stack TLS unificada: `rustls` em todos os componentes (chromiumoxide + reqwest)
+- `--num 0` agora rejeitado pelo clap com erro de argumento (GAP-WS-067)
+- `--synth-format plain` corrigido para `plain-text` em toda documentação (GAP-WS-068)
+- Flags globais (`-q`, `-f json`) DEVEM vir ANTES do subcomando `deep-research` (correção GAP-WS-070)
+- ADR-0001 (wreq/BoringSSL) supersedido por ADR-0008 (reqwest/rustls)
+- Chrome headed + Xvfb como transporte primário permanece INALTERADO
+- Pool de 12 identidades anti-bot permanece INALTERADO
+- Classificador ZeroCause e exit code 6 permanecem INALTERADOS
+- Todos os campos JSON de metadados permanecem INALTERADOS

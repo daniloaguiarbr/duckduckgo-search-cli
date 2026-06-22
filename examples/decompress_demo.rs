@@ -37,28 +37,35 @@ fn main() {
     let plain = include_str!("../tests/fixtures/interstitial_cloudflare_anomaly_2026.html");
 
     // Compress the plain HTML with gzip at default level.
-    let mut encoder =
-        flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    encoder.write_all(plain.as_bytes()).expect("write to gzip encoder");
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder
+        .write_all(plain.as_bytes())
+        .expect("write to gzip encoder");
     let gzipped = encoder.finish().expect("finish gzip encoder");
 
     eprintln!("--- decompress_demo ---");
     eprintln!("Plain HTML size: {} bytes", plain.len());
-    eprintln!("Gzipped size:    {} bytes (compression: {:.1}%)",
+    eprintln!(
+        "Gzipped size:    {} bytes (compression: {:.1}%)",
         gzipped.len(),
-        100.0 * (1.0 - gzipped.len() as f64 / plain.len() as f64));
+        100.0 * (1.0 - gzipped.len() as f64 / plain.len() as f64)
+    );
 
     // Test the sync `decode_bytes` helper.
     match decode_bytes(&gzipped, "gzip") {
         Ok(decoded) => {
             let text = String::from_utf8(decoded).expect("valid UTF-8");
             eprintln!("Decoded size:    {} bytes", text.len());
-            assert!(text.contains("anomaly-modal"),
-                "decoded body must contain interstitial marker 'anomaly-modal'");
+            assert!(
+                text.contains("anomaly-modal"),
+                "decoded body must contain interstitial marker 'anomaly-modal'"
+            );
             eprintln!("Marker 'anomaly-modal' present in decoded body: OK");
 
-            assert!(text.contains("cf-challenge") || text.contains("cf-bm"),
-                "decoded body must contain Cloudflare challenge marker");
+            assert!(
+                text.contains("cf-challenge") || text.contains("cf-bm"),
+                "decoded body must contain Cloudflare challenge marker"
+            );
             eprintln!("Cloudflare challenge marker present: OK");
         }
         Err(e) => {
@@ -71,7 +78,9 @@ fn main() {
     // making a real HTTP request — requires a wreq::Response which is
     // hard to construct outside a request flow).
     eprintln!("\nasync wrapper `response_body_string` signature:");
-    eprintln!("  async fn response_body_string(response: wreq::Response) -> Result<String, CliError>");
+    eprintln!(
+        "  async fn response_body_string(response: wreq::Response) -> Result<String, CliError>"
+    );
     eprintln!("  Dispatches on Content-Encoding: identity | gzip | deflate | br");
     eprintln!("  Returns CliError::UnsupportedEncoding(encoding) for unknown encodings");
     eprintln!("  Returns CliError::PayloadTooLarge {{ max, actual }} if > 32 MiB");

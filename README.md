@@ -60,7 +60,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Auto-pagination that just works.** When `--num` exceeds a single DuckDuckGo page, the CLI automatically crawls up to 2 pages so you always get the count you asked for.
 - **Optional readable body extraction.** `--fetch-content` downloads each URL and embeds cleaned text straight into the JSON, capped by `--max-content-length`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
-- **Real browser TLS fingerprint via BoringSSL (v0.7.3+).** BoringSSL is statically linked by `wreq`, producing a JA4_o fingerprint identical to Chrome/Safari. Eliminates the Cloudflare CAPTCHA that affected macOS in v0.7.2. Build requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. musl/Alpine static builds still work but require the same toolchain. See `docs/decisions/0001-tls-boring-via-wreq.md` and `docs/CROSS_PLATFORM.md`.
+- **Real browser TLS fingerprint via Chrome headed (v0.8.0+).** Chrome headed runs inside a private Xvfb display and produces a REAL browser fingerprint, eliminating Cloudflare CAPTCHA. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` (pure Rust, zero native C dependencies). `cmake`, `perl`, NASM are NO LONGER required. See `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
@@ -100,7 +100,7 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 - Google Chrome or Chromium (auto-detected via `detect_chrome()`)
 - Linux: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt install xvfb` (Debian/Ubuntu)
 - Chrome is the PRIMARY search transport since v0.8.0
-- wreq HTTP client is used ONLY for `--fetch-content` and `--probe`
+- reqwest HTTP client (v0.8.6+, replaced wreq) is used ONLY for `--fetch-content` and `--probe`
 - To build without Chrome: `cargo build --no-default-features`
 - v0.8.5: Chrome runs HEADED inside a private Xvfb virtual display — ZERO visible windows
 - The CLI auto-spawns and auto-kills Xvfb — no manual setup needed on desktops
@@ -586,7 +586,7 @@ Basta que o agente possa executar um comando de shell. Quase todo agente sério 
 - **Auto-paginação que simplesmente funciona.** Quando `--num` supera uma página única do DuckDuckGo, o CLI crawla até 2 páginas automaticamente para entregar a contagem pedida.
 - **Extração opcional de body legível.** `--fetch-content` baixa cada URL e embute texto limpo direto no JSON, limitado por `--max-content-length`.
 - **Binário único cross-platform.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — tudo a partir de um `cargo install`.
-- **v0.7.3+: Fingerprint TLS real de navegador via BoringSSL (wreq).** BoringSSL é estaticamente vinculado e produz fingerprint JA4_o idêntico ao Chrome/Safari, eliminando o CAPTCHA do Cloudflare que afetava o macOS na v0.7.2. Build requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `docs/CROSS_PLATFORM.md`.
+- **v0.8.0+: Fingerprint TLS real de navegador via Chrome headed.** Chrome roda dentro de Xvfb privado e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 - **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
 - **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
 - **Anti-bloqueio v0.6.0.** Headers `Sec-Fetch-*` por família de browser, Client Hints para Chrome/Edge, detecção de HTTP 202 anomaly e detecção de bloqueio silencioso com limiar de 5 KB.

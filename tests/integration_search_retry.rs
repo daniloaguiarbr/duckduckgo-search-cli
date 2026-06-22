@@ -18,6 +18,7 @@ use duckduckgo_search_cli::search::{
     execute_search, execute_with_retry, search_with_pagination, RetryFailReason,
 };
 use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
+use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -25,7 +26,6 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wreq::Client;
 
 /// Mutex async global para serializar testes que manipulam env vars.
 fn env_lock() -> &'static TokioMutex<()> {
@@ -197,7 +197,10 @@ async fn execute_search_returns_html_on_status_200() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = EnvGuard::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base), ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into())]);
+    let _env = EnvGuard::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
+    ]);
 
     let client = test_client();
     let html = execute_search(&client, "rust", "pt", "br")
@@ -219,7 +222,10 @@ async fn execute_search_fails_with_status_500() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = EnvGuard::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base), ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into())]);
+    let _env = EnvGuard::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
+    ]);
 
     let client = test_client();
     let result = execute_search(&client, "rust", "pt", "br").await;
@@ -248,7 +254,10 @@ async fn execute_search_fails_with_small_body() {
         .await;
 
     let base = format!("{}/", mock.uri());
-    let _env = EnvGuard::set(&[("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base), ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into())]);
+    let _env = EnvGuard::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
+    ]);
 
     let client = test_client();
     let result = execute_search(&client, "rust", "pt", "br").await;

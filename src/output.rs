@@ -482,8 +482,8 @@ fn write_to_file(path: &Path, content: &str) -> Result<(), CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use crate::types::{SearchMetadata, SearchResult};
+    use std::collections::BTreeMap;
 
     fn test_output() -> SearchOutput {
         SearchOutput {

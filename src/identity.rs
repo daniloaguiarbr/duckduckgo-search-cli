@@ -104,7 +104,7 @@ impl IdentityProfile {
     /// seed-deterministic structural variation (order, Accept-Language, Sec-CH-UA-Arch).
     ///
     /// Returns a vector of `(name, value)` pairs ready to be inserted into
-    /// a `wreq::header::HeaderMap`.
+    /// a `reqwest::header::HeaderMap`.
     pub fn shuffled_headers(&self, language: &str, country: &str) -> Vec<(&'static str, String)> {
         let mut rng = StdRng::seed_from_u64(self.seed);
         let accept = self.accept_header();

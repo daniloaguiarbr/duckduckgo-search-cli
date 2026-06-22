@@ -393,7 +393,7 @@ pub struct CliArgs {
     /// auto-pagination to 2 pages when `--pages` is not customized).
     /// If omitted, uses 15; if `--num > 10` and `--pages == 1` (default),
     /// `--pages` is auto-elevated to `ceil(num/10)` up to a maximum of 5.
-    #[arg(short = 'n', long = "num", value_name = "N")]
+    #[arg(short = 'n', long = "num", value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
     pub num_results: Option<u32>,
 
     /// Output format: `json`, `text`, `markdown` (`md`) or `auto`.

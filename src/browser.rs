@@ -189,7 +189,12 @@ pub fn detect_chrome(manual_path: Option<&Path>) -> Result<PathBuf, CliError> {
     }
 
     // Layer 3: PATH lookup via `which` crate (cross-platform: Linux/macOS/Windows).
-    for binary_name in ["chromium", "google-chrome", "google-chrome-stable", "chrome"] {
+    for binary_name in [
+        "chromium",
+        "google-chrome",
+        "google-chrome-stable",
+        "chrome",
+    ] {
         if let Ok(p) = which::which(binary_name) {
             if is_executable_chrome_binary(&p) {
                 tracing::info!(
@@ -324,7 +329,11 @@ pub fn needs_no_sandbox(chrome_path: &Path) -> bool {
 }
 
 /// Monta a lista de flags stealth cross-platform para o Chrome headless.
-pub fn flags_stealth(precisa_sandbox_off: bool, proxy: Option<&str>, user_agent: &str) -> Vec<String> {
+pub fn flags_stealth(
+    precisa_sandbox_off: bool,
+    proxy: Option<&str>,
+    user_agent: &str,
+) -> Vec<String> {
     let mut flags: Vec<String> = vec![
         "--disable-blink-features=AutomationControlled".to_string(),
         "--window-size=1920,1080".to_string(),
@@ -469,7 +478,9 @@ impl ChromeBrowser {
         } else {
             builder = builder.new_headless_mode();
             if !force_headless {
-                tracing::info!("Xvfb not available — falling back to headless Chrome (anti-bot risk)");
+                tracing::info!(
+                    "Xvfb not available — falling back to headless Chrome (anti-bot risk)"
+                );
             }
         }
 
@@ -599,12 +610,10 @@ pub async fn extract_html_with_chrome(
         let _ = page.execute(stealth_cmd).await;
 
         // Navigate to the target URL.
-        page.goto(url)
-            .await
-            .map_err(|e| CliError::HttpError {
-                message: format!("failed to navigate to {url:?}: {e}"),
-                cause: None,
-            })?;
+        page.goto(url).await.map_err(|e| CliError::HttpError {
+            message: format!("failed to navigate to {url:?}: {e}"),
+            cause: None,
+        })?;
 
         // Wait for full navigation to complete (respects redirects).
         let _ = page.wait_for_navigation().await;
@@ -628,7 +637,10 @@ pub async fn extract_html_with_chrome(
                 break;
             }
             if attempt == 15 {
-                tracing::info!(body_len = raw_html.len(), "polling exhausted — using last HTML");
+                tracing::info!(
+                    body_len = raw_html.len(),
+                    "polling exhausted — using last HTML"
+                );
             }
         }
 
@@ -689,12 +701,10 @@ pub async fn extract_text_with_chrome(
         let _ = page.execute(stealth_cmd).await;
 
         // Navigate to the target URL.
-        page.goto(url)
-            .await
-            .map_err(|e| CliError::HttpError {
-                message: format!("failed to navigate to {url:?}: {e}"),
-                cause: None,
-            })?;
+        page.goto(url).await.map_err(|e| CliError::HttpError {
+            message: format!("failed to navigate to {url:?}: {e}"),
+            cause: None,
+        })?;
 
         // Wait for full navigation to complete (respects redirects).
         let _ = page.wait_for_navigation().await;

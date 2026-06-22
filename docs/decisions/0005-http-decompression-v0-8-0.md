@@ -1,6 +1,6 @@
 # ADR-0005 — Descompressão HTTP transparente (Bug #1, v0.8.0)
 
-- Status: Accepted (2026-06-19)
+- Status: Accepted (2026-06-19). Note: wreq references in this ADR are historical; wreq was replaced by reqwest+rustls in v0.8.6 (ADR-0008)
 - Decisor: lead
 - Contexto: GAP-AUD-003 — classificador de zero-result rotulava Cloudflare challenge (14KB com `anomaly-modal`) como `Legitimo` em produção bloqueada porque o body chegava como bytes gzip-comprimidos.
 

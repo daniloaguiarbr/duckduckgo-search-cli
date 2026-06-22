@@ -41,7 +41,10 @@ fn invariant_cascade_level_observed_present_in_metadata() {
         cascade_level_observed: Some(0),
     };
     // GAP-META-001 + GAP-AUD-010: o campo deve estar presente após pipeline.
-    assert!(metadata.cascade_level_observed.is_some(), "GAP-AUD-010: cascade_level_observed deve estar presente em metadata pós-pipeline");
+    assert!(
+        metadata.cascade_level_observed.is_some(),
+        "GAP-AUD-010: cascade_level_observed deve estar presente em metadata pós-pipeline"
+    );
 }
 
 #[test]
@@ -72,7 +75,11 @@ fn invariant_retries_configured_field_exists() {
         bytes_decompressed: None,
         cascade_level_observed: None,
     };
-    assert_eq!(metadata.retries_configured, Some(5), "GAP-AUD-007: retries_configured deve estar populado quando operador passou --retries");
+    assert_eq!(
+        metadata.retries_configured,
+        Some(5),
+        "GAP-AUD-007: retries_configured deve estar populado quando operador passou --retries"
+    );
 }
 
 #[test]
@@ -97,5 +104,9 @@ fn invariant_endpoint_lite_distinct_from_html() {
     // GAP-META-001 + GAP-AUD-004: tipos Endpoint::Html e Endpoint::Lite
     // devem ser distintos para que --allow-lite-fallback consiga forçar
     // a transição entre eles.
-    assert_ne!(Endpoint::Html, Endpoint::Lite, "GAP-AUD-004: Endpoint::Html e Endpoint::Lite devem ser variantes distintas");
+    assert_ne!(
+        Endpoint::Html,
+        Endpoint::Lite,
+        "GAP-AUD-004: Endpoint::Html e Endpoint::Lite devem ser variantes distintas"
+    );
 }

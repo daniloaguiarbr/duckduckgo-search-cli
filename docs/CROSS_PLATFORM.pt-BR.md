@@ -2,15 +2,15 @@
 
 
 ## Por Que Zero Dependências Importam
-- **v0.7.3+**: `duckduckgo-search-cli` usa exclusivamente BoringSSL via `wreq` — TLS fingerprint real de navegador (JA4_o idêntico ao Chrome/Safari). O BoringSSL é estaticamente vinculado.
+- **v0.8.6+**: `duckduckgo-search-cli` usa `reqwest` + `rustls-tls` — TLS puro Rust com zero dependências nativas de C. `cmake`, `perl`, `pkg-config`, `libclang-dev` e NASM NAO sao mais necessarios
+- **v0.8.0+**: Chrome headed (via `chromiumoxide`) e o transporte de busca primario — o stack TLS do cliente HTTP importa menos para anti-bot
 - Instalar o binário pré-compilado em um container Alpine recém-criado exige zero pacotes extras do sistema
 - Builds musl estáticos vinculam cada byte em tempo de compilação — o binário roda em qualquer kernel Linux
 - Sem Java Virtual Machine, sem runtime Python, sem gerenciador de processos Node.js para instalar
 - O tempo de inicialização fica abaixo de 100 milissegundos porque o runtime Rust é uma camada estática fina
-- O tamanho do binário após `strip = "symbols"` e `lto = "thin"` fica entre 20 MB e 25 MB por target (v0.7.3+ inclui BoringSSL estático)
 - A codificação UTF-8 no Windows é aplicada automaticamente via `SetConsoleOutputCP(65001)` na inicialização
 - SIGPIPE é resetado em `main.rs` para que cadeias de pipes Unix nunca produzam erros `BrokenPipe` espúrios
-- **v0.7.3+**: a compilação do BoringSSL exige `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. End users que usam `cargo install duckduckgo-search-cli` em ambiente com essas deps não precisam de ação extra. Operadores de CI devem instalar essas deps no job de build.
+- **v0.7.3–v0.8.5 apenas**: a compilação do BoringSSL exigia `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Isto NAO e mais necessario a partir da v0.8.6
 
 
 ## Matriz de Suporte
@@ -29,7 +29,8 @@
 - Targeia Ubuntu 20.04+, Debian 11+, Fedora 37+, RHEL 8+
 - Requer glibc versão 2.17 ou superior — presente em todas as distribuições atuais
 - Baixe o binário pré-compilado do GitHub Releases ou instale via `cargo install`
-- **v0.7.3+**: compilar do código-fonte exige a toolchain C do BoringSSL. Instale `cmake`, `perl`, `pkg-config` e `libclang-dev` (Debian/Ubuntu: `apt install cmake perl pkg-config libclang-dev`; Fedora/RHEL: `dnf install cmake perl pkg-config clang-devel`). O build vincula BoringSSL estaticamente via `wreq 6.0.0-rc.29`. O `cargo install` SEMPRE compila do source — o crates.io não distribui binários pré-compilados.
+- **v0.8.6+**: compilar do codigo-fonte exige apenas o toolchain Rust — sem compilador C, `cmake`, `perl`, `pkg-config` ou `libclang-dev` (TLS e puro Rust via `reqwest` + `rustls`)
+- **v0.7.3–v0.8.5 apenas**: compilar do codigo-fonte exigia a toolchain C do BoringSSL (`cmake`, `perl`, `pkg-config`, `libclang-dev`). Isto NAO e mais necessario a partir da v0.8.6
 - Funciona dentro do WSL2 (Windows Subsystem for Linux) sem nenhuma configuração extra
 ### musl — x86_64-unknown-linux-musl
 - Targeia Alpine Linux, containers Docker mínimos e ambientes embarcados
@@ -68,7 +69,8 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - PowerShell 5.1+ ou PowerShell 7+ — ambos funcionam sem configuração adicional
 - Adicione o binário a um diretório no `%PATH%` como uma pasta de ferramentas personalizada
 - Instale via `cargo install duckduckgo-search-cli` — o Cargo coloca o binário em `%USERPROFILE%\.cargo\bin`
-- **v0.7.4+ (GAP-WS-28) e v0.7.5+ (GAP-WS-29/30/31)**: o build nativo MSVC exige quatro ferramentas — (1) assembler NASM, (2) CMake 3.20+, (3) MSVC C/C++ toolchain (cl.exe, link.exe via Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1), (4) Strawberry Perl. Use `scripts/install-windows.ps1` para auto-instalar NASM, CMake e Perl; MSVC requer instalação manual via Visual Studio Installer
+- **v0.8.6+**: nenhuma ferramenta extra alem do toolchain Rust — TLS e puro Rust via `reqwest` + `rustls`
+- **v0.7.3–v0.8.5 apenas**: o build nativo MSVC exigia quatro ferramentas extras — (1) assembler NASM, (2) CMake 3.20+, (3) MSVC C/C++ toolchain, (4) Strawberry Perl. Nenhuma dessas e necessaria a partir da v0.8.6
 ### Saída UTF-8 no Console
 - `main.rs` chama `SetConsoleOutputCP(65001)` na inicialização — UTF-8 está ativo antes de qualquer saída ser escrita
 - Windows Terminal e PowerShell 7 exibem caracteres acentuados e glifos CJK sem distorção
@@ -157,7 +159,8 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 ### Pré-requisitos
 - Toolchain Rust versão 1.88 ou superior — instale via `rustup` em rustup.rs
 - Para targets musl no Linux: `sudo apt install musl-tools` ou `apk add musl-dev` no Alpine
-- **Para v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux. macOS precisa de `xcode-select --install`. Windows precisa do Visual Studio Build Tools 2019+ com workload C++ E do sub-componente C++ CMake tools for Windows (NÃO incluído por default — marcar manualmente no Visual Studio Installer) E do assembler NASM (`winget install -e --id NASM.NASM`; o instalador não ajusta o PATH) E de MSVC C/C++ toolchain (cl.exe, link.exe via Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1) E de Strawberry Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`). Ver `scripts/install-windows.ps1` e `docs/INSTALL-WINDOWS.pt-BR.md` para setup passo a passo
+- **v0.8.6+**: nenhuma dependencia de build adicional alem do toolchain Rust em qualquer plataforma. TLS e puro Rust via `reqwest` + `rustls`. macOS ainda precisa de `xcode-select --install` para o linker
+- **v0.7.3–v0.8.5 apenas (BoringSSL)**: exigia `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux; Visual Studio Build Tools 2019+ com NASM, CMake, Strawberry Perl no Windows. Ver `scripts/install-windows.ps1` e `docs/INSTALL-WINDOWS.pt-BR.md` para instrucoes historicas de setup
 - Compilação cruzada: `rustup target add <target>` antes de executar `cargo build`
 - Para o binário Universal macOS: adicione os targets `aarch64-apple-darwin` e `x86_64-apple-darwin`
 ### Comandos de Build por Target
@@ -197,9 +200,10 @@ cargo install duckduckgo-search-cli
 ```
 
 - O Cargo busca a crate do crates.io, compila para a arquitetura do host e coloca o binário em `~/.cargo/bin`
-- A Versão Mínima Suportada do Rust (MSRV) é 1.88 (desde v0.7.2) — execute `rustup update` se seu toolchain for mais antigo. v0.7.3+ adicionalmente requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux para a stack BoringSSL via `wreq 6.0.0-rc`.
-- Verifique a instalação: `duckduckgo-search-cli --version` (espere `0.7.7` para a release v0.7.7; `0.7.8` na working tree)
-- **SEMPRE passe `--locked`** para evitar o GAP-WS-48 residual: `cargo install duckduckgo-search-cli --locked` (ou fixe a versão: `cargo install duckduckgo-search-cli --version 0.7.7 --locked`). O `Cargo.lock` da v0.7.7 foi preparado com `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` para manter o grafo de dependências limpo.
+- A Versao Minima Suportada do Rust (MSRV) e 1.88 — execute `rustup update` se seu toolchain for mais antigo
+- **v0.8.6+**: nenhuma dependencia adicional de sistema em qualquer plataforma — TLS e puro Rust via `reqwest` + `rustls`
+- **v0.7.3–v0.8.5 apenas**: adicionalmente requeria `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux para a stack BoringSSL
+- Verifique a instalacao: `duckduckgo-search-cli --version`
 ### Binários Pré-compilados
 - Binários pré-compilados para todos os cinco targets são anexados aos GitHub Releases quando o pipeline de release os publica (`cargo install` sempre compila do source)
 - Cada release inclui um arquivo `SHA256SUMS.txt` para verificação de integridade antes da execução

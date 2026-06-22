@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: I/O-bound (reqwest client construction and UA management)
-//! `wreq::Client` construction and User-Agent selection.
+//! `reqwest::Client` construction and User-Agent selection.
 //!
 //! The HTTP client is configured with:
 //! - TLS via `rustls-tls` (no OpenSSL dependency on any platform).
@@ -22,16 +22,16 @@
 use crate::error::CliError;
 use crate::platform;
 use rand::seq::{IndexedRandom, IteratorRandom};
-use serde::Deserialize;
-use std::sync::Arc;
-use std::time::Duration;
-use wreq::{
+use reqwest::{
     header::{
         HeaderMap, HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CACHE_CONTROL,
     },
     redirect::Policy,
     Client,
 };
+use serde::Deserialize;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Built-in User-Agent list embedded in the binary as fallback when `config/user-agents.toml`
 /// is not available.
@@ -605,7 +605,7 @@ impl ProxyConfig {
 // Client construction
 // ---------------------------------------------------------------------------
 
-/// Builds a `wreq::Client` ready to make requests to `DuckDuckGo`.
+/// Builds a `reqwest::Client` ready to make requests to `DuckDuckGo`.
 ///
 /// # Arguments
 /// * `user_agent` — User-Agent string to be sent on all requests.
@@ -668,7 +668,7 @@ fn mask_proxy_url(raw_url: &str) -> String {
     }
 }
 
-/// Builds a `wreq::Client` with a browser profile and proxy configuration.
+/// Builds a `reqwest::Client` with a browser profile and proxy configuration.
 ///
 /// Uses [`BrowserProfile::initial_headers`] to generate family-specific headers,
 /// including complete Sec-Fetch and Client Hints (Chrome/Edge).
@@ -692,14 +692,14 @@ pub fn build_client_with_proxy(
     build_client_with_proxy_and_cookies(profile, timeout_secs, language, country, proxy, None)
 }
 
-/// Builds a `wreq::Client` with a browser profile, proxy configuration, and
+/// Builds a `reqwest::Client` with a browser profile, proxy configuration, and
 /// an optional external cookie store.
 ///
-/// When `cookie_provider` is `Some(Arc<dyn wreq::cookie::CookieStore>)`, the
+/// When `cookie_provider` is `Some(Arc<dyn reqwest::cookie::CookieStore>)`, the
 /// client's in-memory cookie store is replaced with the supplied one. This
 /// is the integration point for the [`crate::session_warmup::default_cookies_path`]
 /// module: the warm-up reads the persistent jar from disk, wraps it in
-/// [`crate::wreq_cookie_adapter::PersistentJar`], and passes it here so
+/// [`crate::cookie_adapter::PersistentJar`], and passes it here so
 /// the request pipeline sees the persisted session cookies.
 ///
 /// When `cookie_provider` is `None`, the builder falls back to
@@ -716,12 +716,11 @@ pub fn build_client_with_proxy_and_cookies(
     language: &str,
     country: &str,
     proxy: &ProxyConfig,
-    cookie_provider: Option<Arc<dyn wreq::cookie::CookieStore>>,
+    cookie_provider: Option<Arc<reqwest::cookie::Jar>>,
 ) -> Result<Client, CliError> {
     let headers = profile.initial_headers(language, country)?;
 
     let mut builder = Client::builder()
-        .emulation(wreq_util::Profile::Chrome146)
         .user_agent(&profile.user_agent)
         .default_headers(headers)
         .tcp_nodelay(true)
@@ -756,7 +755,7 @@ pub fn build_client_with_proxy_and_cookies(
                 .map(|s| s.to_string())
                 .unwrap_or_default();
 
-            let mut proxy_rq = wreq::Proxy::all(url).map_err(|e| CliError::ProxyError {
+            let mut proxy_rq = reqwest::Proxy::all(url).map_err(|e| CliError::ProxyError {
                 message: format!(
                     "failed to configure Proxy::all({}): {e}",
                     mask_proxy_url(url)
@@ -776,7 +775,7 @@ pub fn build_client_with_proxy_and_cookies(
     }
 
     let client = builder.build().map_err(|e| CliError::HttpError {
-        message: format!("failed to build wreq::Client: {e}"),
+        message: format!("failed to build reqwest::Client: {e}"),
         cause: None,
     })?;
 
@@ -1191,7 +1190,7 @@ mod tests {
         let headers = profile
             .initial_headers("en", "us")
             .expect("should build headers");
-        assert!(headers.get(wreq::header::DNT).is_none());
-        assert!(headers.get(wreq::header::REFERER).is_none());
+        assert!(headers.get(reqwest::header::DNT).is_none());
+        assert!(headers.get(reqwest::header::REFERER).is_none());
     }
 }

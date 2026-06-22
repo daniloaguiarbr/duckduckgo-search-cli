@@ -256,14 +256,14 @@ cargo nextest run --retries 3
 The v0.7.3 release added 13 new tests across the three new modules:
 
 - **`session_warmup` (5 unit tests)** — XDG path resolution on Linux, macOS, and Windows; missing-directory creation; path override via `DUCKDUCKGO_SEARCH_CLI_HOME`; `default_cookies_filename` constant stability.
-- **`wreq_cookie_adapter` (3 unit tests)** — `PersistentJar::empty()` produces a valid `Arc<dyn CookieStore>`; `parse_json` roundtrip preserves cookies across the `wreq::cookie::Jar` boundary; `save` and `load` roundtrip with `0o600` Unix permissions and atomic write semantics.
+- **`cookie_adapter` (3 unit tests, renamed from `wreq_cookie_adapter` in v0.8.6)** — `PersistentJar::empty()` produces a valid `Arc<reqwest::cookie::Jar>`; `parse_json` roundtrip preserves cookies via `CookieStore::cookies()` header extraction; `save` and `load` roundtrip with `0o600` Unix permissions and atomic write semantics.
 - **`probe_deep` (5 unit tests)** — `detectar_interstitial` correctly identifies Cloudflare markers (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`); `detectar_interstitial` correctly identifies DuckDuckGo `robot-detected` and `bots, we have detected` markers; `sugestao_mitigacao` returns concrete next steps for each interstitial kind; `InterstitialKind::None` is the default for a normal HTML response; `execute_probe_deep` produces a valid JSON report.
 - **Total: 405 lib tests passing** (was 279 in v0.7.2; current project total at v0.7.5). The v0.7.3 changes are purely additive. No tests removed, no test signatures changed, no test fixtures renamed.
 
 ### v0.7.3 gaps closed by these tests
 
 - **`probe_deep::detectar_interstitial`** — validates the marker strings are detected at all (the cost of a false negative is a CAPTCHA that goes undiagnosed). Five Cloudflare markers + two DuckDuckGo markers are unit-tested in isolation.
-- **`wreq_cookie_adapter::PersistentJar`** — validates the JSON ↔ `wreq::cookie::Jar` bridge does not lose cookies during roundtrip. A regression here would silently strip session cookies, re-introducing a CAPTCHAd session.
+- **`cookie_adapter::PersistentJar`** — validates the JSON ↔ `reqwest::cookie::Jar` bridge does not lose cookies during roundtrip (rewritten in v0.8.6 to use `CookieStore::cookies()` header extraction). A regression here would silently strip session cookies, re-introducing a CAPTCHAd session.
 - **`session_warmup::default_cookies_path`** — validates the XDG resolution is correct per platform. A regression here would put the cookie jar in the wrong directory or fail to set `0o600` permissions on Unix.
 
 
@@ -326,20 +326,22 @@ v0.7.6 closes GAP-WS-48 (same-day `cargo install` fix) and adds regression tests
 
 ## v0.7.7 Test Additions
 
-v0.7.7 closes GAP-WS-49 (TLS fingerprint regression) and adds regression tests for the `wreq` + `wreq-util` emulation stack.
+> **v0.8.6+**: The `tls::emulation` tests below were REMOVED when `wreq` was replaced by `reqwest` + `rustls-tls`. See ADR-0008. The build preflight tests in v0.7.4–v0.7.5 (NASM, CMake, MSVC, Perl) were also removed as the preflights no longer exist in `build.rs`.
 
-- **`tls::emulation::wreq_util_present`** — 2 unit tests validating that `wreq-util 3.0.0-rc` with `features = ["emulation"]` is in the resolved dependency tree.
-- **`tls::emulation::brotli_feature_enabled`** — 1 unit test validating that the `brotli` feature on `wreq` is enabled (required for the emulation stack to compile).
+v0.7.7 closes GAP-WS-49 (TLS fingerprint regression) and adds regression tests for the `wreq` + `wreq-util` emulation stack. **(Historical — tests removed in v0.8.6.)**
+
+- **`tls::emulation::wreq_util_present`** — 2 unit tests validating that `wreq-util 3.0.0-rc` with `features = ["emulation"]` is in the resolved dependency tree. **(Removed in v0.8.6.)**
+- **`tls::emulation::brotli_feature_enabled`** — 1 unit test validating that the `brotli` feature on `wreq` is enabled (required for the emulation stack to compile). **(Removed in v0.8.6.)**
 - **`tls::probe_deep::captcha_classification`** — 1 integration test that runs `--probe-deep` against a real DuckDuckGo endpoint and asserts the JSON envelope contains `status`, `cascata_motivo`, and `sugestao_mitigacao` fields.
 - **`tls::probe_deep::ok_envelope`** — 1 integration test that asserts the success envelope matches the documented schema in `docs/HOW_TO_USE.md`.
 - **GAP-WS-49 closed by these tests** — the emulation stack is locked in at the dependency level and validated end-to-end.
 - **Test count**: 413 lib + integration tests passing (was 408 in v0.7.6 = +5 new TLS re-registration tests). This is the project total at v0.7.7.
-- **CI gate**: the TLS tests run in the `tls-emulation` CI job and fail the build if `wreq-util` is removed or downgraded.
+- **CI gate**: the TLS tests ran in the `tls-emulation` CI job in v0.7.7–v0.8.5. **(Removed in v0.8.6 — wreq eliminated.)**
 
-### v0.7.7 gaps closed by these tests
+### v0.7.7 gaps closed by these tests (historical — superseded by v0.8.6)
 
-- **`tls::emulation::wreq_util_present`** — prevents another GAP-WS-48-style accidental removal of `wreq-util`. A regression would re-introduce the zero-result query bug.
-- **`tls::emulation::brotli_feature_enabled`** — keeps the `brotli` feature in the build graph. A regression would break the `emulation` feature of `wreq-util`.
+- **`tls::emulation::wreq_util_present`** — prevented another GAP-WS-48-style accidental removal of `wreq-util`. **(Superseded: wreq-util removed in v0.8.6.)**
+- **`tls::emulation::brotli_feature_enabled`** — kept the `brotli` feature in the build graph. **(Superseded: brotli removed in v0.8.6.)**
 - **`tls::probe_deep::captcha_classification`** — validates the CI gate format for `--probe-deep`. A regression would let the gate return exit 0 on a captcha response.
 - **`tls::probe_deep::ok_envelope`** — validates the success path JSON. A regression would break downstream CI consumers parsing the envelope.
 

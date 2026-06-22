@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Integration tests for `src/decompress.rs` — wiremock-backed regression
-//! coverage for the bug where `wreq::Response::text()` returned gzip-compressed
+//! coverage for the bug where `reqwest::Response::text()` returned gzip-compressed
 //! bytes (GAP-AUD-003 v0.8.0 Bug #1).
 //!
 //! Each test spins up a `wiremock::MockServer` that replies with a body
@@ -9,40 +9,33 @@
 //! or the expected error variant.
 
 use std::io::Write;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
-use duckduckgo_search_cli::decompress::{decode_bytes, response_body_string, DECOMPRESSION_MAX_OUTPUT};
+use duckduckgo_search_cli::decompress::{
+    decode_bytes, response_body_string, DECOMPRESSION_MAX_OUTPUT,
+};
 use duckduckgo_search_cli::error::CliError;
+use reqwest::Client;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wreq::Client;
 
 /// Returns a gzip-compressed copy of the input.
 fn gzip_encode(plain: &[u8]) -> Vec<u8> {
-    let mut encoder =
-        flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     encoder.write_all(plain).expect("write to encoder");
     encoder.finish().expect("finish encoder")
 }
 
 /// Returns a zlib (deflate) compressed copy of the input.
 fn deflate_encode(plain: &[u8]) -> Vec<u8> {
-    let mut encoder =
-        flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
     encoder.write_all(plain).expect("write to encoder");
     encoder.finish().expect("finish encoder")
 }
 
-/// Returns a brotli-compressed copy of the input.
-fn brotli_encode(plain: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let params = brotli::enc::BrotliEncoderParams::default();
-    let mut input = plain;
-    brotli::BrotliCompress(&mut input, &mut out, &params).expect("brotli compress");
-    out
-}
+// brotli_encode removed: brotli crate was dropped in v0.8.6
 
 #[tokio::test]
 async fn decode_identity_passes_through() {
@@ -67,13 +60,7 @@ async fn decode_deflate_unwraps_html() {
     assert_eq!(decoded, plain);
 }
 
-#[tokio::test]
-async fn decode_br_unwraps_html() {
-    let plain = b"<html><body>hello brotli</body></html>";
-    let br = brotli_encode(plain);
-    let decoded = decode_bytes(&br, "br").expect("brotli decode");
-    assert_eq!(decoded, plain);
-}
+// decode_br_unwraps_html removed: brotli crate was dropped in v0.8.6
 
 #[tokio::test]
 async fn decode_oversize_returns_payload_too_large() {
@@ -134,30 +121,7 @@ async fn response_body_string_e2e_gzip_via_wiremock() {
     assert!(decoded.contains("marker-gzip-decoded-ok"));
 }
 
-#[tokio::test]
-async fn response_body_string_e2e_br_via_wiremock() {
-    let plain = b"<html><body>marker-br-decoded-ok</body></html>";
-    let br = brotli_encode(plain);
-
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_bytes(br)
-                .insert_header("content-encoding", "br")
-                .insert_header("content-type", "text/html; charset=utf-8"),
-        )
-        .mount(&server)
-        .await;
-
-    let client = Client::builder().build().expect("client");
-    let response = client.get(server.uri()).send().await.expect("send");
-    let decoded = response_body_string(response)
-        .await
-        .expect("decompress succeeds");
-    assert_eq!(decoded.as_bytes(), plain);
-}
+// response_body_string_e2e_br_via_wiremock removed: brotli crate was dropped in v0.8.6
 
 #[tokio::test]
 async fn response_body_string_e2e_identity_via_wiremock() {

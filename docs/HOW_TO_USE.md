@@ -14,7 +14,7 @@ Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 - Network access to duckduckgo.com
 - Rust 1.88+ when installing via `cargo install` (MSRV since v0.7.2)
 - Pre-built binaries from GitHub Releases do not require Rust installation (when published; note: `cargo install` ALWAYS compiles from source — see `gaps.md` GAP-WS-27/28/29/30/31 and `docs/INSTALL-WINDOWS.md`)
-- **v0.7.3+ when compiling from source on Linux**: `cmake`, `perl`, `pkg-config`, and `libclang-dev` (BoringSSL build prerequisites via `wreq 6.0.0-rc`). **v0.7.3+ when compiling on native Windows MSVC requires FOUR tools** (closed as GAP-WS-28/29/30/31 progressively in v0.7.4 and v0.7.5): NASM assembler, CMake 3.20+, MSVC C/C++ toolchain (cl.exe, link.exe), Strawberry Perl. See `docs/INSTALL-WINDOWS.md`.
+- **v0.8.6+**: No native C build tools required. TLS is pure Rust via `reqwest` + `rustls-tls`. `cmake`, `perl`, NASM, MSVC are NO LONGER needed. **(v0.7.3–v0.8.5 required cmake, perl, NASM for BoringSSL — removed in v0.8.6, see ADR-0008.)**
 ### Optional
 - `jaq` (Rust replacement for `jq`) to process JSON in pipelines
 - A SOCKS5 proxy for IP rotation when rate-limited
@@ -92,7 +92,7 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - Since v0.8.5, Chrome runs HEADED inside a private Xvfb virtual display (NOT headless)
 - The CLI auto-spawns Xvfb via `spawn_virtual_display()` — the user sees ZERO windows
 - `--headless=new` was used in v0.8.1-v0.8.4 but Cloudflare detects it (GAP-WS-065)
-- wreq HTTP client is used ONLY for `--fetch-content` and `--probe`
+- reqwest HTTP client is used ONLY for `--fetch-content` and `--probe` (replaced wreq/BoringSSL in v0.8.6)
 - Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals
 - Install Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Install Xvfb: `sudo apt install xvfb` (Debian/Ubuntu) or `sudo dnf install xorg-x11-server-Xvfb` (Fedora)
@@ -268,9 +268,11 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 
 ## v0.7.3 — Session + Probe-Deep + BoringSSL (GAP-WS-27 fix)
 
+> **Note (v0.8.6)**: The wreq/BoringSSL stack described in this section was replaced by `reqwest` + `rustls-tls` in v0.8.6 (ADR-0008). This section is historical (v0.7.3–v0.8.5).
+
 v0.7.3 atomically closes GAP-WS-27 (CAPTCHA on macOS) by replacing the `rustls` TLS stack with embedded BoringSSL via `wreq 6.0.0-rc.29`, plus session cookie persistence and deep CAPTCHA detection.
 
-### TLS Stack Switch (wreq + BoringSSL)
+### TLS Stack Switch (wreq + BoringSSL) — Historical, replaced in v0.8.6
 
 The CLI now uses `wreq 6.0.0-rc.29` instead of `reqwest 0.12` + `rustls-tls`. `wreq` bundles BoringSSL (via `boring2 v4.15.11`) and produces a `JA4_o` fingerprint identical to real Chrome/Safari, closing the Cloudflare Bot Management entry point that produced the CAPTCHA.
 
@@ -547,7 +549,7 @@ The `deep-research` subcommand inherits every global flag (`-q -f json`, `--num`
 - `--aggregate` — `rrf` (default, K=60) or `dedupe-by-url`
 - `--synthesize` — produce a final report
 - `--budget-tokens N` — cap the synthesis length (1 token ≈ 4 chars)
-- `--synth-format` — `markdown` (default), `plain`, or `json`
+- `--synth-format` — `markdown` (default), `plain-text`, or `json`
 
 
 ## v0.7.4 — Windows NASM preflight (GAP-WS-28)

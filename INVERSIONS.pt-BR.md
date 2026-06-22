@@ -6,25 +6,23 @@ e qual é o trade-off. Leia antes de propor uma alternativa "padrão" em
 PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 "mais idiomática" quebraria silenciosamente.
 
-## Inversão 1 — `wreq` em vez de `reqwest` (v0.7.3+)
+## Inversao 1 — `wreq` em vez de `reqwest` (v0.7.3–v0.8.5, REVERTIDA na v0.8.6)
+
+> **Status: REVERTIDA na v0.8.6** — substituida por `reqwest` + `rustls-tls` (ADR-0008). Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador, tornando emulacao BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl) bloqueava usuarios Windows no `cargo install`.
 
 - **Expectativa default**: novos projetos Rust CLI usam `reqwest` com `rustls-tls`.
-- **O que fizemos**: substituímos `reqwest 0.12 + rustls` por `wreq 6.0.0-rc.29`
+- **O que fizemos (v0.7.3)**: substituimos `reqwest 0.12 + rustls` por `wreq 6.0.0-rc.29`
   (vincula estaticamente BoringSSL).
-- **Por quê**: `rustls` produz um fingerprint TLS canônico que o Cloudflare
-  Bot Management reconhece como não-navegador, disparando interstitials
+- **Por que**: `rustls` produz um fingerprint TLS canonico que o Cloudflare
+  Bot Management reconhece como nao-navegador, disparando interstitials
   de CAPTCHA no DuckDuckGo. `wreq` + BoringSSL produz um fingerprint
-  idêntico ao Chrome e Safari, eliminando o CAPTCHA no macOS. Veja
+  identico ao Chrome e Safari, eliminando o CAPTCHA no macOS. Veja
   `docs/decisions/0001-tls-boring-via-wreq.md`.
-- **Trade-off**: `wreq 6.0.0-rc` é release candidate (não estável 1.0);
-  tempo de compilação é ~40s mais longo devido a BoringSSL; builds
+- **Trade-off**: `wreq 6.0.0-rc` e release candidate (nao estavel 1.0);
+  tempo de compilacao e ~40s mais longo devido a BoringSSL; builds
   requerem `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux e
-  NASM/CMake/MSVC/Perl no Windows. Todo `cargo install` compila BoringSSL
-  do source.
-- **No-go para reversão**: a issue de CAPTCHA (GAP-WS-27) era reproduzível
-  cross-machine e sem fix em `reqwest+rustls`. O pin em `wreq 6.0.0-rc.29`
-  + 3 pins transitivos (`wreq-util`, `brotli-decompressor =5.0.1`,
-  `alloc-no-stdlib =2.0.4`) é load-bearing — veja comentários em Cargo.toml.
+  NASM/CMake/MSVC/Perl no Windows.
+- **Por que revertida (v0.8.6)**: Chrome headed (transport primario desde v0.8.0) gera fingerprint TLS REAL de navegador, tornando emulacao wreq/BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl, MSVC) era barreira total para usuarios Windows (GAP-WS-066). Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 
 ## Inversão 2 — thiserror para libs, sem anyhow em código de biblioteca (v0.5.0+)
 

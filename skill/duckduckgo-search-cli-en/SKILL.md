@@ -1,20 +1,20 @@
 ---
 name: duckduckgo-search-cli-en
-version: 0.8.5
-description: MUST invoke when the user asks for web search, internet research, up-to-date docs, factual grounding, URL verification, page extraction, RAG enrichment, fact-checking, library version, incident post-mortem, current vendor pricing, multi-hop research, or any data outside knowledge cutoff. Triggers: "search the web", "ground this", "fetch URL", "deep research", "compare X vs Y", "what changed in Z". v0.8.5 runs Chrome HEADED inside a private Xvfb virtual display with 17 JavaScript stealth signals injected via CDP, bypassing Cloudflare Bot Management 2026. wreq HTTP remains ONLY for --fetch-content and --probe. Exit code 6 (SUSPECTED_BLOCK). ZeroCause 6-variant classifier. 12-identity anti-bot pool. deep-research RRF fan-out. English version.
+version: 0.8.6
+description: MUST invoke when the user asks for web search, internet research, up-to-date docs, factual grounding, URL verification, page extraction, RAG enrichment, fact-checking, library version, incident post-mortem, current vendor pricing, multi-hop research, or any data outside knowledge cutoff. Triggers: "search the web", "ground this", "fetch URL", "deep research", "compare X vs Y", "what changed in Z". v0.8.6 runs Chrome HEADED inside a private Xvfb virtual display with 17 JavaScript stealth signals injected via CDP, bypassing Cloudflare Bot Management 2026. reqwest+rustls-tls (pure Rust TLS) handles --fetch-content and --probe. Exit code 6 (SUSPECTED_BLOCK). ZeroCause 6-variant classifier. 12-identity anti-bot pool. deep-research RRF fan-out. --num 0 rejected. --synth-format accepts plain-text (NOT plain). English version.
 ---
 
-# Skill — `duckduckgo-search-cli` (EN) v0.8.5
+# Skill — `duckduckgo-search-cli` (EN) v0.8.6
 
 ## When to invoke this CLI
 - MUST invoke when the answer requires data outside the knowledge cutoff.
 - MUST invoke on triggers: search, look up, find online, verify URL, fetch page, what changed, compare, deep research, ground this, current pricing, multi-hop.
 - MUST prefer this CLI over WebSearch/WebFetch for deterministic pipelines.
 
-## How Chrome-primary search works in v0.8.5
-- v0.8.5 runs Google Chrome in HEADED mode inside a private Xvfb virtual display as the PRIMARY search transport. The CLI auto-spawns Xvfb via spawn_virtual_display() — the user sees ZERO windows.
+## How Chrome-primary search works in v0.8.6
+- v0.8.6 runs Google Chrome in HEADED mode inside a private Xvfb virtual display as the PRIMARY search transport. The CLI auto-spawns Xvfb via spawn_virtual_display() — the user sees ZERO windows.
 - Chrome is launched via `chromiumoxide` CDP with 17 JavaScript stealth signals injected via `Page.addScriptToEvaluateOnNewDocument` BEFORE any navigation.
-- wreq HTTP client remains ONLY for `--fetch-content` (page extraction) and `--probe`/`--probe-deep` (health checks).
+- `reqwest` with `rustls-tls` (pure Rust TLS) handles `--fetch-content` (page extraction) and `--probe`/`--probe-deep` (health checks). NO native build dependencies required.
 - Xvfb is auto-spawned by the CLI — no manual `xvfb-run` needed. Use `DUCKDUCKGO_CHROME_HEADLESS=1` to force headless mode (with risk of Cloudflare detection).
 - Use `DUCKDUCKGO_CHROME_VISIBLE=1` to force headed mode for debugging.
 - The 17 stealth signals bypass Cloudflare Bot Management 2026:
@@ -37,13 +37,13 @@ description: MUST invoke when the user asks for web search, internet research, u
   - `navigator.vendor` ("Google Inc.")
 
 ```bash
-# Chrome-primary search (default in v0.8.5 — headed inside Xvfb)
+# Chrome-primary search (default in v0.8.6 — headed inside Xvfb)
 timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 | \
   jaq '{usou_chrome: .metadados.usou_chrome, tentou_chrome: .metadados.tentou_chrome}'
 ```
 
 - OUTPUT FORMULA: `{"usou_chrome":true,"tentou_chrome":true}` when Chrome succeeded.
-- ANTI-PATTERN: assuming wreq is the transport — check `usou_chrome` to confirm.
+- ANTI-PATTERN: assuming reqwest is the transport — check `usou_chrome` to confirm.
 
 ## How to run a single query
 - ALWAYS use this exact pattern for single queries:
@@ -54,6 +54,7 @@ timeout 60 duckduckgo-search-cli "<query>" -q -f json --num 15 | jaq '.resultado
 
 - OUTPUT FORMULA: `array<{posicao:int, titulo:string, url:string, snippet:string?, metadados:{tempo_execucao_ms:int, quantidade_resultados:int, identidade_usada:string?, nivel_cascata:u8?, usou_endpoint_fallback:bool, endpoint_usado:"html"|"lite", pre_flight_disparado:bool, usou_chrome:bool, tentou_chrome:bool}}`
 - ANTI-PATTERN: invoking without `timeout` — pipeline hangs indefinitely.
+- ANTI-PATTERN: `--num 0` — rejected by clap with exit 2 since v0.8.6 (GAP-WS-067). Minimum is 1.
 
 ## How to detect CAPTCHA before paying for a request
 - MUST run before any non-trivial query when on shared IPs, corporate proxies, or after observed exit 3:
@@ -211,12 +212,14 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - RECOMMENDED 4000-10000 bytes per page for LLM corpora.
 - ANTI-PATTERN: using `--fetch-content` without `--max-content-length` — unbounded memory growth.
 
-## How HTTP decompression works in v0.8.0
-- `wreq 6.0.0-rc` sends `accept-encoding: gzip, deflate, br` but does NOT auto-decompress response bodies.
-- v0.8.0 adds transparent decompression via `src/decompress.rs` for gzip (`flate2::MultiGzDecoder`), deflate (`flate2::ZlibDecoder`), and brotli (`brotli_decompressor`).
+## How HTTP decompression works in v0.8.6
+- `reqwest` with `rustls-tls` sends `accept-encoding: gzip, deflate` and auto-decompresses most responses via its built-in `gzip` and `deflate` features.
+- Chrome responses bypass reqwest entirely (body arrives via CDP); `src/decompress.rs` handles edge cases where Chrome returns compressed bodies.
+- `src/decompress.rs` dispatches gzip (`flate2::MultiGzDecoder`) and deflate (`flate2::ZlibDecoder`).
+- Brotli decompression REMOVED in v0.8.6 — DuckDuckGo never serves brotli for HTML endpoints. Requesting `br` encoding returns `CliError::UnsupportedEncoding`.
 - `DECOMPRESSION_MAX_OUTPUT = 32 MiB` protects against gzip bombs.
 - Raw and decompressed byte counts are reported in `.metadados.bytes_brutos` and `.metadados.bytes_descomprimidos`.
-- Without this fix, interstitial detection (`body.contains("anomaly-modal")`) failed silently on compressed bytes — root cause of GAP-AUD-003.
+- Without this decompression layer, interstitial detection (`body.contains("anomaly-modal")`) fails silently on compressed bytes — root cause of GAP-AUD-003.
 
 ## How to interpret the 5-level anti-bot cascade
 ```
@@ -233,6 +236,7 @@ FAILURE — Report with cause + retry_after_seconds
 - MUST generate 3-5 specific sub-queries yourself instead of relying on heuristic templates
 - The default `--sub-query-strategy heuristic` appends generic suffixes ("main aspects components", "vs alternatives comparison") that produce low-quality results
 - ALWAYS use `--sub-query-strategy manual --sub-queries-file` with LLM-generated questions
+- `--synth-format` accepts `plain-text` (NOT `plain`) — the clap ValueEnum derives kebab-case from `PlainText` (GAP-WS-068)
 
 ```bash
 # Step 1: generate specific sub-queries (the LLM writes these)
@@ -253,6 +257,7 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2
 
 - ANTI-PATTERN: using default heuristic strategy — produces generic, low-quality sub-queries
 - ANTI-PATTERN: copying the user query verbatim as sub-queries — add specific angles
+- ANTI-PATTERN: `--synth-format plain` — INVALID. Use `--synth-format plain-text` (GAP-WS-068)
 - Each sub-query MUST target a distinct aspect: architecture, benchmarks, pricing, limitations, comparisons
 - OUTPUT FORMULA: `.sintese` (Markdown), `.metadados.sub_queries[]` (per-subquery status), `.resultados[]` (RRF-aggregated)
 - EXIT MAP: `0=success`, `1=any-sub-query-failed`, `2=arg-error`, `3=anti-bot-during-fanout`, `4=timeout`, `5=zero-aggregated`
@@ -261,6 +266,14 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2
 ```bash
 timeout 120 duckduckgo-search-cli --pre-flight -q -f json deep-research "rust async 2026" \
   --sub-query-strategy manual --sub-queries-file /tmp/sub-queries.txt --max-sub-queries 5
+```
+
+- Synthesis with plain-text format:
+
+```bash
+timeout 120 duckduckgo-search-cli -q -f json deep-research "rust async 2026" \
+  --synthesize --synth-format plain-text --budget-tokens 800 \
+  | jaq -r '.sintese'
 ```
 
 ## How to configure retries and timeouts without triggering anti-bot
@@ -283,6 +296,8 @@ timeout 120 duckduckgo-search-cli --pre-flight -q -f json deep-research "rust as
 - `-v` info / `-vv` debug / `-vvv` trace (additive, v0.7.8 GAP-WS-53).
 - `--output <PATH>` — atomic write of full payload (rejected if `..` or `/etc`/`/usr`/`C:\Windows`).
 - `--chrome-path <PATH>` — manual Chrome/Chromium binary path (bypasses auto-detection).
+- `--num N` — number of results (minimum 1, `--num 0` rejected since v0.8.6 GAP-WS-067).
+- `--synth-format` — `markdown` (default), `plain-text` (NOT `plain`), `json` (GAP-WS-068).
 
 ## How to format search results as LLM-ready context
 - MUST pipe to `jaq` to extract only relevant fields:
@@ -312,6 +327,8 @@ timeout 60 duckduckgo-search-cli "incident 2026-06" -q -f json --num 10 \
 - FORBIDDEN treat `identidade_usada` or `nivel_cascata` as guaranteed — both are `Option<T>`.
 - FORBIDDEN commit `cookies.json` — credential-adjacent file.
 - FORBIDDEN ignore `quantidade_resultados:0` — may be ghost-block (use `--pre-flight` or inspect `causa_zero`).
+- FORBIDDEN `--num 0` — rejected by clap since v0.8.6 (GAP-WS-067).
+- FORBIDDEN `--synth-format plain` — use `plain-text` (GAP-WS-068).
 
 ## How to handle the cookie jar as a credential
 - Cookie jar path (Linux/macOS/Windows): `~/.config/duckduckgo-search-cli/cookies.json` (Unix mode `0o600`).
@@ -320,20 +337,20 @@ timeout 60 duckduckgo-search-cli "incident 2026-06" -q -f json --num 10 \
 - `--no-cookie-persistence` flag for ephemeral sessions.
 
 ## How to satisfy build prerequisites on Linux and Windows
-- Linux build deps: `cmake`, `perl`, `pkg-config`, `libclang-dev`.
+- v0.8.6 uses `reqwest` with `rustls-tls` (pure Rust TLS) — ALL native build dependencies (cmake, nasm, perl, MSVC cl.exe) have been REMOVED.
+- Linux build deps: Rust toolchain only. No cmake, no perl, no pkg-config, no libclang-dev.
 - Linux Chrome runtime deps: Google Chrome or Chromium installed (auto-detected via `detect_chrome`).
 - Linux runtime dep: Xvfb package (auto-spawned by CLI). Install: `sudo apt install xvfb` (Debian/Ubuntu), `sudo dnf install xorg-x11-server-Xvfb` (Fedora).
-- macOS: Chrome must be installed; no Xvfb needed (native display used directly).
-- Windows: Chrome must be installed; no Xvfb needed (native display used directly).
-- Windows MSVC build deps: `nasm`, `cmake` 3.20+ (C++ CMake tools sub-component), `cl.exe`, `link.exe`, Strawberry Perl.
-- Escape hatches when missing: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`.
+- macOS: Rust toolchain + Chrome. No Xvfb needed (native display used directly).
+- Windows: Rust toolchain + Chrome. No Xvfb needed (native display used directly). NO cmake, NO nasm, NO MSVC cl.exe, NO Strawberry Perl required.
+- `DDG_SKIP_NASM_CHECK`, `DDG_SKIP_CMAKE_CHECK`, `DDG_SKIP_MSVC_CHECK`, `DDG_SKIP_PERL_CHECK` env vars REMOVED — no build.rs preflights exist.
 - `cargo install` ALWAYS compiles from source — crates.io ships NO pre-built binaries.
 - Chrome feature is enabled via `cargo build --features chrome` (default in `cargo install`).
 
-## How to install or upgrade to v0.8.5
+## How to install or upgrade to v0.8.6
 
 ```bash
-cargo install duckduckgo-search-cli --version 0.8.5 --locked --force
+cargo install duckduckgo-search-cli --version 0.8.6 --locked --force
 ```
 
 ## How to opt out of exit code 6 for BC with v0.7.x pipelines
@@ -349,20 +366,19 @@ timeout 60 duckduckgo-search-cli "blocked query" -q -f json --num 15
 # Exit 5 even if causa_zero is "anti-bot"
 ```
 
-## APPENDIX — Migration Notes (v0.7.10 → v0.8.5)
-- Chrome runs HEADED inside a private Xvfb virtual display as the PRIMARY search transport — wreq remains only for `--fetch-content` and `--probe`.
-- 17 JavaScript stealth signals injected via CDP bypass Cloudflare Bot Management 2026.
-- New runtime deps: Google Chrome (or Chromium) + Xvfb (Linux only, auto-spawned by CLI via `spawn_virtual_display()`).
-- New exit code 6 (`SUSPECTED_BLOCK`): emitted when `causa_zero != legitimo` and `DUCKDUCKGO_ZERO_CAUSE_STRICT` is not `false`. Opt out: `export DUCKDUCKGO_ZERO_CAUSE_STRICT=false`.
-- New `ZeroCause` enum with 6 variants: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`, `zero-resultados-suspeito`.
-- New metadata fields: `causa_zero`, `sugestao_proxima_acao`, `bytes_brutos`, `bytes_descomprimidos`, `cascata_nivel_observado`, `usou_chrome`, `tentou_chrome`.
-- New aggregated field: `causa_zero_histogram` (BTreeMap across multi-query sub-queries).
-- Transparent HTTP decompression (gzip, deflate, brotli) via `src/decompress.rs` — fixes GAP-AUD-003 interstitial detection on compressed bodies.
-- `flate2 = "1"` added as explicit dependency (was transitive via wreq).
-- Auto-fallback to Lite endpoint when classifier returns non-`legitimo` cause (GAP-NEW-004).
-- Stealth shell detection (14KB+ body without `result__a` markers) now classified as `GhostBlock` instead of `Legitimo` (GAP-NEW-003).
-- `--retries` honored by parallel executor since v0.7.8 (GAP-WS-57).
-- 5 new markers in `CLOUDFLARE_MARKERS` and `DDG_MARKERS` since v0.7.8 (GAP-WS-50).
-- `--probe-deep` uses 9-word calibration query since v0.7.8 (GAP-WS-51).
-- TLS stack: BoringSSL via `wreq 6.0.0-rc.29` since v0.7.3 (was rustls).
+## APPENDIX — Migration Notes (v0.8.5 → v0.8.6)
+- TLS stack: `wreq` (BoringSSL) REPLACED by `reqwest` + `rustls-tls` (pure Rust TLS). wreq is NO LONGER in the dependency tree.
+- ALL native build dependencies REMOVED: cmake, nasm, perl, MSVC cl.exe, Strawberry Perl are NO LONGER needed on any platform.
+- `build.rs` preflights for NASM/CMake/MSVC/Perl REMOVED entirely.
+- `DDG_SKIP_NASM_CHECK`, `DDG_SKIP_CMAKE_CHECK`, `DDG_SKIP_MSVC_CHECK`, `DDG_SKIP_PERL_CHECK` env vars REMOVED — no longer recognized.
+- `cargo install duckduckgo-search-cli` now works on Windows WITHOUT any extra tools beyond Rust toolchain + Chrome.
+- Brotli decompression REMOVED — DuckDuckGo never serves brotli for HTML endpoints. `src/decompress.rs` now returns `CliError::UnsupportedEncoding` for `br` encoding.
+- HTTP decompression still handled via `flate2` (gzip, deflate) in `src/decompress.rs` for Chrome response edge cases.
+- `--num 0` now REJECTED by clap with exit 2 (GAP-WS-067). Minimum value is 1.
+- `--synth-format` accepts `plain-text` (NOT `plain`) — clap ValueEnum derives kebab-case from `PlainText` variant (GAP-WS-068).
+- Chrome headed + Xvfb anti-bot evasion UNCHANGED from v0.8.5.
+- 17 JavaScript stealth signals UNCHANGED from v0.8.5.
+- Exit code 6 (SUSPECTED_BLOCK) UNCHANGED from v0.8.0.
+- ZeroCause 6-variant classifier UNCHANGED from v0.8.0.
+- 12-identity anti-bot pool UNCHANGED from v0.6.4.
 - See CHANGELOG.md and README.md for full history.

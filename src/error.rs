@@ -188,7 +188,7 @@ pub enum CliError {
 
     /// Underlying HTTP client error during response decoding.
     #[error("HTTP client error: {0}")]
-    HttpClient(#[from] wreq::Error),
+    HttpClient(#[from] reqwest::Error),
 
     /// Underlying I/O error during gzip/deflate/brotli decompression.
     #[error("decompression I/O error: {0}")]

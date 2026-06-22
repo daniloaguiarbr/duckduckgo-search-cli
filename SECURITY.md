@@ -38,7 +38,7 @@
 - In scope: Credential leakage through `--proxy user:pass@...` handling in logs, error messages, or output JSON
 - In scope: Path traversal or symlink attacks against the output file path (`-o, --output`) or the XDG config directory
 - In scope: Cookie jar tampering — the v0.7.3+ `cookies.json` file contains session cookies from DuckDuckGo and is written with 0o600 Unix permissions. Report any way to read this file as another local user, or any way the CLI sends those cookies to a non-DuckDuckGo origin.
-- In scope: TLS misconfiguration that could enable MITM — the project uses BoringSSL (statically linked by `wreq`) since v0.7.3, report any fallback to unsafe cipher suites
+- In scope: TLS misconfiguration that could enable MITM — since v0.8.6 the project uses `reqwest` + `rustls-tls` (pure Rust TLS, replacing BoringSSL/wreq from v0.7.3-v0.8.5). Report any fallback to unsafe cipher suites
 - In scope: Supply chain issues in pinned transitive dependencies not yet documented in `deny.toml`
 
 
@@ -57,7 +57,7 @@
 - **v0.7.3+**: A cookie jar is persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). The file is written with Unix permissions `0o600` (owner read+write only). On Windows, the directory inherits the user's profile ACL. The cookies are session cookies issued by `duckduckgo.com` and `html.duckduckgo.com`. **Treat this file as you would treat any credential.** Use `--no-cookie-persistence` to keep cookies in memory only. Use `--cookies-path <PATH>` to relocate the file to an encrypted volume (e.g., a LUKS-mounted directory or a tmpfs restricted to your UID).
 - **v0.7.8+**: Verbose flag surface expanded. `-v` is info, `-vv` is debug, `-vvv` is trace (GAP-WS-53). Operators investigating anomalies can escalate log detail without recompiling. The flag `conflicts_with = "quiet"` prevents contradictory intent. Use this when reporting a suspected vulnerability — `-vvv` output is the most useful diagnostic the maintainers can receive.
 - The binary does not execute subprocesses or shell commands based on search results
-- **v0.7.3+**: TLS is enforced via BoringSSL (statically linked by `wreq 6.0.0-rc.29`). No plain HTTP connections to the search endpoint. The BoringSSL build is reproducible; deviations in cipher suite selection are reported via `cargo deny check`.
+- **v0.8.6+**: TLS is enforced via `rustls` (pure Rust, statically linked by `reqwest`). No plain HTTP connections to the search endpoint. v0.7.3-v0.8.5 used BoringSSL via `wreq`; v0.8.6 replaced it with `reqwest` + `rustls-tls` (ADR-0008). Cipher suite selection follows the `rustls` defaults.
 - **v0.7.3+**: The CLI is no longer fully stateless. Cookie jar persistence adds state across invocations. This is a deliberate trade-off to reduce CAPTCHA rate on the DuckDuckGo server. The warm-up request (`GET https://duckduckgo.com/`) is idempotent and does not persist any user-identifying data beyond the cookies themselves.
 - Since v0.8.0 the CLI executes JavaScript via Chrome for the search phase — the Chrome process is sandboxed and runs inside a private Xvfb virtual display (v0.8.5+)
 
@@ -88,6 +88,8 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
 
 
 ## v0.7.3 Security Improvements
+
+> **Note (v0.8.6)**: The BoringSSL/wreq stack described below was replaced by `reqwest` + `rustls-tls` in v0.8.6 (ADR-0008). This section is historical.
 
 - **GAP-WS-27 (TLS fingerprint)**: The Cloudflare Bot Management CAPTCHA
   interstitial that affected macOS users in v0.7.2 (HTTP 200 with
@@ -211,9 +213,7 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
   `Cargo.toml` was rewritten. The previous release claimed
   `wreq 5.3.0` but the actual pin in use is `6.0.0-rc.29` with three
   direct pins (`wreq-util`, `brotli-decompressor =5.0.1`,
-  `alloc-no-stdlib =2.0.4`). The Cargo.toml manifest now matches
-  reality — eliminates a documentation-vs-code drift that made supply
-  chain audits misleading.
+  `alloc-no-stdlib =2.0.4`). **(Historical: wreq and all its pins were removed in v0.8.6 — ADR-0008.)**
 - **MSRV unchanged from v0.7.7**: `rust-version = "1.88"`.
 
 For vulnerabilities introduced or surfaced by v0.7.7 specifically, the

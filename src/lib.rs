@@ -26,7 +26,7 @@
 //! | Module        | Responsibility                                               |
 //! |---------------|--------------------------------------------------------------|
 //! | [`cli`]       | Clap structs (command-line argument parsing).                |
-//! | [`http`]      | `wreq::Client` construction and User-Agent selection.     |
+//! | [`http`]      | `reqwest::Client` construction and User-Agent selection.  |
 //! | [`search`]    | URL building and HTTP request to the `DuckDuckGo` endpoint.    |
 //! | [`extraction`]| HTML parsing with `scraper` and ad filtering.                |
 //! | [`pipeline`]  | Single/multi orchestration, deduplication and source reading.|
@@ -53,8 +53,9 @@ pub mod cli;
 pub mod config_init;
 pub mod content;
 pub mod content_fetch;
-pub mod decompress;
+pub mod cookie_adapter;
 pub mod decomposition;
+pub mod decompress;
 pub mod deep_research;
 pub mod error;
 pub mod extraction;
@@ -72,7 +73,6 @@ pub mod session_warmup;
 pub mod signals;
 pub mod synthesis;
 pub mod types;
-pub mod wreq_cookie_adapter;
 
 // browser.rs declares `#![cfg(feature = "chrome")]` at the module root (line 25),
 // which already excludes the entire module when the feature is off. Re-declaring
@@ -283,7 +283,11 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
 
             // BC opt-out: DUCKDUCKGO_ZERO_CAUSE_STRICT=false mapeia exit 6 → exit 5.
             // Default ON (strict). Aceita false/0/no/off como opt-out.
-            let strict = parse_zero_cause_strict_env(std::env::var("DUCKDUCKGO_ZERO_CAUSE_STRICT").ok().as_deref());
+            let strict = parse_zero_cause_strict_env(
+                std::env::var("DUCKDUCKGO_ZERO_CAUSE_STRICT")
+                    .ok()
+                    .as_deref(),
+            );
 
             // GAP-AUD-005 + GAP-AUD-006 v0.8.0: reordenar lógica de exit code.
             // ANTES: pre_flight_blocked sempre saía com exit 3, ignorando a
@@ -370,8 +374,7 @@ async fn execute_deep_research(
     };
 
     let ua_list = http::load_user_agents(search_defaults.match_platform_ua);
-    let browser_profile =
-        http::select_profile_from_list_seeded(&ua_list, search_defaults.seed);
+    let browser_profile = http::select_profile_from_list_seeded(&ua_list, search_defaults.seed);
     let user_agent = browser_profile.user_agent.clone();
     let selectors = selectors::load_selectors();
     let effective_num = search_defaults.num_results.unwrap_or(15);
@@ -858,16 +861,16 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
     // v0.7.3 PR2: build the cookie jar / warm-up machinery.
     let (persistent_jar, warmup_enabled) = if args.no_cookie_persistence {
         (
-            crate::wreq_cookie_adapter::PersistentJar::empty(None),
+            crate::cookie_adapter::PersistentJar::empty(None),
             !args.no_warmup,
         )
     } else {
         let path = match args.cookies_path.as_ref() {
             Some(p) => p.clone(),
-            None => crate::wreq_cookie_adapter::default_cookies_path()?,
+            None => crate::cookie_adapter::default_cookies_path()?,
         };
         (
-            crate::wreq_cookie_adapter::PersistentJar::load(Some(path)),
+            crate::cookie_adapter::PersistentJar::load(Some(path)),
             !args.no_warmup,
         )
     };

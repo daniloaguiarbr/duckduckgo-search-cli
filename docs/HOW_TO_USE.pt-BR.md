@@ -14,7 +14,7 @@ Busca web em tempo real no seu terminal — 15 resultados frescos em menos de 3 
 - Acesso à rede para duckduckgo.com
 - Rust 1.88+ ao instalar via `cargo install` (MSRV desde v0.7.2)
 - Binários pré-compilados do GitHub Releases não exigem instalação do Rust (quando publicados; nota: `cargo install` SEMPRE compila do source — ver `gaps.md` GAP-WS-27/28/29/30/31 e `docs/INSTALL-WINDOWS.pt-BR.md`)
-- **v0.7.3+ ao compilar do source no Linux**: `cmake`, `perl`, `pkg-config` e `libclang-dev` (deps de build do BoringSSL via `wreq 6.0.0-rc`). **v0.7.3+ ao compilar no Windows MSVC nativo requer QUATRO ferramentas** (fechadas progressivamente como GAP-WS-28 em v0.7.4 e GAP-WS-29/30/31 em v0.7.5): (1) assembler NASM, (2) CMake 3.20+ com o sub-componente C++ CMake tools for Windows (NÃO incluído por default no Visual Studio Installer), (3) compilador e linker MSVC C/C++ (cl.exe, link.exe via Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1), (4) Strawberry Perl. `cargo install` SEMPRE compila do source — crates.io NÃO distribui binários pré-compilados para nenhuma plataforma. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo das quatro ferramentas.
+- **v0.8.6+**: Nenhuma ferramenta nativa de build C necessaria. TLS e Rust puro via `reqwest` + `rustls-tls`. `cmake`, `perl`, NASM, MSVC NAO sao mais necessarios. **(v0.7.3-v0.8.5 exigia cmake, perl, NASM para BoringSSL — removido na v0.8.6, ver ADR-0008.)**
 ### Opcionais
 - `jaq` (substituto Rust do jq) para processar JSON em pipelines
 - Um proxy SOCKS5 para rotação de IP quando houver rate-limiting
@@ -91,7 +91,7 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - Desde a v0.8.5, Chrome roda HEADED dentro de display virtual Xvfb privado (NÃO headless)
 - A CLI auto-spawna Xvfb via `spawn_virtual_display()` — o usuário vê ZERO janelas
 - `--headless=new` era usado na v0.8.1-v0.8.4 mas Cloudflare detecta (GAP-WS-065)
-- Cliente HTTP wreq é usado APENAS para `--fetch-content` e `--probe`
+- Cliente HTTP reqwest é usado APENAS para `--fetch-content` e `--probe` (substituiu wreq/BoringSSL na v0.8.6)
 - Chrome contorna detecção anti-bot do Cloudflare via 17 sinais stealth
 - Instalar Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Instalar Xvfb: `sudo apt install xvfb` (Debian/Ubuntu) ou `sudo dnf install xorg-x11-server-Xvfb` (Fedora)
@@ -267,9 +267,11 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 
 ## v0.7.3 — Sessão + Probe-Deep + BoringSSL (correção do GAP-WS-27)
 
-v0.7.3 fecha atomicamente o GAP-WS-27 (CAPTCHA no macOS) substituindo a stack TLS `rustls` por BoringSSL embarcado via `wreq 6.0.0-rc.29`, mais persistência de cookies de sessão e detecção profunda de CAPTCHA.
+> **Nota (v0.8.6)**: A stack wreq/BoringSSL descrita nesta secao foi substituida por `reqwest` + `rustls-tls` na v0.8.6 (ADR-0008). Esta secao e historica (v0.7.3-v0.8.5).
 
-### Mudança da Stack TLS (wreq + BoringSSL)
+v0.7.3 fecha atomicamente o GAP-WS-27 (CAPTCHA no macOS) substituindo a stack TLS `rustls` por BoringSSL embarcado via `wreq 6.0.0-rc.29`, mais persistencia de cookies de sessao e deteccao profunda de CAPTCHA.
+
+### Mudanca da Stack TLS (wreq + BoringSSL) — Historica, substituida na v0.8.6
 
 A CLI agora usa `wreq 6.0.0-rc.29` em vez de `reqwest 0.12` + `rustls-tls`. O `wreq` traz o BoringSSL embarcado (via `boring2 v4.15.11`) e produz um fingerprint `JA4_o` idêntico ao Chrome/Safari real, fechando a porta de entrada do Cloudflare Bot Management que gerava o CAPTCHA.
 
@@ -531,7 +533,7 @@ O subcomando `deep-research` herda toda flag global (`-q -f json`, `--num`, `--l
 - `--aggregate` — `rrf` (padrão, K=60) ou `dedupe-by-url`
 - `--synthesize` — produz o relatório final
 - `--budget-tokens N` — teto do tamanho da síntese (1 token ≈ 4 chars)
-- `--synth-format` — `markdown` (padrão), `plain` ou `json`
+- `--synth-format` — `markdown` (padrão), `plain-text` ou `json`
 
 
 ## v0.7.3 — Sessão + Probe-Deep + BoringSSL

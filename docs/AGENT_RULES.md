@@ -990,12 +990,12 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 - MUST run `duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'` in CI before launching real queries on macOS runners.
 - MUST treat the `cookies.json` file written by the `session` feature as a credential. Unix permissions are `0o600`. Do not commit, share, or sync this file.
 - MUST specify `--cookies-path <PATH>` if the default XDG path is not acceptable (e.g. on encrypted volume requirements).
-- MUST read `docs/decisions/0001-tls-boring-via-wreq.md` before suggesting `reqwest` as a dependency, since the v0.7.3+ stack is `wreq` only.
+- MUST read `docs/decisions/0008-reqwest-rustls-v0-8-6.md` — since v0.8.6 the stack is `reqwest` + `rustls-tls` (pure Rust). The `wreq`/BoringSSL stack from ADR-0001 was superseded.
 
 ### NEVER
 - NEVER hardcode the cookie jar path in CI; rely on XDG defaults so the path is reproducible across machines.
 - NEVER enable `--allow-lite-fallback` in pipelines that need full `html` results — the content quality of `lite` is lower.
-- NEVER suggest a downgrade to v0.7.2 to fix a v0.7.3 issue without first checking `gaps.md` and `docs/decisions/0001-tls-boring-via-wreq.md` — the macOS CAPTCHA bug (GAP-WS-27) returns on downgrade.
+- NEVER suggest a downgrade below v0.8.6 without understanding that v0.7.3–v0.8.5 require NASM+CMake+Perl+MSVC on Windows. See ADR-0008.
 - NEVER use the `--cookies-path` output to redirect cookies outside of `$HOME`-controlled directories.
 
 
@@ -1065,3 +1065,29 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 - NEVER assume `-v` is a boolean flag in v0.7.8+; it accepts multiple occurrences (`-vv`, `-vvv`) per Unix convention.
 - NEVER pass `--retries` above 10; the v0.7.8+ clamp in `src/parallel.rs` rejects it.
 - NEVER attempt to invoke the `buscar` subcommand from CI scripts that parse `--help` output; it is hidden since v0.7.8.
+
+
+## v0.8.6 — New Rules (GAP-WS-066 — wreq replaced by reqwest+rustls-tls)
+
+### MUST
+- MUST know that `wreq` and `wreq-util` were REMOVED in v0.8.6. The HTTP client is now `reqwest` with `rustls-tls`.
+- MUST know that `cargo install duckduckgo-search-cli` now works on Windows with ONLY the Rust toolchain — NASM, CMake, Perl, and MSVC are no longer required.
+- MUST read `docs/decisions/0008-reqwest-rustls-v0-8-6.md` for the architectural rationale.
+- MUST know that `cookie_adapter` (not `wreq_cookie_adapter`) is the cookie persistence module since v0.8.6.
+- MUST know that `build.rs` no longer contains BoringSSL preflights (nasm, cmake, cl, perl detection removed).
+- MUST know that brotli decompression was removed — DuckDuckGo never serves brotli for HTML endpoints.
+- MUST know that Chrome headed (primary since v0.8.0) provides real browser TLS fingerprint, making wreq emulation redundant.
+
+### NEVER
+- NEVER suggest adding `wreq` back as a dependency — ADR-0001 is superseded by ADR-0008.
+- NEVER reference `wreq_cookie_adapter` in new code — the module is `cookie_adapter` since v0.8.6.
+- NEVER expect BoringSSL TLS fingerprint emulation in the HTTP fallback path — it uses `reqwest` + `rustls` since v0.8.6.
+- NEVER tell Windows users to install NASM, CMake, or Perl for v0.8.6+ — those prerequisites were eliminated.
+
+### SUPERSEDES (v0.7.3–v0.8.5 rules that no longer apply)
+- v0.7.3 rule "MUST read ADR-0001 before suggesting reqwest" — SUPERSEDED: reqwest IS the dependency since v0.8.6.
+- v0.7.4 rule "MUST install NASM on Windows" — SUPERSEDED: NASM not required since v0.8.6.
+- v0.7.5 rules about install-windows.ps1 and check-windows-toolchain.ps1 — SUPERSEDED: scripts unnecessary since v0.8.6.
+- v0.7.6 rule "MUST install via --locked for alloc-no-stdlib pin" — SUPERSEDED: alloc-no-stdlib removed in v0.8.6.
+- v0.7.7 rule "MUST pin wreq-util 3.0.0-rc.12" — SUPERSEDED: wreq-util removed in v0.8.6.
+- v0.7.7 rule "MUST check wreq 6.0.0-rc.29 BoringSSL stack" — SUPERSEDED: wreq removed in v0.8.6.

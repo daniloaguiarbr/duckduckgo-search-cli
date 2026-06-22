@@ -1,4 +1,6 @@
-# ADR-0002 — Renovação do Detector Anti-Bot + Verbose Acumulado (v0.7.8)
+# ADR-0002 — Renovacao do Detector Anti-Bot + Verbose Acumulado (v0.7.8)
+
+> Note: wreq references in this ADR are historical; wreq was replaced by reqwest+rustls in v0.8.6 (ADR-0008).
 
 ## Contexto e problema
 

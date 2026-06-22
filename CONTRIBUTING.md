@@ -62,11 +62,12 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 ### I/O Centralizado
 - O módulo `output.rs` é o ÚNICO lugar permitido para chamar `println!` ou `print!`
 - Todos os outros módulos registram via `tracing`
-### TLS Obrigatório
-- A stack TLS é `wreq 6.0.0-rc.29` com BoringSSL estaticamente vinculado (GAP-WS-27, v0.7.3)
-- Não troque para `rustls` puro — fingerprint JA4_o idêntico ao Chrome/Safari só com BoringSSL
-- Não reative `native-tls` — quebra NixOS, Alpine e builds musl estáticos
-- Compilação do BoringSSL requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux
+### TLS Obrigatorio
+- A stack TLS e `reqwest` + `rustls-tls` desde v0.8.6 (Rust puro, zero deps nativas C)
+- v0.7.3-v0.8.5 usava `wreq 6.0.0-rc.29` com BoringSSL — substituido na v0.8.6 (ADR-0008)
+- Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador
+- Nao reative `native-tls` — quebra NixOS, Alpine e builds musl estaticos
+- `cmake`, `perl`, NASM NAO sao mais necessarios desde v0.8.6
 ### Restrições de Design
 - Sem cache, sem MCP, sem API paga — restrições inegociáveis do blueprint v2
 

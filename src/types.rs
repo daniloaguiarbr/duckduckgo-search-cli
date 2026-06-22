@@ -33,7 +33,7 @@ pub enum ZeroCause {
     RespostaInvalida,
     /// Body descomprimido na faixa suspeita (5-15KB) sem result-page signal
     /// e sem interstitial literal. Indica provavel bloqueio upstream pelo
-    /// HTTP client (wreq fingerprint TLS divergente do browser real) onde
+    /// HTTP client (rustls fingerprint TLS divergente do browser real) onde
     /// o DDG serve SERP vazia proposital sem challenge explicito. Distinto
     /// de `Legitimo` porque o body nao tem marcadores de result page. v0.8.0
     /// audit E2E 2026-06-19.
@@ -208,7 +208,7 @@ pub struct SearchMetadata {
     pub bytes_decompressed: Option<u64>,
 
     /// Nível de cascata observado no probe-deep mais recente da mesma
-    /// sessão de processo. Cacheado em 
+    /// sessão de processo. Cacheado em
     /// para uso como sinal cruzado pelo classificador de zero-result
     /// quando  não está ativo. GAP-NEW-003 v0.8.0.
     #[serde(rename = "cascata_nivel_observado")]
@@ -588,13 +588,13 @@ pub struct Config {
     /// CSS selector configuration (loaded from selectors.toml or built-in defaults).
     /// Wrapped in `Arc` for cheap cloning across concurrent tasks.
     pub selectors: std::sync::Arc<SelectorConfig>,
-    /// Pre-built cookie jar for `wreq::Client::cookie_provider`. Built by
+    /// Pre-built cookie jar for `reqwest::Client::cookie_provider`. Built by
     /// `build_config` from the persistent JSON file (or an empty jar if
     /// persistence is disabled). v0.7.3 PR2.
-    pub cookie_provider: Option<std::sync::Arc<dyn wreq::cookie::CookieStore>>,
+    pub cookie_provider: Option<std::sync::Arc<reqwest::cookie::Jar>>,
     /// Persistent jar handle used by the pipeline to save cookies back to
     /// disk after the request completes. v0.7.3 PR2.
-    pub persistent_jar: Option<crate::wreq_cookie_adapter::PersistentJar>,
+    pub persistent_jar: Option<crate::cookie_adapter::PersistentJar>,
     /// Whether to perform the warm-up `GET https://duckduckgo.com/`
     /// before the first real query. v0.7.3 PR2.
     pub warmup_enabled: bool,
@@ -656,13 +656,13 @@ impl Default for Config {
             selectors: Arc::new(SelectorConfig::default()),
             cookie_provider: None,
             persistent_jar: None,
-        warmup_enabled: false,
-        allow_lite_fallback: false,
-        pre_flight: false,
-        identity_profile: CliIdentityProfile::Auto,
-        last_probe_cascade_level: None,
+            warmup_enabled: false,
+            allow_lite_fallback: false,
+            pre_flight: false,
+            identity_profile: CliIdentityProfile::Auto,
+            last_probe_cascade_level: None,
+        }
     }
-}
 }
 
 impl std::fmt::Debug for Config {

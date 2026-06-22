@@ -79,7 +79,7 @@ esac
 - `--depth <N>` — rounds de reflexão (planejado, não executado na v0.7.0)
 - `--synthesize` — produz relatório final em Markdown/PlainText/JSON
 - `--budget-tokens <N>` — orçamento de tokens para o relatório de síntese
-- `--synth-format <markdown|plain|json>` — formato de saída da síntese
+- `--synth-format <markdown|plain-text|json>` — formato de saída da síntese
 - `--probe-deep` — executa uma query real e classifica o body como `ok` ou `captcha` (v0.7.3+)
 - `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` antes da primeira query real (v0.7.3+)
 - `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco (v0.7.3+)
@@ -503,8 +503,10 @@ ddg_exit=${PIPESTATUS[0]}
 - `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar. Use isto para apontar para um volume encriptado.
 - `--allow-lite-fallback` — opt-in para fallback automático do endpoint `html` para o endpoint `lite` quando CAPTCHA é detectado. Desligado por padrão.
 
-### OBRIGATÓRIO — Pré-requisitos de Build Mudaram (v0.7.3+)
-- Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. Binários pré-compilados do crates.io não são afetados. Este requisito é o trade-off pela troca da stack TLS de `rustls` para BoringSSL (estaticamente vinculado pelo `wreq 6.0.0-rc.29`), que produz fingerprint JA4_o idêntico ao Chrome/Safari e fecha o CAPTCHA do macOS do GAP-WS-27.
+### OBRIGATÓRIO — Pre-requisitos de Build (v0.8.6+)
+- v0.8.6+ NAO requer `cmake`, `perl`, NASM ou MSVC. TLS e Rust puro via `reqwest` + `rustls-tls`
+- v0.7.3-v0.8.5 exigia cmake, perl, NASM para BoringSSL via `wreq` — removido na v0.8.6 (ADR-0008)
+- Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador
 
 ### OBRIGATÓRIO — Trate o Cookie Jar como Credencial
 - A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.

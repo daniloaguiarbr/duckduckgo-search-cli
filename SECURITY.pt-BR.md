@@ -40,7 +40,7 @@
 - Vazamento de credenciais através do tratamento de `--proxy user:pass@...` em logs, mensagens de erro ou no JSON de saída (o mascaramento deve prevenir isso — reporte qualquer vazamento)
 - **v0.7.3+**: Manipulação do cookie jar — o arquivo `cookies.json` contém cookies de sessão do DuckDuckGo e é gravado com permissões Unix 0o600. Reporte qualquer forma de ler este arquivo como outro usuário local, ou qualquer forma do CLI enviar esses cookies para uma origem que não seja DuckDuckGo.
 - Ataques de path traversal ou symlink contra o caminho do arquivo de saída (`-o, --output`) ou o diretório de config XDG
-- Configuração incorreta de TLS que possa habilitar MITM (o projeto usa BoringSSL, estaticamente vinculado pelo `wreq` desde a v0.7.3 — reporte qualquer fallback para cipher suites inseguras)
+- Configuracao incorreta de TLS que possa habilitar MITM — desde a v0.8.6 o projeto usa `reqwest` + `rustls-tls` (TLS Rust puro, substituindo BoringSSL/wreq da v0.7.3-v0.8.5). Reporte qualquer fallback para cipher suites inseguras
 - Problemas de supply chain em dependências transitivas fixadas ainda não documentadas em `deny.toml`
 
 
@@ -57,7 +57,7 @@
 - A CLI é um cliente HTTP read-only — não escreve em sistemas remotos
 - Todos os inputs externos (strings de query, paths de saída) são validados antes do uso
 - **v0.7.3+**: Cookie jar persistido em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). O arquivo é gravado com permissões Unix `0o600` (owner read+write only). No Windows, o diretório herda a ACL do perfil do usuário. Os cookies são cookies de sessão emitidos por `duckduckgo.com` e `html.duckduckgo.com`. **Trate este arquivo como trataria qualquer credencial.** Use `--no-cookie-persistence` para manter cookies em memória apenas. Use `--cookies-path <PATH>` para realocar o arquivo para um volume encriptado.
-- A CLI usa BoringSSL (v0.7.3+) estaticamente vinculado via `wreq 6.0.0-rc.29` — sem dependência do sistema OpenSSL/SChannel/SecureTransport
+- **v0.8.6+**: TLS via `rustls` (Rust puro, estaticamente vinculado pelo `reqwest`). v0.7.3-v0.8.5 usava BoringSSL via `wreq`; v0.8.6 substituiu por `reqwest` + `rustls-tls` (ADR-0008). Sem dependencia de OpenSSL/SChannel/SecureTransport do sistema
 - Desde a v0.8.0 a CLI executa JavaScript via Chrome na fase de busca — o processo Chrome é isolado e roda dentro de display virtual Xvfb privado (v0.8.5+)
 - Quando `--fetch-content` está ativo, páginas buscadas são parseadas com `scraper` (que usa `html5ever`); HTML não confiável é esperado
 - **v0.7.3+**: A CLI não é mais totalmente sem estado. O cookie jar persistente adiciona estado entre invocações. É um trade-off deliberado para reduzir a taxa de CAPTCHA no servidor do DuckDuckGo. O request de warm-up (`GET https://duckduckgo.com/`) é idempotente e não persiste nenhum dado identificador de usuário além dos próprios cookies.
@@ -91,13 +91,15 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 
 ## Melhorias de Segurança v0.7.3
 
+> **Nota (v0.8.6)**: A stack BoringSSL/wreq descrita abaixo foi substituida por `reqwest` + `rustls-tls` na v0.8.6 (ADR-0008). Esta secao e historica.
+
 - **GAP-WS-27 (fingerprint TLS)**: O interstitial de CAPTCHA do Cloudflare Bot
-  Management que afetava usuários macOS em v0.7.2 (HTTP 200 com
-  `quantidade_resultados: 0`) está corrigido. A stack TLS mudou de `rustls`
+  Management que afetava usuarios macOS em v0.7.2 (HTTP 200 com
+  `quantidade_resultados: 0`) esta corrigido. A stack TLS mudou de `rustls`
   para BoringSSL (estaticamente vinculado por `wreq 6.0.0-rc.29`).
-- **BoringSSL pinado via `wreq 6.0.0-rc`**: BoringSSL é a mesma biblioteca TLS
-  que Chrome e Android usam em produção. CVEs contra BoringSSL
-  são rastreadas pelo Chromium e abordadas em commits upstream que
+- **BoringSSL pinado via `wreq 6.0.0-rc`**: BoringSSL e a mesma biblioteca TLS
+  que Chrome e Android usam em producao. CVEs contra BoringSSL
+  sao rastreadas pelo Chromium e abordadas em commits upstream que
   `wreq` consome em cada release.
 - **Endurecimento do cookie jar (0o600)**: O arquivo `cookies.json` escrito pela
   feature `session` em v0.7.3+ é criado com permissões Unix `0o600`

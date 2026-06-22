@@ -8,14 +8,14 @@ de `duckduckgo-search-cli`.
 A release v0.7.3 adicionou 13 testes, todos endereçando o GAP-WS-27 (CAPTCHA no macOS) e seus três fatores de causa raiz:
 
 - **`session_warmup` (5 testes unitários)** — resolução de path XDG no Linux, macOS e Windows; criação de diretório ausente; override de path via `DUCKDUCKGO_SEARCH_CLI_HOME`; estabilidade da constante `DEFAULT_COOKIES_FILENAME`.
-- **`wreq_cookie_adapter` (3 testes unitários)** — `PersistentJar::empty()` produz um `Arc<dyn CookieStore>` válido; roundtrip `parse_json` preserva cookies através da fronteira `wreq::cookie::Jar`; roundtrip `save`/`load` com permissões Unix `0o600` e semântica de escrita atômica.
+- **`cookie_adapter` (3 testes unitários, renomeado de `wreq_cookie_adapter` na v0.8.6)** — `PersistentJar::empty()` produz um `Arc<reqwest::cookie::Jar>` válido; roundtrip `parse_json` preserva cookies via extração do header `CookieStore::cookies()`; roundtrip `save`/`load` com permissões Unix `0o600` e semântica de escrita atômica.
 - **`probe_deep` (5 testes unitários)** — `detectar_interstitial` identifica corretamente os marcadores do Cloudflare (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`); `detectar_interstitial` identifica corretamente os marcadores `robot-detected` e `bots, we have detected` do DuckDuckGo; `sugestao_mitigacao` retorna passos concretos para cada tipo de interstitial; `InterstitialKind::None` é o default para uma resposta HTML normal; `execute_probe_deep` produz um JSON report válido.
 - **Total: 405 testes lib passando** (era 279 em v0.7.2; total atual do projeto na v0.7.5). As mudanças v0.7.3 são puramente aditivas. Nenhum teste removido, nenhuma assinatura de teste alterada, nenhuma fixture renomeada.
 
 ### Gaps v0.7.3 fechados por estes testes
 
 - **`probe_deep::detectar_interstitial`** — valida que os marcadores são detectados (o custo de um falso negativo é um CAPTCHA não diagnosticado). Cinco marcadores do Cloudflare + dois do DuckDuckGo são testados em isolamento.
-- **`wreq_cookie_adapter::PersistentJar`** — valida que a ponte JSON ↔ `wreq::cookie::Jar` não perde cookies durante roundtrip. Uma regressão aqui silenciosamente descartaria cookies de sessão, reintroduzindo o GAP-WS-27.
+- **`cookie_adapter::PersistentJar`** — valida que a ponte JSON ↔ `reqwest::cookie::Jar` não perde cookies durante roundtrip (reescrito na v0.8.6 para usar extração de header `CookieStore::cookies()`). Uma regressão aqui silenciosamente descartaria cookies de sessão, reintroduzindo o GAP-WS-27.
 - **`session_warmup::default_cookies_path`** — valida que a resolução XDG está correta por plataforma. Uma regressão aqui colocaria o cookie jar no diretório errado ou falharia em setar permissões `0o600` no Unix.
 
 
@@ -281,20 +281,22 @@ A v0.7.6 fecha o GAP-WS-48 (fix de mesmo dia do `cargo install`) e adiciona test
 
 ## Adições de Testes em v0.7.7
 
-A v0.7.7 fecha o GAP-WS-49 (regressão de fingerprint TLS) e adiciona testes de regressão para o stack `wreq` + `wreq-util` emulation.
+> **v0.8.6+**: Os testes `tls::emulation` abaixo foram REMOVIDOS quando `wreq` foi substituído por `reqwest` + `rustls-tls`. Ver ADR-0008. Os testes de preflight de build em v0.7.4–v0.7.5 (NASM, CMake, MSVC, Perl) também foram removidos pois os preflights não existem mais no `build.rs`.
 
-- **`tls::emulation::wreq_util_present`** — 2 testes unitários validando que `wreq-util 3.0.0-rc` com `features = ["emulation"]` está na árvore de dependências resolvida.
-- **`tls::emulation::brotli_feature_enabled`** — 1 teste unitário validando que a feature `brotli` do `wreq` está habilitada (necessária para o stack de emulation compilar).
+A v0.7.7 fecha o GAP-WS-49 (regressão de fingerprint TLS) e adiciona testes de regressão para o stack `wreq` + `wreq-util` emulation. **(Histórico — testes removidos na v0.8.6.)**
+
+- **`tls::emulation::wreq_util_present`** — 2 testes unitários validando que `wreq-util 3.0.0-rc` com `features = ["emulation"]` está na árvore de dependências resolvida. **(Removido na v0.8.6.)**
+- **`tls::emulation::brotli_feature_enabled`** — 1 teste unitário validando que a feature `brotli` do `wreq` está habilitada (necessária para o stack de emulation compilar). **(Removido na v0.8.6.)**
 - **`tls::probe_deep::captcha_classification`** — 1 teste de integração que roda `--probe-deep` contra endpoint real do DuckDuckGo e asserta que o envelope JSON contém `status`, `cascata_motivo` e `sugestao_mitigacao`.
 - **`tls::probe_deep::ok_envelope`** — 1 teste de integração que asserta que o envelope de sucesso bate com o schema documentado em `docs/HOW_TO_USE.pt-BR.md`.
 - **GAP-WS-49 fechado por estes testes** — o stack de emulation é trancado no nível de dependência e validado end-to-end.
 - **Contagem de testes**: 413 testes lib + integration passando (era 408 na v0.7.6 = +5 novos testes de re-registro TLS). Este é o total do projeto na v0.7.7.
-- **Portão CI**: os testes TLS rodam no job `tls-emulation` do CI e falham o build se `wreq-util` for removido ou rebaixado.
+- **Portão CI**: os testes TLS rodavam no job `tls-emulation` do CI em v0.7.7–v0.8.5. **(Removido na v0.8.6 — wreq eliminado.)**
 
-### Gaps v0.7.7 fechados por estes testes
+### Gaps v0.7.7 fechados por estes testes (histórico — substituído pela v0.8.6)
 
-- **`tls::emulation::wreq_util_present`** — previne outra remoção acidental de `wreq-util` estilo GAP-WS-48. Uma regressão re-introduziria o bug de queries com zero resultados.
-- **`tls::emulation::brotli_feature_enabled`** — mantém a feature `brotli` no grafo de build. Uma regressão quebraria a feature `emulation` do `wreq-util`.
+- **`tls::emulation::wreq_util_present`** — prevenia outra remoção acidental de `wreq-util`. **(Substituído: wreq-util removido na v0.8.6.)**
+- **`tls::emulation::brotli_feature_enabled`** — mantinha a feature `brotli` no grafo de build. **(Substituído: brotli removido na v0.8.6.)**
 - **`tls::probe_deep::captcha_classification`** — valida o formato do portão CI para `--probe-deep`. Uma regressão deixaria o portão retornar exit 0 em resposta de captcha.
 - **`tls::probe_deep::ok_envelope`** — valida o JSON do caminho de sucesso. Uma regressão quebraria consumidores downstream do CI que parseiam o envelope.
 

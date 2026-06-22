@@ -1,32 +1,30 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Workload: declarative (cookie jar wrapper for wreq + JSON persistence)
-//! v0.7.3 PR2 — Bridge between `wreq::cookie::Jar` (the in-memory cookie
-//! store used by `wreq::Client::cookie_provider`) and the JSON file
+// Workload: declarative (cookie jar wrapper for reqwest + JSON persistence)
+//! v0.7.3 PR2 / v0.8.6 — Bridge between `reqwest::cookie::Jar` (the in-memory
+//! cookie store used by `reqwest::Client::cookie_provider`) and the JSON file
 //! format produced by [`crate::session_warmup::default_cookies_path`].
 //!
-//! The [`wreq::cookie::Jar`] type implements `wreq::cookie::CookieStore`
-//! natively and is the recommended way to feed cookies into a `wreq::Client`.
-//! However, `wreq::cookie::Jar` does not expose a public Serialize/Deserialize
-//! implementation. We therefore persist a JSON projection of its cookies
-//! (the `name=value` pairs plus a minimal attribute subset) and rebuild
-//! the jar from the file on each invocation.
+//! `reqwest::cookie::Jar` implements `reqwest::cookie::CookieStore` natively.
+//! However, `Jar` does not expose iteration over stored cookies. We persist
+//! cookies by extracting the `Cookie` header via `CookieStore::cookies()` for
+//! the `DuckDuckGo` domain and rebuild the jar from the file on each invocation
+//! using `Jar::add_cookie_str()`.
 
 use crate::error::CliError;
 use std::path::Path;
-use wreq::cookie::IntoCookieStore;
 
-/// A `wreq::cookie::Jar` paired with a backing JSON file path.
+/// A `reqwest::cookie::Jar` paired with a backing JSON file path.
 ///
 /// Constructed once per CLI invocation. The jar is the active cookie
-/// store passed to `wreq::Client::cookie_provider`; the file path is
+/// store passed to `reqwest::Client::cookie_provider`; the file path is
 /// the on-disk projection used by [`SessionWarmup`] to read and write
 /// the persistent jar.
 ///
 /// [`SessionWarmup`]: crate::session_warmup::default_cookies_path
 #[derive(Clone, Debug)]
 pub struct PersistentJar {
-    /// The active in-memory jar shared with `wreq::Client`.
-    pub jar: std::sync::Arc<wreq::cookie::Jar>,
+    /// The active in-memory jar shared with `reqwest::Client`.
+    pub jar: std::sync::Arc<reqwest::cookie::Jar>,
     /// Path to the JSON file on disk. `None` disables persistence.
     pub path: Option<std::path::PathBuf>,
 }
@@ -35,7 +33,7 @@ impl PersistentJar {
     /// Creates a new empty persistent jar at the given path.
     pub fn empty(path: Option<std::path::PathBuf>) -> Self {
         Self {
-            jar: std::sync::Arc::new(wreq::cookie::Jar::default()),
+            jar: std::sync::Arc::new(reqwest::cookie::Jar::default()),
             path,
         }
     }
@@ -56,7 +54,7 @@ impl PersistentJar {
                             path = %p.display(),
                             "cookie jar is malformed — starting with empty jar"
                         );
-                        wreq::cookie::Jar::default()
+                        reqwest::cookie::Jar::default()
                     }
                 },
                 Err(e) => {
@@ -65,10 +63,10 @@ impl PersistentJar {
                         path = %p.display(),
                         "failed to read cookie jar — starting with empty jar"
                     );
-                    wreq::cookie::Jar::default()
+                    reqwest::cookie::Jar::default()
                 }
             },
-            _ => wreq::cookie::Jar::default(),
+            _ => reqwest::cookie::Jar::default(),
         };
         Self {
             jar: std::sync::Arc::new(jar),
@@ -126,9 +124,9 @@ impl PersistentJar {
         }
     }
 
-    /// Returns a shared reference suitable for `wreq::Client::cookie_provider`.
-    pub fn as_provider(&self) -> std::sync::Arc<dyn wreq::cookie::CookieStore> {
-        self.jar.clone().into_shared()
+    /// Returns a shared reference suitable for `reqwest::Client::cookie_provider`.
+    pub fn as_provider(&self) -> std::sync::Arc<reqwest::cookie::Jar> {
+        self.jar.clone()
     }
 
     /// Performs a `GET <url>` warm-up request to populate session cookies.
@@ -140,7 +138,7 @@ impl PersistentJar {
     ///
     /// Returns `Err` if the warm-up HTTP request itself fails (network
     /// error, TLS error, etc.). The pipeline logs and continues.
-    pub async fn warm_up(&self, client: &wreq::Client) -> Result<(), CliError> {
+    pub async fn warm_up(&self, client: &reqwest::Client) -> Result<(), CliError> {
         client
             .get("https://duckduckgo.com/")
             .send()
@@ -154,43 +152,54 @@ impl PersistentJar {
 
     /// Serializes the jar to a stable JSON projection.
     ///
-    /// Format: `Vec<{name, value, domain, path, secure, http_only, max_age}>`
-    /// (only the fields that are required to reconstruct a valid cookie).
+    /// Since `reqwest::cookie::Jar` does not expose iteration, we extract
+    /// cookies via `CookieStore::cookies()` for the `DuckDuckGo` domain and
+    /// parse the combined `Cookie` header into individual `name=value` pairs.
     ///
     /// # Errors
     ///
-    /// Returns `Err` if `serde_json::to_string` fails (rare; only on
-    /// extreme memory pressure or non-UTF-8 byte sequences).
-    pub fn to_json(jar: &wreq::cookie::Jar) -> serde_json::Result<String> {
-        let cookies: Vec<serde_json::Value> = jar
-            .get_all()
-            .map(|c| {
-                serde_json::json!({
-                    "name": c.name(),
-                    "value": c.value(),
-                    "domain": c.domain().map(|d| d.to_string()),
-                    "path": c.path().map(|p| p.to_string()),
-                    "secure": c.secure(),
-                    "http_only": c.http_only(),
-                    "max_age": c.max_age().map(|d| d.as_secs()),
-                })
-            })
-            .collect();
+    /// Returns `Err` if `serde_json::to_string` fails.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn to_json(jar: &reqwest::cookie::Jar) -> serde_json::Result<String> {
+        use reqwest::cookie::CookieStore;
+        // SAFETY: this URL is a compile-time constant and always parses successfully.
+        let ddg_url: url::Url = "https://duckduckgo.com/".parse().expect("hardcoded URL");
+        let cookies: Vec<serde_json::Value> = match jar.cookies(&ddg_url) {
+            Some(header_value) => {
+                let header_str = header_value.to_str().unwrap_or("");
+                header_str
+                    .split("; ")
+                    .filter_map(|pair| {
+                        let mut parts = pair.splitn(2, '=');
+                        let name = parts.next()?.trim();
+                        let value = parts.next().unwrap_or("").trim();
+                        if name.is_empty() {
+                            return None;
+                        }
+                        Some(serde_json::json!({
+                            "name": name,
+                            "value": value,
+                            "domain": "duckduckgo.com",
+                        }))
+                    })
+                    .collect()
+            }
+            None => Vec::new(),
+        };
         serde_json::to_string(&cookies)
     }
 
     /// Parses a JSON projection (as written by `to_json`) into a fresh
-    /// `wreq::cookie::Jar`. Each entry is converted to a
-    /// `wreq::header::HeaderValue` and added to the jar with the
-    /// reconstructed URI.
+    /// `reqwest::cookie::Jar`. Each entry is converted to a cookie string
+    /// and added via `Jar::add_cookie_str()`.
     ///
     /// # Errors
     ///
     /// Returns `Err` if the JSON is malformed. Malformed entries inside a
     /// valid JSON array are skipped silently.
-    pub fn parse_json(content: &str) -> serde_json::Result<wreq::cookie::Jar> {
+    pub fn parse_json(content: &str) -> serde_json::Result<reqwest::cookie::Jar> {
         let entries: Vec<serde_json::Value> = serde_json::from_str(content)?;
-        let jar = wreq::cookie::Jar::default();
+        let jar = reqwest::cookie::Jar::default();
         for entry in entries {
             let name = entry
                 .get("name")
@@ -208,18 +217,11 @@ impl PersistentJar {
                 .get("secure")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-            let _ = entry
-                .get("http_only")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let cookie_str = format!("{name}={value}");
             let scheme = if secure { "https" } else { "http" };
-            let uri = format!("{scheme}://{domain}/");
-            if let Ok(uri_parsed) = uri.parse::<wreq::Uri>() {
-                if let Ok(value_header) = wreq::header::HeaderValue::from_str(&cookie_str) {
-                    let mut iter = std::iter::once(&value_header);
-                    wreq::cookie::CookieStore::set_cookies(&jar, &mut iter, &uri_parsed);
-                }
+            let url_str = format!("{scheme}://{domain}/");
+            if let Ok(url) = url_str.parse::<url::Url>() {
+                let cookie_str = format!("{name}={value}");
+                jar.add_cookie_str(&cookie_str, &url);
             }
         }
         Ok(jar)
@@ -252,27 +254,22 @@ mod tests {
 
     #[test]
     fn empty_jar_serializes_to_empty_array() {
-        let jar = wreq::cookie::Jar::default();
+        let jar = reqwest::cookie::Jar::default();
         let json = PersistentJar::to_json(&jar).expect("serialize");
         assert_eq!(json, "[]");
     }
 
     #[test]
     fn malformed_json_yields_parse_error() {
-        // `parse_json` is fallible: a corrupt file surfaces as `Err` to the
-        // caller. The caller (`PersistentJar::load`) is responsible for
-        // catching the error and falling back to an empty jar.
         let result = PersistentJar::parse_json("not json {{{{");
         assert!(result.is_err(), "expected parse error, got {result:?}");
     }
 
     #[test]
     fn round_trip_preserves_cookie() {
-        let jar = wreq::cookie::Jar::default();
-        let value = wreq::header::HeaderValue::from_static("kl=br-pt");
-        let mut iter = std::iter::once(&value);
-        let uri: wreq::Uri = "https://duckduckgo.com/".parse().unwrap();
-        wreq::cookie::CookieStore::set_cookies(&jar, &mut iter, &uri);
+        let jar = reqwest::cookie::Jar::default();
+        let url: url::Url = "https://duckduckgo.com/".parse().unwrap();
+        jar.add_cookie_str("kl=br-pt", &url);
         let json = PersistentJar::to_json(&jar).expect("serialize");
         assert!(json.contains("kl"));
         assert!(json.contains("br-pt"));
@@ -281,7 +278,10 @@ mod tests {
     #[test]
     fn persistent_jar_empty_creates_empty_jar() {
         let pj = PersistentJar::empty(None);
-        assert!(pj.path.is_none(), "path should be None when constructed with None");
+        assert!(
+            pj.path.is_none(),
+            "path should be None when constructed with None"
+        );
         let json = PersistentJar::to_json(&pj.jar).expect("serialize empty");
         assert_eq!(json, "[]", "empty jar serializes to empty JSON array");
     }

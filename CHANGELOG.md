@@ -1,3 +1,41 @@
+## [0.8.6] - 2026-06-22
+
+### Changed (GAP-WS-066 — cargo install fails on Windows — btls-sys requires NASM+CMake)
+- BREAKING BUILD: replaced `wreq` (BoringSSL) with `reqwest` + `rustls-tls` (pure Rust TLS)
+- Eliminates 4 Windows build prerequisites: NASM, CMake, Perl, MSVC cl.exe
+- `cargo install duckduckgo-search-cli` now works on Windows with only the Rust toolchain
+- Removed crates: `wreq`, `wreq-util`, `brotli`, `brotli-decompressor`, `alloc-no-stdlib`
+- Removed build.rs preflights: `nasm_in_path`, `cmake_in_path`, `cl_in_path`, `perl_in_path`
+- Renamed `src/wreq_cookie_adapter.rs` → `src/cookie_adapter.rs`
+- Cookie persistence rewritten: uses `reqwest::cookie::Jar` + `CookieStore::cookies()` header extraction
+- Brotli decompression removed (DuckDuckGo never serves brotli for HTML endpoints)
+- HTTP fallback loses BoringSSL TLS fingerprint emulation (Chrome headed is primary since v0.8.0)
+- ADR-0001 (wreq/BoringSSL) superseded by ADR-0008 (reqwest/rustls)
+- Unified TLS stack: `rustls` in all components (chromiumoxide + reqwest)
+
+### Fixed (GAP-WS-067 — `--num 0` accepted without validation)
+- `--num 0` was silently accepted, producing a search that could never return useful results
+- Added `value_parser(clap::value_parser!(u32).range(1..))` to reject zero at argument parsing time
+
+### Fixed (GAP-WS-068 — docs say `--synth-format plain` but clap expects `plain-text`)
+- 4 documentation files declared `plain` as a valid value for `--synth-format`
+- The clap `ValueEnum` derive converts `PlainText` to `plain-text` (kebab-case)
+- Corrected `plain` → `plain-text` in AGENTS.md, AGENTS.pt-BR.md, HOW_TO_USE.md, HOW_TO_USE.pt-BR.md
+
+### Fixed (GAP-WS-069 — doc comment in decompress.rs mentions 'wreq' without migration context)
+- `src/decompress.rs:39` said "brotli removed in v0.8.6 with wreq" — clarified to mention the wreq-to-reqwest migration
+
+### Fixed (GAP-WS-070 — 4 recipes in MIGRATION.md with global flags after subcommand)
+- 4 deep-research recipes in MIGRATION.md and MIGRATION.pt-BR.md had `-q -f json` AFTER the subcommand
+- clap requires global flags BEFORE the subcommand — recipes caused `unexpected argument '-q'`
+- Reordered flags to appear before `deep-research` in all 4 recipes
+
+### Documentation (GAP-WS-071 — 10+ docs still describe wreq/BoringSSL as current TLS stack)
+- 13 documentation files updated to reflect reqwest+rustls-tls as the current TLS stack
+- Historical wreq references in v0.7.x changelog sections preserved with context notes
+- Affected: README, SECURITY, INVERSIONS, CONTRIBUTING, HOW_TO_USE, AGENTS, ADR-0002/0005/0007
+
+
 ## [0.8.5] - 2026-06-21
 
 ### Fixed (GAP-WS-065 — Chrome headless detected by Cloudflare — 0 results)

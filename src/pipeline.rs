@@ -22,7 +22,9 @@ use crate::http::ProxyConfig;
 use crate::parallel;
 use crate::probe_deep;
 use crate::search;
-use crate::types::{Config, MultiSearchOutput, SearchMetadata, SearchOutput, SelectorConfig, ZeroCause};
+use crate::types::{
+    Config, MultiSearchOutput, SearchMetadata, SearchOutput, SelectorConfig, ZeroCause,
+};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -127,7 +129,7 @@ fn persist_cookies(config: &Config) {
 /// Performs the warm-up `GET https://duckduckgo.com/` request to populate
 /// session cookies. Failures are surfaced to the caller but never fatal;
 /// the caller logs and continues. v0.7.3 PR2.
-async fn do_warmup(client: &wreq::Client, cfg: &Config) -> Result<(), CliError> {
+async fn do_warmup(client: &reqwest::Client, cfg: &Config) -> Result<(), CliError> {
     let warmup_url = "https://duckduckgo.com/";
     tracing::info!(url = warmup_url, "Warming up session with cookie jar");
     let response = client
@@ -355,7 +357,7 @@ pub async fn execute_single_search(
                             execution_time_ms: outcome.latency_ms,
                             selectors_hash: "pre-flight".to_string(),
                             retries: 0,
-            retries_configured: None,
+                            retries_configured: None,
                             used_fallback_endpoint: false,
                             concurrent_fetches: 0,
                             fetch_successes: 0,
@@ -385,8 +387,8 @@ pub async fn execute_single_search(
     tracing::info!(query = %cfg.query, endpoint = cfg.endpoint.as_str(), "Executing search");
 
     // v0.8.0: Chrome-primary search — try Chrome FIRST when the feature is enabled.
-    // Chrome produces a BoringSSL TLS fingerprint that passes Cloudflare checks,
-    // yielding real SERP HTML. On failure, falls back to the wreq HTTP path below.
+    // Chrome produces a real browser TLS fingerprint that passes Cloudflare checks,
+    // yielding real SERP HTML. On failure, falls back to the reqwest HTTP path below.
     #[allow(unused_assignments, unused_mut)]
     let mut chrome_attempted = false;
     #[allow(unused_assignments, unused_mut)]
@@ -397,11 +399,10 @@ pub async fn execute_single_search(
     #[cfg(feature = "chrome")]
     if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() != Ok("1") {
         chrome_attempted = true;
-        let chrome_ua = crate::identity::browser_profile_for_cli_identity(
-            cfg.identity_profile, None
-        )
-        .map(|p| p.user_agent.clone())
-        .unwrap_or_else(|| effective_user_agent.clone());
+        let chrome_ua =
+            crate::identity::browser_profile_for_cli_identity(cfg.identity_profile, None)
+                .map(|p| p.user_agent.clone())
+                .unwrap_or_else(|| effective_user_agent.clone());
 
         match execute_chrome_search(cfg, &chrome_ua, cancellation).await {
             Ok(result) => {
@@ -415,7 +416,7 @@ pub async fn execute_single_search(
             Err(err) => {
                 tracing::warn!(
                     error = %err,
-                    "Chrome-primary search failed — falling back to wreq"
+                    "Chrome-primary search failed — falling back to reqwest"
                 );
             }
         }
@@ -598,7 +599,7 @@ pub async fn execute_single_search(
 ///
 /// Launches headless Chrome via `src/browser.rs::ChromeBrowser`, navigates to the
 /// `DuckDuckGo` HTML endpoint for the query, extracts the full HTML and parses
-/// results using the same selectors as the wreq path.
+/// results using the same selectors as the reqwest path.
 ///
 /// Returns `Err(CliError)` if Chrome is not installed, if Chrome launch times out,
 /// or if the page extraction fails.
@@ -611,9 +612,10 @@ async fn execute_chrome_search(
     use crate::browser::{detect_chrome, ChromeBrowser};
     use std::time::Duration;
 
-    let chrome_path = detect_chrome(cfg.chrome_path.as_deref()).map_err(|e| CliError::InvalidConfig {
-        message: format!("Chrome not detected: {e}"),
-    })?;
+    let chrome_path =
+        detect_chrome(cfg.chrome_path.as_deref()).map_err(|e| CliError::InvalidConfig {
+            message: format!("Chrome not detected: {e}"),
+        })?;
     let launch_timeout = Duration::from_secs(cfg.timeout_seconds.min(15));
     let mut browser = ChromeBrowser::launch(
         &chrome_path,
@@ -633,21 +635,16 @@ async fn execute_chrome_search(
     );
 
     let extract_timeout = Duration::from_secs(cfg.timeout_seconds.min(20));
-    let html = crate::browser::extract_html_with_chrome(
-        &mut browser,
-        &url,
-        256 * 1024,
-        extract_timeout,
-    )
-    .await
-    .map_err(|e| CliError::InvalidConfig {
-        message: format!("Chrome HTML extraction failed: {e}"),
-    })?;
+    let html =
+        crate::browser::extract_html_with_chrome(&mut browser, &url, 256 * 1024, extract_timeout)
+            .await
+            .map_err(|e| CliError::InvalidConfig {
+                message: format!("Chrome HTML extraction failed: {e}"),
+            })?;
 
     browser.shutdown().await.ok();
 
-    let results =
-        extraction::extract_results_with_strategies_cfg(&html, &cfg.selectors);
+    let results = extraction::extract_results_with_strategies_cfg(&html, &cfg.selectors);
 
     Ok(search::AggregatedSearchResult {
         results,
@@ -777,7 +774,9 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
 
     // CR1 — Resposta inválida ou truncada (Variante B: todos os campos nulos).
     if body.is_empty() && execution_time_ms == 0 && retries == 0 && concurrent_fetches == 0 {
-        tracing::info!("classify_zero_result: RespostaInvalida (Variante B — body vazio + telemetria zerada)");
+        tracing::info!(
+            "classify_zero_result: RespostaInvalida (Variante B — body vazio + telemetria zerada)"
+        );
         return ZeroCause::RespostaInvalida;
     }
 
@@ -825,7 +824,9 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
     if body.len() >= 4000
         && !probe_deep::has_result_page_signal(body)
         && kind == probe_deep::InterstitialKind::None
-        && (body.contains("search_form") || body.contains("DuckDuckGo") || body.contains("dropdown__button"))
+        && (body.contains("search_form")
+            || body.contains("DuckDuckGo")
+            || body.contains("dropdown__button"))
     {
         tracing::info!(
             body_len = body.len(),
@@ -841,13 +842,15 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
         && execution_time_ms >= 200
         && !probe_deep::has_result_page_signal(body)
     {
-        tracing::info!("classify_zero_result: FiltroSilencioso (body curto, sem signal, sem retries)");
+        tracing::info!(
+            "classify_zero_result: FiltroSilencioso (body curto, sem signal, sem retries)"
+        );
         return ZeroCause::FiltroSilencioso;
     }
 
     // CR4c — GAP-NEW-005 v0.8.0 audit E2E 2026-06-19: body entre 4-15KB sem
     // result-page signal e sem interstitial literal. Indica provavel bloqueio
-    // upstream pelo HTTP client (wreq fingerprint TLS divergente) onde DDG
+    // upstream pelo HTTP client (rustls fingerprint TLS divergente) onde DDG
     // serve SERP vazia como soft-block. Firefox real no mesmo IP recebe
     // resultados completos (5+ reais para "brasil copa 2026"). Threshold
     // superior (15KB) abaixo do stealth shell CR4b (que opera em 14KB+)
@@ -901,7 +904,7 @@ pub fn sugestao_proxima_acao_para_zero(cause: ZeroCause) -> Option<&'static str>
         ),
         ZeroCause::ZeroResultsSuspeito => Some(
             "Zero-results em body 4-15KB sem result-page signal e sem interstitial \
-             indica provavel soft-block do DDG contra o HTTP client (wreq fingerprint \
+             indica provavel soft-block do DDG contra o HTTP client (rustls fingerprint \
              TLS diverge do browser real — Firefox no mesmo IP recebe resultados). \
              Tente: (1) --pre-flight para diagnostico e possivel auto-fallback, \
              (2) aguardar 60-300s antes de retentar, \
@@ -1160,7 +1163,7 @@ mod tests {
                 execution_time_ms: 0,
                 selectors_hash: "x".into(),
                 retries: 0,
-            retries_configured: None,
+                retries_configured: None,
                 used_fallback_endpoint: false,
                 concurrent_fetches: 0,
                 fetch_successes: 0,
@@ -1267,7 +1270,8 @@ mod tests {
 
     #[test]
     fn classify_zero_result_with_result_page_signal_is_legitimo() {
-        let html = r#"<html><body><a class="result__a" href="https://example.com">x</a></body></html>"#;
+        let html =
+            r#"<html><body><a class="result__a" href="https://example.com">x</a></body></html>"#;
         let inputs = ZeroClassificationInputs {
             body: html,
             pre_flight_enabled: false,
@@ -1299,7 +1303,8 @@ mod tests {
     #[test]
     fn classify_zero_result_with_ddg_marker_is_anti_bot() {
         // detectar_interstitial_com_match retorna DuckDuckGo para "Unfortunately, bots"
-        let html = r#"<html><body><div>Unfortunately, bots use DuckDuckGo badly.</div></body></html>"#;
+        let html =
+            r#"<html><body><div>Unfortunately, bots use DuckDuckGo badly.</div></body></html>"#;
         let inputs = ZeroClassificationInputs {
             body: html,
             pre_flight_enabled: false,
@@ -1314,36 +1319,43 @@ mod tests {
 
     #[test]
     fn sugestao_proxima_acao_para_zero_legitimo_is_none() {
-        assert_eq!(
-            sugestao_proxima_acao_para_zero(ZeroCause::Legitimo),
-            None
-        );
+        assert_eq!(sugestao_proxima_acao_para_zero(ZeroCause::Legitimo), None);
     }
 
     #[test]
     fn sugestao_proxima_acao_para_zero_ghost_block_mentions_pre_flight() {
         let s = sugestao_proxima_acao_para_zero(ZeroCause::GhostBlock).unwrap();
-        assert!(s.contains("--pre-flight"), "GhostBlock deve mencionar --pre-flight, got: {s}");
+        assert!(
+            s.contains("--pre-flight"),
+            "GhostBlock deve mencionar --pre-flight, got: {s}"
+        );
     }
 
     #[test]
     fn sugestao_proxima_acao_para_zero_anti_bot_mentions_pre_flight() {
         let s = sugestao_proxima_acao_para_zero(ZeroCause::AntiBot).unwrap();
-        assert!(s.contains("--pre-flight"), "AntiBot deve mencionar --pre-flight, got: {s}");
+        assert!(
+            s.contains("--pre-flight"),
+            "AntiBot deve mencionar --pre-flight, got: {s}"
+        );
     }
 
     #[test]
     fn sugestao_proxima_acao_para_zero_filtro_silencioso_warns_retry() {
         let s = sugestao_proxima_acao_para_zero(ZeroCause::FiltroSilencioso).unwrap();
-        assert!(s.contains("reformule") || s.contains("reformul"),
-            "FiltroSilencioso deve sugerir reformular query, got: {s}");
+        assert!(
+            s.contains("reformule") || s.contains("reformul"),
+            "FiltroSilencioso deve sugerir reformular query, got: {s}"
+        );
     }
 
     #[test]
     fn sugestao_proxima_acao_para_zero_resposta_invalida_mentions_proxy() {
         let s = sugestao_proxima_acao_para_zero(ZeroCause::RespostaInvalida).unwrap();
-        assert!(s.contains("proxy") || s.contains("rede"),
-            "RespostaInvalida deve mencionar proxy ou rede, got: {s}");
+        assert!(
+            s.contains("proxy") || s.contains("rede"),
+            "RespostaInvalida deve mencionar proxy ou rede, got: {s}"
+        );
     }
 
     // =====================================================================
@@ -1367,7 +1379,7 @@ mod tests {
                 execution_time_ms: 0,
                 selectors_hash: "x".into(),
                 retries: 0,
-            retries_configured: None,
+                retries_configured: None,
                 used_fallback_endpoint: false,
                 concurrent_fetches: 0,
                 fetch_successes: 0,

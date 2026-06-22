@@ -24,14 +24,14 @@
 - Perfis de browser v0.6.0 imitam sessões reais para evitar bloqueios anti-bot
 - `--fetch-content` baixa e limpa o body de cada URL direto no JSON para o agente
 - Schema estável entre releases: nenhuma quebra de contrato para pipelines existentes
-- **v0.7.3 — Fingerprint TLS real via BoringSSL (wreq).** BoringSSL é estaticamente vinculado e produz fingerprint JA4_o idêntico ao Chrome/Safari, eliminando o CAPTCHA do Cloudflare que afetava o macOS na v0.7.2. Build requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `docs/CROSS_PLATFORM.md`.
+- **v0.8.0+ — Fingerprint TLS real via Chrome headed.** Chrome roda dentro de Xvfb privado e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). `cmake`, `perl`, NASM NAO sao mais necessarios. Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 
 
 ## Pré-requisitos (v0.8.5+)
 - Google Chrome ou Chromium (detectado automaticamente via `detect_chrome()`)
 - Linux: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt install xvfb` (Debian/Ubuntu)
 - Chrome é o transporte PRIMÁRIO de busca desde a v0.8.0
-- Cliente HTTP wreq é usado APENAS para `--fetch-content` e `--probe`
+- Cliente HTTP reqwest (v0.8.6+, substituiu wreq) e usado APENAS para `--fetch-content` e `--probe`
 - Para compilar sem Chrome: `cargo build --no-default-features`
 - v0.8.5: Chrome roda HEADED dentro de display virtual Xvfb privado — ZERO janelas visíveis
 - A CLI cria e encerra o Xvfb automaticamente — sem setup manual em desktops

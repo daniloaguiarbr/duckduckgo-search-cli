@@ -46,6 +46,7 @@ use crate::http::ProxyConfig;
 use crate::search;
 use crate::types::{Config, MultiSearchOutput, SearchMetadata, SearchOutput};
 use rand::RngExt;
+use reqwest::Client;
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -53,7 +54,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use wreq::Client;
 
 /// Base delay per index (milliseconds) for staggered launch.
 const DELAY_BASE_STAGGERED_MS: u64 = 200;
@@ -550,12 +550,13 @@ async fn execute_query_with_cancellation(
     let chrome_result = if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
         None
     } else {
-        let chrome_ua = crate::identity::browser_profile_for_cli_identity(
-            config.identity_profile, None
-        )
-        .map(|p| p.user_agent.clone())
-        .unwrap_or_else(|| config.user_agent.clone());
-        crate::pipeline::execute_chrome_search_pub(&cfg_task, &chrome_ua, cancellation).await.ok()
+        let chrome_ua =
+            crate::identity::browser_profile_for_cli_identity(config.identity_profile, None)
+                .map(|p| p.user_agent.clone())
+                .unwrap_or_else(|| config.user_agent.clone());
+        crate::pipeline::execute_chrome_search_pub(&cfg_task, &chrome_ua, cancellation)
+            .await
+            .ok()
     };
     #[cfg(not(feature = "chrome"))]
     let chrome_result: Option<search::AggregatedSearchResult> = None;
@@ -654,9 +655,11 @@ async fn execute_query_with_cancellation(
         // GAP-NEW-002 v0.8.0: telemetria de descompressão HTTP.
         bytes_raw: Some(agregado.bytes_in),
         bytes_decompressed: Some(agregado.bytes_out),
-        cascade_level_observed: config
-            .last_probe_cascade_level
-            .or_else(|| Some(crate::pipeline::derive_cascade_level_from_attempts(&agregado))),
+        cascade_level_observed: config.last_probe_cascade_level.or_else(|| {
+            Some(crate::pipeline::derive_cascade_level_from_attempts(
+                &agregado,
+            ))
+        }),
     };
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente no path paralelo.
@@ -924,7 +927,10 @@ mod tests {
         let mut other = SelectorConfig::default();
         other.html_endpoint.results_container = ".completely-different-selector".to_string();
         let hash_b = crate::pipeline::calculate_selectors_hash(&other);
-        assert_ne!(hash_a, hash_b, "different selectors must produce different hashes");
+        assert_ne!(
+            hash_a, hash_b,
+            "different selectors must produce different hashes"
+        );
     }
 
     #[test]
@@ -935,12 +941,14 @@ mod tests {
         let cfg = test_config(vec!["q".into()], 1);
         let output = error_output(
             0,
-            CliError::NetworkError { message: "x".into() },
+            CliError::NetworkError {
+                message: "x".into(),
+            },
             &cfg,
         );
         assert!(
             !output.metadata.pre_flight_fired,
             "pre_flight_fired must default to false in error_output"
         );
-}
+    }
 }

@@ -17,8 +17,7 @@ fn stealth_shell_body() -> String {
     body.push_str("<body><div id=\"header\"><form id=\"search_form\" action=\"/html/\">");
     body.push_str("<input type=\"text\" name=\"q\" autocomplete=\"off\">");
     body.push_str("<button type=\"submit\">S</button></form></div>");
-    let padding: String = std::iter::repeat_n("DuckDuckGo privacy search engine. ", 450)
-        .collect();
+    let padding: String = std::iter::repeat_n("DuckDuckGo privacy search engine. ", 450).collect();
     body.push_str(&padding);
     body.push_str("</body></html>");
     body
@@ -44,8 +43,14 @@ fn stealth_shell_contains_ddg_home_page_signature() {
 #[test]
 fn stealth_shell_does_not_contain_result_markers() {
     let body = stealth_shell_body();
-    assert!(!body.contains("result__a"), "should NOT contain result markers");
-    assert!(!body.contains("anomaly-modal"), "should NOT contain anomaly-modal");
+    assert!(
+        !body.contains("result__a"),
+        "should NOT contain result markers"
+    );
+    assert!(
+        !body.contains("anomaly-modal"),
+        "should NOT contain anomaly-modal"
+    );
 }
 
 #[test]
@@ -92,6 +97,9 @@ fn real_world_query_string_does_not_get_silently_silenced() {
     // wiremock E2E in `integration_content_fetch.rs`.
     let body = stealth_shell_body();
     assert!(!body.is_empty(), "body must not be empty");
-    assert!(body.len() >= 14_000, "must be 14KB+ to trigger stealth branch");
+    assert!(
+        body.len() >= 14_000,
+        "must be 14KB+ to trigger stealth branch"
+    );
     let _ = Arc::new(body); // ensure Arc is used (prevents dead_code lints)
 }

@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -81,74 +81,24 @@ harness = false
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "io-util", "fs"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
-# HTTP client — wreq 5.3.0 (stable) + wreq-util 2.2.6 (stable) with emulation.
-# v0.7.3 transition: replaced reqwest+rustls with wreq to obtain a real
-# browser TLS fingerprint (JA4_o compatible with Chrome/Safari). BoringSSL
-# is statically linked; build requires cmake, perl, pkg-config, libclang-dev.
-# See docs/decisions/0001-tls-boring-via-wreq.md for the architectural
-# decision and ADR-0001 for trade-offs.
-#
-# v0.7.7 (GAP-WS-49 fix): mantiene wreq 6.0.0-rc.29 + wreq-util
-# 3.0.0-rc.12 (lockfile trava nessa combinacao). A stack TLS via
-# wreq + BoringSSL produz fingerprint JA4_o identico ao
-# Chrome/Safari, fechando o GAP-WS-27 (CAPTCHA do macOS). A
-# emulacao de browser vive em wreq-util (feature `emulation`),
-# NAO em wreq. habilitamos somente `emulation` em wreq-util para
-# nao puxar o grafo brotli 8.0.3 / brotli-decompressor 5.0.2 /
-# alloc-no-stdlib 3.0.0 que causou GAP-WS-48. Veja
-# docs/decisions/0001-tls-boring-via-wreq.md para a decisao
-# arquitetural completa e o trade-off (~10s mais lento no primeiro
-# build de wreq 6.x, igual apos cacheamento).
-wreq = { version = "6.0.0-rc", default-features = false, features = [
-    "tokio-rt",
-    "webpki-roots",
+# HTTP client — reqwest with rustls-tls (pure Rust, zero native deps).
+# v0.8.6: replaced wreq (BoringSSL) with reqwest (rustls) to eliminate
+# NASM/CMake/Perl/MSVC build prerequisites on Windows (GAP-WS-066).
+# Chrome headed (chromiumoxide) is the primary transport since v0.8.0;
+# reqwest serves as the HTTP fallback when Chrome is unavailable.
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
     "cookies",
     "gzip",
     "deflate",
     "zstd",
     "socks",
-    "form",
-    "query",
 ] }
-wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }
 
-# GAP-WS-48 + GAP-WS-49: pin the alloc-no-stdlib, brotli, and
-# brotli-decompressor versions to keep the cargo-install path
-# identical to the committed Cargo.lock.
-#
-# The brotli 8.0.3 default features include `std` which pulls
-# `alloc-stdlib 0.2.3` (whose constraint `alloc-no-stdlib =
-# ">=2.0.4, <4"` allows the 3.0.0 major). Disabling default
-# features and using NO `std` (no_std mode) leaves the bare
-# brotli/brotli-decompressor stack with the hard
-# `alloc-no-stdlib = "2.0"` pin and no `alloc-stdlib` in the
-# graph at all. Pinning `brotli-decompressor = "=5.0.1"`
-# additionally prevents the solver from pulling 5.0.2 (which
-# widened its own constraint to `>=2.0.4, <4`).
-#
-# `brotli` and `brotli-decompressor` are pulled in transitively
-# via wreq-util 3.0.0-rc.12's `emulation` feature, but listing
-# them as direct deps with the no-stdlib/no-default pin
-# combination keeps the cargo-install path deterministic.
-#
-# INSTALLER NOTE (GAP-WS-48 residual): `cargo install` WITHOUT
-# `--locked` regenerates the lockfile and the solver keeps
-# BOTH 2.0.4 and 3.0.0 in the graph simultaneously. Users
-# running `cargo install duckduckgo-search-cli --version 0.7.7`
-# without `--locked` will still hit the same E0277 conflict.
-# v0.7.7 ships with `Cargo.lock` committed and the README
-# documents the `--locked` requirement.
-brotli = { version = "8.0.3", default-features = false }
-brotli-decompressor = { version = "=5.0.1", default-features = false }
-alloc-no-stdlib = "=2.0.4"
-
-# GAP-AUD-003 v0.8.0: transparent decompression of HTTP response bodies.
-# DuckDuckGo always replies with `Content-Encoding: gzip` for HTML responses;
-# wreq 6.0.0-rc does NOT auto-decompress, so we declare flate2 directly to
-# drive `MultiGzDecoder` / `ZlibDecoder` from `src/decompress.rs`. Already
-# transitively present in the graph via the wreq `gzip`+`deflate` features
-# (declared explicitly here to avoid relying on transitive visibility across
-# wreq-util's feature graph).
+# Transparent decompression of HTTP response bodies.
+# DuckDuckGo replies with Content-Encoding: gzip; reqwest auto-decompresses
+# but we declare flate2 directly for manual MultiGzDecoder/ZlibDecoder usage
+# in src/decompress.rs.
 flate2 = "1"
 
 # HTML parsing — scraper uses html5ever from Servo, tolerant of malformed HTML.

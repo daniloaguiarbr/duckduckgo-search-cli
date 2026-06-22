@@ -13,6 +13,7 @@ use duckduckgo_search_cli::probe_deep::{
 };
 use duckduckgo_search_cli::search::search_with_pagination;
 use duckduckgo_search_cli::types::{Config, Endpoint, ZeroCause};
+use reqwest::Client;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -22,7 +23,6 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wreq::Client;
 
 fn env_lock() -> &'static TokioMutex<()> {
     static LOCK: std::sync::OnceLock<TokioMutex<()>> = std::sync::OnceLock::new();
@@ -43,8 +43,7 @@ fn load_cloudflare_2026_fixture() -> String {
 /// `search_with_pagination` path correctly decompresses before the
 /// interstitial classifier inspects the body.
 fn gzip_compress_fixture(plain: &str) -> Vec<u8> {
-    let mut encoder =
-        flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     encoder
         .write_all(plain.as_bytes())
         .expect("write to gzip encoder");
@@ -87,10 +86,7 @@ fn audit_cloudflare_2026_classifier_returns_non_legitimo() {
     };
     let cause = classify_zero_result(&inputs);
     let sugestao = sugestao_proxima_acao_para_zero(cause);
-    eprintln!(
-        "AUDITORIA: cause={:?} sugestao={:?}",
-        cause, sugestao
-    );
+    eprintln!("AUDITORIA: cause={:?} sugestao={:?}", cause, sugestao);
     assert_ne!(
         cause,
         ZeroCause::Legitimo,
@@ -130,12 +126,13 @@ async fn audit_cloudflare_2026_e2e_first_body_populated() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML".to_string(), base_html),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE".to_string(), base_lite),
-        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME".to_string(), "1".to_string()),
+        (
+            "DUCKDUCKGO_SEARCH_CLI_NO_CHROME".to_string(),
+            "1".to_string(),
+        ),
     ]);
 
-    let cliente = Client::builder()
-        .build()
-        .expect("client");
+    let cliente = Client::builder().build().expect("client");
     let cfg = Config {
         query: "rust serde derive".to_string(),
         endpoint: Endpoint::Html,
@@ -244,7 +241,10 @@ async fn audit_cloudflare_2026_gzip_e2e_decompression_succeeds() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML".to_string(), base_html),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE".to_string(), base_lite),
-        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME".to_string(), "1".to_string()),
+        (
+            "DUCKDUCKGO_SEARCH_CLI_NO_CHROME".to_string(),
+            "1".to_string(),
+        ),
     ]);
 
     let cliente = Client::builder().build().expect("client");

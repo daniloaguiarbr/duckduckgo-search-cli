@@ -21,13 +21,13 @@
 use crate::content;
 use crate::types::{Config, SearchOutput};
 use indicatif::{ProgressBar, ProgressStyle};
+use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use wreq::Client;
 
 #[cfg(feature = "chrome")]
 use crate::browser::{detect_chrome, extract_text_with_chrome, ChromeBrowser};
@@ -289,7 +289,14 @@ pub async fn enrich_with_content(
             Ok(path) => {
                 tracing::info!(path = %path.display(), "Chrome detected — enabling fallback");
                 let timeout_launch = std::time::Duration::from_secs(30);
-                match ChromeBrowser::launch(&path, config.proxy.as_deref(), timeout_launch, &config.user_agent).await {
+                match ChromeBrowser::launch(
+                    &path,
+                    config.proxy.as_deref(),
+                    timeout_launch,
+                    &config.user_agent,
+                )
+                .await
+                {
                     Ok(n) => Some(Arc::new(Mutex::new(n))),
                     Err(erro) => {
                         tracing::warn!(
@@ -399,11 +406,7 @@ pub async fn enrich_with_content(
                     #[cfg(feature = "chrome")]
                     {
                         if let Some(nav) = nav_task {
-                            tracing::info!(
-                                index,
-                                url,
-                                "HTTP content insufficient — trying Chrome"
-                            );
+                            tracing::info!(index, url, "HTTP content insufficient — trying Chrome");
                             let mut guarda = nav.lock().await;
                             match extract_text_with_chrome(
                                 &mut guarda,
@@ -591,7 +594,7 @@ mod tests {
 
     #[tokio::test]
     async fn enrich_with_content_no_op_when_flag_false() {
-        let cliente = wreq::Client::new();
+        let cliente = reqwest::Client::new();
         let mut cfg = test_config(3, 1000);
         cfg.fetch_content = false;
         let mut output = empty_output();
@@ -686,7 +689,7 @@ mod tests {
 
     #[tokio::test]
     async fn enrich_with_content_cancelled_marks_failures() {
-        let cliente = wreq::Client::builder()
+        let cliente = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(100))
             .build()
             .unwrap();

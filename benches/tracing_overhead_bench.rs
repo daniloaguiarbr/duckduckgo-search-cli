@@ -41,7 +41,10 @@ fn bench_tracing_overhead(c: &mut Criterion) {
         // (que em release vira no-op).
         b.iter(|| {
             let body = black_box(&body_with_marker);
-            tracing::debug!(body_len = body.len(), "classify invoked (stripped in release)");
+            tracing::debug!(
+                body_len = body.len(),
+                "classify invoked (stripped in release)"
+            );
             let has_marker = body.contains("search_form");
             black_box(has_marker);
         });

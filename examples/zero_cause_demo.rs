@@ -57,16 +57,19 @@ fn main() -> ExitCode {
     eprintln!("Spawning the CLI with a query likely to trigger anti-bot...");
     eprintln!();
 
-    let output = Command::new(std::env::var("CARGO_BIN_EXE_duckduckgo-search-cli").unwrap_or_else(|_| "duckduckgo-search-cli".to_string()))
-        .args([
-            "-q",
-            "-f",
-            "json",
-            "--num",
-            "5",
-            "rust async tokio 2026 wreq anti-bot test",
-        ])
-        .output();
+    let output = Command::new(
+        std::env::var("CARGO_BIN_EXE_duckduckgo-search-cli")
+            .unwrap_or_else(|_| "duckduckgo-search-cli".to_string()),
+    )
+    .args([
+        "-q",
+        "-f",
+        "json",
+        "--num",
+        "5",
+        "rust async tokio 2026 wreq anti-bot test",
+    ])
+    .output();
 
     match output {
         Ok(out) => {

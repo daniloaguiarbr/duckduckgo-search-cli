@@ -4,6 +4,39 @@ Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`
 Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
 e instruções de rollback.
 
+## Migração v0.8.5 → v0.8.6
+
+### O que muda
+- **Stack TLS substituida (GAP-WS-066)** — `wreq` (BoringSSL) substituido por `reqwest` + `rustls-tls` (TLS puro Rust). NASM, CMake, Perl e MSVC NAO sao mais necessarios em nenhuma plataforma.
+- `src/wreq_cookie_adapter.rs` renomeado para `src/cookie_adapter.rs` — persistencia de cookies reescrita para `reqwest::cookie::Jar`
+- Descompressao brotli removida — DuckDuckGo nunca serve brotli para endpoints HTML
+- Fallback HTTP perde emulacao de fingerprint TLS do BoringSSL — Chrome headed (primario desde v0.8.0) produz fingerprint real de navegador
+- `build.rs` simplificado: todos os preflights de BoringSSL removidos (deteccao de nasm, cmake, cl, perl)
+- ADR-0001 substituido por ADR-0008
+
+### Migração passo-a-passo
+
+```bash
+# 1. Atualizar
+cargo install duckduckgo-search-cli --version 0.8.6 --force
+
+# 2. Verificar — sem erros de NASM/CMake/Perl no Windows
+duckduckgo-search-cli --probe
+```
+
+### Mudancas que quebram para usuarios da biblioteca
+- `wreq::Client` → `reqwest::Client` em todos os tipos publicos
+- `Arc<dyn wreq::cookie::CookieStore>` → `Arc<reqwest::cookie::Jar>` em `SearchConfig`
+- `wreq_cookie_adapter::PersistentJar` → `cookie_adapter::PersistentJar`
+- `wreq::header::*` → `reqwest::header::*` em todos os imports
+
+### Rollback
+```bash
+cargo install duckduckgo-search-cli --version 0.8.5 --force
+# Nota: v0.8.5 exige NASM+CMake+Perl+MSVC no Windows
+```
+
+
 ## Migração v0.8.4 → v0.8.5
 
 ### O que muda
@@ -813,7 +846,7 @@ duckduckgo-search-cli --probe-deep -q -f json | jaq '.status, .cascata_motivo'
 # Esperado: "captcha", "cloudflare" (ou "ok" com marker)
 
 # Verifique flag global com deep-research
-duckduckgo-search-cli --allow-lite-fallback deep-research "x" -q -f json
+duckduckgo-search-cli -q -f json --allow-lite-fallback deep-research "x"
 # Esperado: sem erro "unexpected argument"
 
 # Verifique pre-flight gate
@@ -877,7 +910,7 @@ duckduckgo-search-cli --probe-deep -q -f json; echo $?
 # Esperado: 3 (captcha) ou 0 (ok)
 
 # Verifique require-results em deep-research
-duckduckgo-search-cli deep-research --require-results "unique_xyz_test" -q -f json 2>&1; echo $?
+duckduckgo-search-cli -q -f json deep-research --require-results "unique_xyz_test" 2>&1; echo $?
 # Esperado: 4 (zero resultados) com stderr "exiting non-zero"
 
 # Verifique bench wiring
